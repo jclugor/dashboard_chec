@@ -1,0 +1,7 @@
+dash==2.18.1
+folium==0.17.0
+gunicorn==22.0.0
+matplotlib==3.9.2
+numpy==1.26.4
+pandas==2.2.3
+seaborn==0.13.2
