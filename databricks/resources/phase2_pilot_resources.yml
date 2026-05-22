@@ -1,0 +1,57 @@
+resources:
+  dashboards:
+    chec_phase2_summary_pilot:
+      display_name: CHEC Summary Pilot
+      warehouse_id: ${var.dashboard_warehouse_id}
+      dataset_catalog: ${var.catalog_name}
+      dataset_schema: gold
+      parent_path: ${var.dashboard_parent_path}
+      file_path: ../dashboards/chec_summary_pilot.lvdash.json
+
+  jobs:
+    chec_phase2_pilot_refresh:
+      name: chec-phase2-pilot-refresh
+      max_concurrent_runs: 1
+      schedule:
+        quartz_cron_expression: ${var.phase2_refresh_quartz_cron}
+        timezone_id: ${var.phase2_refresh_timezone}
+        pause_status: ${var.phase2_refresh_pause_status}
+      tasks:
+        - task_key: stage_bronze_tables
+          notebook_task:
+            notebook_path: ../notebooks/01_stage_bronze_tables.py
+            base_parameters:
+              workspace_root_path: ${workspace.file_path}
+              catalog_name: ${var.catalog_name}
+              source_volume_name: ${var.source_volume_name}
+              artifact_volume_name: ${var.artifact_volume_name}
+        - task_key: validate_ingest
+          depends_on:
+            - task_key: stage_bronze_tables
+          notebook_task:
+            notebook_path: ../notebooks/02_validate_ingest.py
+            base_parameters:
+              workspace_root_path: ${workspace.file_path}
+              catalog_name: ${var.catalog_name}
+              source_volume_name: ${var.source_volume_name}
+              artifact_volume_name: ${var.artifact_volume_name}
+        - task_key: build_silver_gold
+          depends_on:
+            - task_key: validate_ingest
+          notebook_task:
+            notebook_path: ../notebooks/03_build_silver_gold.py
+            base_parameters:
+              workspace_root_path: ${workspace.file_path}
+              catalog_name: ${var.catalog_name}
+              source_volume_name: ${var.source_volume_name}
+              artifact_volume_name: ${var.artifact_volume_name}
+        - task_key: stage_ml_assets
+          depends_on:
+            - task_key: build_silver_gold
+          notebook_task:
+            notebook_path: ../notebooks/05_stage_ml_assets.py
+            base_parameters:
+              workspace_root_path: ${workspace.file_path}
+              catalog_name: ${var.catalog_name}
+              source_volume_name: ${var.source_volume_name}
+              artifact_volume_name: ${var.artifact_volume_name}

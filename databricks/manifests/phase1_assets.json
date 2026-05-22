@@ -1,0 +1,187 @@
+{
+  "bundle_name": "chec_phase1",
+  "catalog_name": "chec_dbx_demo",
+  "workspace_root_path": "/Workspace/Users/${workspace.current_user.userName}/.bundle/chec_phase1/dev/files",
+  "source_root_folder": "data",
+  "reference_notebook_folders": [
+    "references/legacy_notebooks",
+    "references/legacy_preprocessing"
+  ],
+  "sensitive_files": [
+    {
+      "relative_path": "OPENAI_API_Key.txt",
+      "disposition": "exclude_from_sync",
+      "reason": "move_to_secret_scope"
+    }
+  ],
+  "raw_sources": [
+    {
+      "logical_name": "trafos",
+      "relative_path": "TRAFOS.pkl",
+      "bronze_table": "bronze_trafos",
+      "load_mode": "pickle",
+      "required_columns": ["CODE", "FPARENT", "FECHA", "KVA"],
+      "date_columns": ["FECHA"]
+    },
+    {
+      "logical_name": "apoyos",
+      "relative_path": "APOYOS.pkl",
+      "bronze_table": "bronze_apoyos",
+      "load_mode": "pickle",
+      "required_columns": ["CODE", "FECHA", "MUN"],
+      "date_columns": ["FECHA"]
+    },
+    {
+      "logical_name": "switches",
+      "relative_path": "SWITCHES.pkl",
+      "bronze_table": "bronze_switches",
+      "load_mode": "pickle",
+      "required_columns": ["CODE", "FECHA", "MUN"],
+      "date_columns": ["FECHA"]
+    },
+    {
+      "logical_name": "redmt",
+      "relative_path": "REDMT.pkl",
+      "bronze_table": "bronze_redmt",
+      "load_mode": "pickle",
+      "required_columns": ["CODE", "FPARENT", "FECHA"],
+      "date_columns": ["FECHA"]
+    },
+    {
+      "logical_name": "super_eventos",
+      "relative_path": "SuperEventos_Criticidad_AguasAbajo_CODEs.pkl",
+      "bronze_table": "bronze_super_eventos",
+      "load_mode": "pickle",
+      "required_columns": ["evento", "cto_equi_ope", "inicio", "fin", "SAIDI", "SAIFI"],
+      "date_columns": ["inicio", "fin"]
+    },
+    {
+      "logical_name": "eventos_interruptor",
+      "relative_path": "Eventos_interruptor.pkl",
+      "bronze_table": "bronze_eventos_interruptor",
+      "load_mode": "pickle",
+      "required_columns": ["evento", "cto_equi_ope", "inicio", "fin", "SAIDI", "SAIFI"],
+      "date_columns": ["inicio", "fin"]
+    },
+    {
+      "logical_name": "eventos_tramo_linea",
+      "relative_path": "Eventos_tramo_linea.pkl",
+      "bronze_table": "bronze_eventos_tramo_linea",
+      "load_mode": "pickle",
+      "required_columns": ["evento", "cto_equi_ope", "inicio", "fin", "SAIDI", "SAIFI"],
+      "date_columns": ["inicio", "fin"]
+    },
+    {
+      "logical_name": "eventos_transformador",
+      "relative_path": "Eventos_transformador.pkl",
+      "bronze_table": "bronze_eventos_transformador",
+      "load_mode": "pickle",
+      "required_columns": ["evento", "cto_equi_ope", "inicio", "fin", "SAIDI", "SAIFI"],
+      "date_columns": ["inicio", "fin"]
+    },
+    {
+      "logical_name": "vegetacion",
+      "relative_path": "Vegetacion.pkl",
+      "bronze_table": "bronze_vegetacion",
+      "load_mode": "pickle",
+      "required_columns": ["FECHA", "MUN"],
+      "date_columns": ["FECHA"]
+    },
+    {
+      "logical_name": "rayos",
+      "relative_path": "Rayos.pkl",
+      "bronze_table": "bronze_rayos",
+      "load_mode": "pickle",
+      "required_columns": ["FECHA", "MUN"],
+      "date_columns": ["FECHA"]
+    },
+    {
+      "logical_name": "variables_apoyo",
+      "relative_path": "arbol_decision_recomendaciones/variables_apoyo.xlsx",
+      "bronze_table": null,
+      "load_mode": "copy_only",
+      "required_columns": [],
+      "date_columns": []
+    },
+    {
+      "logical_name": "variables_interruptor",
+      "relative_path": "arbol_decision_recomendaciones/variables_interruptor.xlsx",
+      "bronze_table": null,
+      "load_mode": "copy_only",
+      "required_columns": [],
+      "date_columns": []
+    },
+    {
+      "logical_name": "variables_transformador",
+      "relative_path": "arbol_decision_recomendaciones/variables_transformador.xlsx",
+      "bronze_table": null,
+      "load_mode": "copy_only",
+      "required_columns": [],
+      "date_columns": []
+    },
+    {
+      "logical_name": "variables_tramo_linea",
+      "relative_path": "arbol_decision_recomendaciones/variables_tramo de linea.xlsx",
+      "bronze_table": null,
+      "load_mode": "copy_only",
+      "required_columns": [],
+      "date_columns": []
+    },
+    {
+      "logical_name": "variables_apoyos_temporal",
+      "relative_path": "arbol_decision_recomendaciones/Temporal/variables_apoyos.xlsx",
+      "bronze_table": null,
+      "load_mode": "copy_only",
+      "required_columns": [],
+      "date_columns": []
+    },
+    {
+      "logical_name": "variables_interruptores_temporal",
+      "relative_path": "arbol_decision_recomendaciones/Temporal/variables_interruptores.xlsx",
+      "bronze_table": null,
+      "load_mode": "copy_only",
+      "required_columns": [],
+      "date_columns": []
+    },
+    {
+      "logical_name": "variables_transformadores_temporal",
+      "relative_path": "arbol_decision_recomendaciones/Temporal/variables_transformadores.xlsx",
+      "bronze_table": null,
+      "load_mode": "copy_only",
+      "required_columns": [],
+      "date_columns": []
+    }
+  ],
+  "ml_artifacts": [
+    {
+      "logical_name": "model",
+      "relative_path": "model.pth",
+      "target_schema": "ml",
+      "target_volume": "artifacts"
+    },
+    {
+      "logical_name": "mask",
+      "relative_path": "mask.npy",
+      "target_schema": "ml",
+      "target_volume": "artifacts"
+    }
+  ],
+  "gold_tables": [
+    {
+      "table_name": "gold_saidi_saifi_daily",
+      "description": "Daily SAIDI and SAIFI KPI table for dashboarding."
+    },
+    {
+      "table_name": "gold_saidi_saifi_circuit_summary",
+      "description": "Circuit-level summary for the summary page replacement."
+    },
+    {
+      "table_name": "gold_probability_inputs",
+      "description": "Unified event input table for notebook-driven probability exploration."
+    },
+    {
+      "table_name": "gold_map_points",
+      "description": "Lat/lon-ready table for map-oriented notebook analysis."
+    }
+  ]
+}

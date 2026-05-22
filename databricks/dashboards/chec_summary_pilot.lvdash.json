@@ -1,0 +1,646 @@
+{
+  "datasets": [
+    {
+      "name": "summary_daily",
+      "displayName": "summary_daily",
+      "queryLines": [
+        "SELECT CAST(fecha_dia AS DATE) AS fecha_dia, COALESCE(circuito, 'Sin circuito') AS circuito, COALESCE(municipio, 'Sin municipio') AS municipio, COALESCE(event_family, 'Sin criterio') AS event_family, COALESCE(saidi_total, 0.0) AS saidi_total, COALESCE(saifi_total, 0.0) AS saifi_total, COALESCE(event_count, 0) AS event_count, COALESCE(users_affected_total, 0.0) AS users_affected_total FROM chec_dbx_demo.gold.gold_saidi_saifi_daily WHERE fecha_dia IS NOT NULL"
+      ],
+      "catalog": "chec_dbx_demo",
+      "schema": "gold"
+    }
+  ],
+  "pages": [
+    {
+      "name": "summary_page",
+      "displayName": "Summary",
+      "layout": [
+        {
+          "widget": {
+            "name": "title_widget",
+            "multilineTextboxSpec": {
+              "lines": [
+                "# CHEC Summary Pilot\n",
+                "Business-facing pilot dashboard for daily service quality KPIs."
+              ]
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 0,
+            "width": 6,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "date_filter_widget",
+            "queries": [
+              {
+                "name": "date_filter_query",
+                "query": {
+                  "datasetName": "summary_daily",
+                  "fields": [
+                    {
+                      "name": "fecha_dia",
+                      "expression": "`fecha_dia`"
+                    },
+                    {
+                      "name": "fecha_dia_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-date-range-picker",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "fecha_dia",
+                    "displayName": "Date Range",
+                    "queryName": "date_filter_query"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Date Range"
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 2,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "circuit_filter_widget",
+            "queries": [
+              {
+                "name": "circuit_filter_query",
+                "query": {
+                  "datasetName": "summary_daily",
+                  "fields": [
+                    {
+                      "name": "circuito",
+                      "expression": "`circuito`"
+                    },
+                    {
+                      "name": "circuito_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "circuito",
+                    "displayName": "Circuito",
+                    "queryName": "circuit_filter_query"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Circuito"
+              }
+            }
+          },
+          "position": {
+            "x": 2,
+            "y": 2,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "municipio_filter_widget",
+            "queries": [
+              {
+                "name": "municipio_filter_query",
+                "query": {
+                  "datasetName": "summary_daily",
+                  "fields": [
+                    {
+                      "name": "municipio",
+                      "expression": "`municipio`"
+                    },
+                    {
+                      "name": "municipio_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "municipio",
+                    "displayName": "Municipio",
+                    "queryName": "municipio_filter_query"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Municipio"
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 2,
+            "width": 1,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "event_family_filter_widget",
+            "queries": [
+              {
+                "name": "event_family_filter_query",
+                "query": {
+                  "datasetName": "summary_daily",
+                  "fields": [
+                    {
+                      "name": "event_family",
+                      "expression": "`event_family`"
+                    },
+                    {
+                      "name": "event_family_associativity",
+                      "expression": "COUNT_IF(`associative_filter_predicate_group`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "widgetType": "filter-multi-select",
+              "encodings": {
+                "fields": [
+                  {
+                    "fieldName": "event_family",
+                    "displayName": "Event Family",
+                    "queryName": "event_family_filter_query"
+                  }
+                ]
+              },
+              "frame": {
+                "showTitle": true,
+                "title": "Event Family"
+              }
+            }
+          },
+          "position": {
+            "x": 4,
+            "y": 2,
+            "width": 2,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "saidi_counter_widget",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "summary_daily",
+                  "fields": [
+                    {
+                      "name": "sum(saidi_total)",
+                      "expression": "SUM(`saidi_total`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Total SAIDI"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(saidi_total)"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 4,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "saifi_counter_widget",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "summary_daily",
+                  "fields": [
+                    {
+                      "name": "sum(saifi_total)",
+                      "expression": "SUM(`saifi_total`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Total SAIFI"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(saifi_total)"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 4,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "event_counter_widget",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "summary_daily",
+                  "fields": [
+                    {
+                      "name": "sum(event_count)",
+                      "expression": "SUM(`event_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Total Events"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(event_count)"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 6,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "users_counter_widget",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "summary_daily",
+                  "fields": [
+                    {
+                      "name": "sum(users_affected_total)",
+                      "expression": "SUM(`users_affected_total`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 2,
+              "frame": {
+                "showTitle": true,
+                "title": "Affected Users"
+              },
+              "widgetType": "counter",
+              "encodings": {
+                "value": {
+                  "fieldName": "sum(users_affected_total)"
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 6,
+            "width": 3,
+            "height": 2
+          }
+        },
+        {
+          "widget": {
+            "name": "daily_events_widget",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "summary_daily",
+                  "fields": [
+                    {
+                      "name": "monthly(fecha_dia)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `fecha_dia`)"
+                    },
+                    {
+                      "name": "sum(event_count)",
+                      "expression": "SUM(`event_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Daily Event Trend"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "monthly(fecha_dia)",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(event_count)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 8,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "daily_saidi_widget",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "summary_daily",
+                  "fields": [
+                    {
+                      "name": "monthly(fecha_dia)",
+                      "expression": "DATE_TRUNC(\"MONTH\", `fecha_dia`)"
+                    },
+                    {
+                      "name": "sum(saidi_total)",
+                      "expression": "SUM(`saidi_total`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Daily SAIDI Trend"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "monthly(fecha_dia)",
+                  "scale": {
+                    "type": "temporal"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(saidi_total)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 8,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "event_family_breakdown_widget",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "summary_daily",
+                  "fields": [
+                    {
+                      "name": "event_family",
+                      "expression": "`event_family`"
+                    },
+                    {
+                      "name": "sum(event_count)",
+                      "expression": "SUM(`event_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Event Family Breakdown"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "event_family",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                },
+                "y": {
+                  "fieldName": "sum(event_count)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "label": {
+                  "show": true
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 14,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "circuit_ranking_widget",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "summary_daily",
+                  "fields": [
+                    {
+                      "name": "circuito",
+                      "expression": "`circuito`"
+                    },
+                    {
+                      "name": "sum(saidi_total)",
+                      "expression": "SUM(`saidi_total`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Circuit Ranking by SAIDI"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(saidi_total)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "circuito",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 3,
+            "y": 14,
+            "width": 3,
+            "height": 6
+          }
+        },
+        {
+          "widget": {
+            "name": "municipio_ranking_widget",
+            "queries": [
+              {
+                "name": "main_query",
+                "query": {
+                  "datasetName": "summary_daily",
+                  "fields": [
+                    {
+                      "name": "municipio",
+                      "expression": "`municipio`"
+                    },
+                    {
+                      "name": "sum(event_count)",
+                      "expression": "SUM(`event_count`)"
+                    }
+                  ],
+                  "disaggregated": false
+                }
+              }
+            ],
+            "spec": {
+              "version": 3,
+              "frame": {
+                "showTitle": true,
+                "title": "Municipality Ranking by Events"
+              },
+              "widgetType": "bar",
+              "encodings": {
+                "x": {
+                  "fieldName": "sum(event_count)",
+                  "scale": {
+                    "type": "quantitative"
+                  }
+                },
+                "y": {
+                  "fieldName": "municipio",
+                  "scale": {
+                    "type": "categorical"
+                  }
+                }
+              }
+            }
+          },
+          "position": {
+            "x": 0,
+            "y": 20,
+            "width": 6,
+            "height": 6
+          }
+        }
+      ],
+      "pageType": "PAGE_TYPE_CANVAS"
+    }
+  ]
+}

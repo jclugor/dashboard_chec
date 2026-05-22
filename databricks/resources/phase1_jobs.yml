@@ -1,0 +1,157 @@
+resources:
+  jobs:
+    chec_phase1_bootstrap:
+      name: chec-phase1-bootstrap
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: bootstrap_uc
+          notebook_task:
+            notebook_path: ../notebooks/00_bootstrap_uc.py
+            base_parameters:
+              workspace_root_path: ${workspace.file_path}
+              catalog_name: ${var.catalog_name}
+              source_volume_name: ${var.source_volume_name}
+              artifact_volume_name: ${var.artifact_volume_name}
+
+    chec_phase1_ingest_validation:
+      name: chec-phase1-ingest-validation
+      max_concurrent_runs: 1
+      tasks:
+        - task_key: stage_bronze_tables
+          notebook_task:
+            notebook_path: ../notebooks/01_stage_bronze_tables.py
+            base_parameters:
+              workspace_root_path: ${workspace.file_path}
+              catalog_name: ${var.catalog_name}
+              source_volume_name: ${var.source_volume_name}
+              artifact_volume_name: ${var.artifact_volume_name}
+        - task_key: validate_ingest
+          depends_on:
+            - task_key: stage_bronze_tables
+          notebook_task:
+            notebook_path: ../notebooks/02_validate_ingest.py
+            base_parameters:
+              workspace_root_path: ${workspace.file_path}
+              catalog_name: ${var.catalog_name}
+              source_volume_name: ${var.source_volume_name}
+              artifact_volume_name: ${var.artifact_volume_name}
+        - task_key: build_silver_gold
+          depends_on:
+            - task_key: validate_ingest
+          notebook_task:
+            notebook_path: ../notebooks/03_build_silver_gold.py
+            base_parameters:
+              workspace_root_path: ${workspace.file_path}
+              catalog_name: ${var.catalog_name}
+              source_volume_name: ${var.source_volume_name}
+              artifact_volume_name: ${var.artifact_volume_name}
+        - task_key: stage_ml_assets
+          depends_on:
+            - task_key: build_silver_gold
+          notebook_task:
+            notebook_path: ../notebooks/05_stage_ml_assets.py
+            base_parameters:
+              workspace_root_path: ${workspace.file_path}
+              catalog_name: ${var.catalog_name}
+              source_volume_name: ${var.source_volume_name}
+              artifact_volume_name: ${var.artifact_volume_name}
+
+    chec_phase1_bootstrap_classic:
+      name: chec-phase1-bootstrap-classic
+      max_concurrent_runs: 1
+      job_clusters:
+        - job_cluster_key: bootstrap_job_cluster
+          new_cluster:
+            spark_version: ${var.spark_version}
+            node_type_id: ${var.bootstrap_classic_node_type_id}
+            num_workers: 0
+            data_security_mode: SINGLE_USER
+            spark_conf:
+              spark.databricks.cluster.profile: singleNode
+              spark.master: local[*]
+            custom_tags:
+              ResourceClass: SingleNode
+      tasks:
+        - task_key: bootstrap_uc
+          job_cluster_key: bootstrap_job_cluster
+          max_retries: 2
+          min_retry_interval_millis: 600000
+          retry_on_timeout: true
+          notebook_task:
+            notebook_path: ../notebooks/00_bootstrap_uc.py
+            base_parameters:
+              workspace_root_path: ${workspace.file_path}
+              catalog_name: ${var.catalog_name}
+              source_volume_name: ${var.source_volume_name}
+              artifact_volume_name: ${var.artifact_volume_name}
+
+    chec_phase1_ingest_validation_classic:
+      name: chec-phase1-ingest-validation-classic
+      max_concurrent_runs: 1
+      job_clusters:
+        - job_cluster_key: ingest_job_cluster
+          new_cluster:
+            spark_version: ${var.spark_version}
+            node_type_id: ${var.ingest_classic_node_type_id}
+            num_workers: 0
+            data_security_mode: SINGLE_USER
+            spark_conf:
+              spark.databricks.cluster.profile: singleNode
+              spark.master: local[*]
+            custom_tags:
+              ResourceClass: SingleNode
+      tasks:
+        - task_key: stage_bronze_tables
+          job_cluster_key: ingest_job_cluster
+          max_retries: 2
+          min_retry_interval_millis: 600000
+          retry_on_timeout: true
+          notebook_task:
+            notebook_path: ../notebooks/01_stage_bronze_tables.py
+            base_parameters:
+              workspace_root_path: ${workspace.file_path}
+              catalog_name: ${var.catalog_name}
+              source_volume_name: ${var.source_volume_name}
+              artifact_volume_name: ${var.artifact_volume_name}
+        - task_key: validate_ingest
+          depends_on:
+            - task_key: stage_bronze_tables
+          job_cluster_key: ingest_job_cluster
+          max_retries: 2
+          min_retry_interval_millis: 600000
+          retry_on_timeout: true
+          notebook_task:
+            notebook_path: ../notebooks/02_validate_ingest.py
+            base_parameters:
+              workspace_root_path: ${workspace.file_path}
+              catalog_name: ${var.catalog_name}
+              source_volume_name: ${var.source_volume_name}
+              artifact_volume_name: ${var.artifact_volume_name}
+        - task_key: build_silver_gold
+          depends_on:
+            - task_key: validate_ingest
+          job_cluster_key: ingest_job_cluster
+          max_retries: 2
+          min_retry_interval_millis: 600000
+          retry_on_timeout: true
+          notebook_task:
+            notebook_path: ../notebooks/03_build_silver_gold.py
+            base_parameters:
+              workspace_root_path: ${workspace.file_path}
+              catalog_name: ${var.catalog_name}
+              source_volume_name: ${var.source_volume_name}
+              artifact_volume_name: ${var.artifact_volume_name}
+        - task_key: stage_ml_assets
+          depends_on:
+            - task_key: build_silver_gold
+          job_cluster_key: ingest_job_cluster
+          max_retries: 2
+          min_retry_interval_millis: 600000
+          retry_on_timeout: true
+          notebook_task:
+            notebook_path: ../notebooks/05_stage_ml_assets.py
+            base_parameters:
+              workspace_root_path: ${workspace.file_path}
+              catalog_name: ${var.catalog_name}
+              source_volume_name: ${var.source_volume_name}
+              artifact_volume_name: ${var.artifact_volume_name}

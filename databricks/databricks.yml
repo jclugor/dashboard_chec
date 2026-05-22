@@ -1,0 +1,54 @@
+bundle:
+  name: chec_phase1
+
+include:
+  - resources/*.yml
+
+sync:
+  include:
+    - README.md
+    - manifests/**
+    - notebooks/**
+    - references/**
+  exclude:
+    - dashboards/*.lvdash.json
+
+variables:
+  catalog_name:
+    description: Unity Catalog name for the CHEC phase 1 foundation. Override after pre-creating a separate managed catalog.
+    default: chec_dbx_demo
+  source_volume_name:
+    description: Managed volume name for staged raw files.
+    default: source_files
+  artifact_volume_name:
+    description: Managed volume name for model and support artifacts.
+    default: artifacts
+  spark_version:
+    description: Runtime used by the job cluster.
+    default: 13.3.x-scala2.12
+  bootstrap_classic_node_type_id:
+    description: Approved classic fallback SKU for Unity Catalog bootstrap.
+    default: Standard_DC4as_v5
+  ingest_classic_node_type_id:
+    description: Approved classic fallback SKU for ingest and validation.
+    default: Standard_L4aos_v4
+  dashboard_warehouse_id:
+    description: SQL warehouse used by the Phase 2 AI/BI dashboard pilot.
+    default: 4437a6195e05c59c
+  dashboard_parent_path:
+    description: Workspace folder that will contain the Phase 2 dashboard draft.
+    default: /Shared/CHEC Phase2 Pilot
+  phase2_refresh_quartz_cron:
+    description: Quartz cron schedule for the paused Phase 2 pilot refresh job.
+    default: 0 0 6 * * ?
+  phase2_refresh_timezone:
+    description: Timezone for the Phase 2 pilot refresh schedule.
+    default: America/Bogota
+  phase2_refresh_pause_status:
+    description: Default pause status for the scheduled Phase 2 pilot refresh job.
+    default: PAUSED
+
+targets:
+  dev:
+    default: true
+    mode: development
