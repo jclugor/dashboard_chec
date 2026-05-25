@@ -13,15 +13,15 @@
   "pages": [
     {
       "name": "summary_page",
-      "displayName": "Summary",
+      "displayName": "Resumen",
       "layout": [
         {
           "widget": {
             "name": "title_widget",
             "multilineTextboxSpec": {
               "lines": [
-                "# CHEC Summary Pilot\n",
-                "Business-facing pilot dashboard for daily service quality KPIs."
+                "# Piloto de resumen CHEC\n",
+                "Tablero piloto para indicadores diarios de calidad del servicio."
               ]
             }
           },
@@ -61,14 +61,14 @@
                 "fields": [
                   {
                     "fieldName": "fecha_dia",
-                    "displayName": "Date Range",
+                    "displayName": "Rango de fechas",
                     "queryName": "date_filter_query"
                   }
                 ]
               },
               "frame": {
                 "showTitle": true,
-                "title": "Date Range"
+                "title": "Rango de fechas"
               }
             }
           },
@@ -202,14 +202,14 @@
                 "fields": [
                   {
                     "fieldName": "event_family",
-                    "displayName": "Event Family",
+                    "displayName": "Familia de eventos",
                     "queryName": "event_family_filter_query"
                   }
                 ]
               },
               "frame": {
                 "showTitle": true,
-                "title": "Event Family"
+                "title": "Familia de eventos"
               }
             }
           },
@@ -242,7 +242,7 @@
               "version": 2,
               "frame": {
                 "showTitle": true,
-                "title": "Total SAIDI"
+                "title": "SAIDI total"
               },
               "widgetType": "counter",
               "encodings": {
@@ -281,7 +281,7 @@
               "version": 2,
               "frame": {
                 "showTitle": true,
-                "title": "Total SAIFI"
+                "title": "SAIFI total"
               },
               "widgetType": "counter",
               "encodings": {
@@ -320,7 +320,7 @@
               "version": 2,
               "frame": {
                 "showTitle": true,
-                "title": "Total Events"
+                "title": "Eventos totales"
               },
               "widgetType": "counter",
               "encodings": {
@@ -359,7 +359,7 @@
               "version": 2,
               "frame": {
                 "showTitle": true,
-                "title": "Affected Users"
+                "title": "Usuarios afectados"
               },
               "widgetType": "counter",
               "encodings": {
@@ -402,7 +402,7 @@
               "version": 3,
               "frame": {
                 "showTitle": true,
-                "title": "Daily Event Trend"
+                "title": "Tendencia mensual de eventos"
               },
               "widgetType": "bar",
               "encodings": {
@@ -454,7 +454,7 @@
               "version": 3,
               "frame": {
                 "showTitle": true,
-                "title": "Daily SAIDI Trend"
+                "title": "Tendencia mensual de SAIDI"
               },
               "widgetType": "bar",
               "encodings": {
@@ -506,7 +506,7 @@
               "version": 3,
               "frame": {
                 "showTitle": true,
-                "title": "Event Family Breakdown"
+                "title": "Distribución por familia de eventos"
               },
               "widgetType": "bar",
               "encodings": {
@@ -561,7 +561,7 @@
               "version": 3,
               "frame": {
                 "showTitle": true,
-                "title": "Circuit Ranking by SAIDI"
+                "title": "Ranking de circuitos por SAIDI"
               },
               "widgetType": "bar",
               "encodings": {
@@ -613,7 +613,7 @@
               "version": 3,
               "frame": {
                 "showTitle": true,
-                "title": "Municipality Ranking by Events"
+                "title": "Ranking de municipios por eventos"
               },
               "widgetType": "bar",
               "encodings": {

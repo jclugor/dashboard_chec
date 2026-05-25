@@ -1,22 +1,22 @@
+from __future__ import annotations
+
 from datetime import date
 
-from dash import Dash, Input, Output, dcc, html
+from dash import Dash, Input, Output, ctx, dcc, html, no_update
+from dash.exceptions import PreventUpdate
+import pandas as pd
 import plotly.graph_objects as go
 
 from chec_dashboard.config import Settings
-from chec_dashboard.services.summary_service import (
-    aggregate_daily,
-    coerce_window,
-    compute_kpis,
-    filter_summary_data,
-    get_circuit_options,
-    get_default_window,
-    load_summary_dataset,
-)
+from chec_dashboard.dash_app.api_client import fetch_summary_data, fetch_summary_options
 
 
 CHEC_GREEN = "#00782b"
 CHEC_BUTTON_GREEN = "#11BB52CF"
+SUMMARY_INITIAL_INTERVAL_MS = 250
+SUMMARY_PLACEHOLDER_TEXT = "Cargando resumen del circuito..."
+_OVERLAY_HIDDEN_STYLE = {"display": "none"}
+_OVERLAY_VISIBLE_STYLE = {"display": "flex"}
 
 
 def _empty_figure(message: str) -> go.Figure:
@@ -39,12 +39,19 @@ def _empty_figure(message: str) -> go.Figure:
     return fig
 
 
+def _build_chart_title(metric_mode: str, circuito: str, start_date: date, end_date: date) -> str:
+    metric_label = {
+        "BOTH": "SAIDI/SAIFI",
+    }.get(metric_mode, metric_mode)
+    return (
+        f"Tendencia diaria de {metric_label} para {circuito} "
+        f"({start_date.isoformat()} a {end_date.isoformat()})"
+    )
+
+
 def _build_line_figure(
-    daily_data,
+    daily_data: pd.DataFrame,
     metric_mode: str,
-    circuito: str,
-    start_date: date,
-    end_date: date,
 ) -> go.Figure:
     fig = go.Figure()
     if metric_mode in ("SAIDI", "BOTH"):
@@ -70,11 +77,7 @@ def _build_line_figure(
 
     fig.update_layout(
         template="plotly_white",
-        title=(
-            f"Tendencia diaria de {metric_mode} para {circuito} "
-            f"({start_date.isoformat()} a {end_date.isoformat()})"
-        ),
-        margin={"l": 40, "r": 20, "t": 52, "b": 40},
+        margin={"l": 40, "r": 20, "t": 14, "b": 40},
         legend={"orientation": "h", "yanchor": "bottom", "y": 1.02, "x": 0},
         hovermode="x unified",
     )
@@ -85,9 +88,8 @@ def _build_line_figure(
 
 def _kpi_card(card_id: str, title: str, initial_value: str = "--") -> html.Div:
     return html.Div(
+        className="summary-kpi-card",
         style={
-            "width": "32%",
-            "height": "100%",
             "backgroundColor": "white",
             "borderRadius": "10px",
             "display": "flex",
@@ -98,9 +100,9 @@ def _kpi_card(card_id: str, title: str, initial_value: str = "--") -> html.Div:
         children=[
             html.Div(
                 title,
+                className="summary-kpi-title",
                 style={
                     "fontFamily": "'DM Sans', sans-serif",
-                    "fontSize": "16px",
                     "fontWeight": "700",
                     "color": CHEC_GREEN,
                     "marginBottom": "4px",
@@ -108,9 +110,9 @@ def _kpi_card(card_id: str, title: str, initial_value: str = "--") -> html.Div:
             ),
             html.Div(
                 id=card_id,
+                className="summary-kpi-value",
                 style={
-                    "fontFamily": "'Poppins', sans-serif",
-                    "fontSize": "28px",
+                    "fontFamily": "'DM Sans', sans-serif",
                     "fontWeight": "700",
                     "color": "#014719",
                 },
@@ -120,123 +122,120 @@ def _kpi_card(card_id: str, title: str, initial_value: str = "--") -> html.Div:
     )
 
 
+def _to_date(value: str | None) -> date | None:
+    if not value:
+        return None
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.isna(parsed):
+        return None
+    return parsed.date()
+
+
+def _normalize_daily_data(payload: dict[str, object]) -> pd.DataFrame:
+    daily_data = pd.DataFrame(payload.get("daily_data", []))
+    if daily_data.empty:
+        return pd.DataFrame(columns=["fecha_dia", "SAIDI", "SAIFI"])
+
+    daily_data["fecha_dia"] = pd.to_datetime(daily_data["fecha_dia"], errors="coerce")
+    daily_data["SAIDI"] = pd.to_numeric(daily_data["SAIDI"], errors="coerce").fillna(0.0)
+    daily_data["SAIFI"] = pd.to_numeric(daily_data["SAIFI"], errors="coerce").fillna(0.0)
+    return daily_data
+
+
+def _summary_visuals_from_payload(
+    payload: dict[str, object],
+    *,
+    fallback_metric_mode: str,
+    fallback_circuit: str,
+) -> tuple[str, str, str, go.Figure, str, str]:
+    daily_data = _normalize_daily_data(payload)
+    metric_mode = str(payload.get("metric_mode", fallback_metric_mode or "BOTH"))
+    circuit_label = str(payload.get("circuit_label", fallback_circuit or "TODOS"))
+    start_date = _to_date(payload.get("start_date")) or date.today()
+    end_date = _to_date(payload.get("end_date")) or start_date
+    figure = _build_line_figure(daily_data=daily_data, metric_mode=metric_mode)
+    title = _build_chart_title(metric_mode, circuit_label, start_date, end_date)
+    status_text = str(payload.get("status_text", "Sin información disponible."))
+    event_count = int(payload.get("event_count", 0))
+    saidi_total = float(payload.get("saidi_total", 0.0))
+    saifi_total = float(payload.get("saifi_total", 0.0))
+    return (
+        f"{saidi_total:.4f}",
+        f"{saifi_total:.4f}",
+        f"{event_count}",
+        figure,
+        title,
+        status_text,
+    )
+
+
 def get_layout(settings: Settings) -> html.Div:
-    circuits: list[str] = []
-    min_date = None
-    max_date = None
-    default_start = None
-    default_end = None
-    initial_saidi = "--"
-    initial_saifi = "--"
-    initial_events = "--"
-    initial_status = "Selecciona filtros para visualizar la tendencia."
-    initial_figure = _empty_figure("Selecciona filtros para visualizar la tendencia.")
-
-    try:
-        dataset = load_summary_dataset(str(settings.data_dir))
-        circuits = get_circuit_options(dataset)
-        min_date = dataset.min_date
-        max_date = dataset.max_date
-        default_start, default_end = get_default_window(dataset, days=180)
-
-        default_circuit = circuits[0] if circuits else None
-        filtered = filter_summary_data(dataset, default_circuit, default_start, default_end)
-        daily_data = aggregate_daily(filtered, default_start, default_end)
-        kpis = compute_kpis(filtered)
-        circuit_label = default_circuit or "TODOS"
-        initial_figure = _build_line_figure(
-            daily_data=daily_data,
-            metric_mode="BOTH",
-            circuito=circuit_label,
-            start_date=default_start,
-            end_date=default_end,
-        )
-        initial_saidi = f"{kpis['saidi_total']:.4f}"
-        initial_saifi = f"{kpis['saifi_total']:.4f}"
-        initial_events = f"{kpis['event_count']}"
-        if filtered.empty:
-            initial_status = (
-                f"No se encontraron eventos para el circuito {circuit_label} "
-                f"entre {default_start.isoformat()} y {default_end.isoformat()}. "
-                "Se muestran series en cero."
-            )
-        else:
-            initial_status = (
-                f"Circuito: {circuit_label}. "
-                f"Ventana: {default_start.isoformat()} a {default_end.isoformat()}. "
-                f"Eventos: {kpis['event_count']}."
-            )
-    except Exception as exc:
-        load_error = str(exc)
-        initial_status = load_error
-        initial_figure = _empty_figure(load_error)
-
-    default_circuit = circuits[0] if circuits else None
+    _ = settings
+    initial_figure = _empty_figure(SUMMARY_PLACEHOLDER_TEXT)
 
     return html.Div(
         [
+            dcc.Interval(
+                id="summary-initial-load-interval",
+                interval=SUMMARY_INITIAL_INTERVAL_MS,
+                n_intervals=0,
+                max_intervals=1,
+                disabled=False,
+            ),
             html.Div(
+                className="summary-filter-panel",
                 style={
-                    "width": "98%",
-                    "height": "11vh",
-                    "margin": "18px 0 0 0",
                     "background": "rgba(0, 120, 43, 0.76)",
-                    "borderRadius": "9px",
-                    "display": "flex",
-                    "flexDirection": "row",
-                    "alignItems": "center",
-                    "padding": "0 1.2%",
-                    "gap": "1.2%",
                 },
                 children=[
                     html.Div(
                         "VENTANA DE TIEMPO",
+                        className="summary-filter-label",
                         style={
                             "fontFamily": "'DM Sans', sans-serif",
-                            "fontSize": "16px",
                             "fontWeight": "700",
                             "color": "white",
-                            "width": "14%",
                         },
                     ),
                     html.Div(
+                        className="summary-filter-input summary-filter-date",
                         style={
-                            "width": "28%",
                             "backgroundColor": "white",
-                            "borderRadius": "8px",
                             "padding": "4px 8px",
                         },
                         children=[
                             dcc.DatePickerRange(
                                 id="summary-date-window",
-                                min_date_allowed=min_date,
-                                max_date_allowed=max_date,
-                                start_date=default_start,
-                                end_date=default_end,
+                                min_date_allowed=None,
+                                max_date_allowed=None,
+                                start_date=None,
+                                end_date=None,
                                 display_format="YYYY-MM-DD",
+                                disabled=True,
                             )
                         ],
                     ),
                     html.Div(
                         "CIRCUITO",
+                        className="summary-filter-label",
                         style={
                             "fontFamily": "'DM Sans', sans-serif",
-                            "fontSize": "16px",
                             "fontWeight": "700",
                             "color": "white",
-                            "width": "8%",
-                            "textAlign": "center",
                         },
                     ),
                     html.Div(
-                        style={"width": "26%", "backgroundColor": "white", "borderRadius": "8px"},
+                        className="summary-filter-input summary-filter-circuit",
+                        style={"backgroundColor": "white"},
                         children=[
                             dcc.Dropdown(
                                 id="summary-circuit",
-                                options=circuits,
-                                value=default_circuit,
+                                className="summary-select-dropdown",
+                                options=[],
+                                value=None,
                                 placeholder="Selecciona circuito",
                                 searchable=True,
+                                disabled=True,
                                 maxHeight=180,
                                 style={
                                     "border": "none",
@@ -248,25 +247,25 @@ def get_layout(settings: Settings) -> html.Div:
                         ],
                     ),
                     html.Div(
-                        "METRICA",
+                        "MÉTRICA",
+                        className="summary-filter-label",
                         style={
                             "fontFamily": "'DM Sans', sans-serif",
-                            "fontSize": "16px",
                             "fontWeight": "700",
                             "color": "white",
-                            "width": "7%",
-                            "textAlign": "center",
                         },
                     ),
                     html.Div(
-                        style={"width": "13%", "backgroundColor": "white", "borderRadius": "8px"},
+                        className="summary-filter-input summary-filter-metric",
+                        style={"backgroundColor": "white"},
                         children=[
                             dcc.Dropdown(
                                 id="summary-metric-mode",
+                                className="summary-select-dropdown",
                                 options=[
                                     {"label": "SAIDI", "value": "SAIDI"},
                                     {"label": "SAIFI", "value": "SAIFI"},
-                                    {"label": "BOTH", "value": "BOTH"},
+                                    {"label": "Ambos", "value": "BOTH"},
                                 ],
                                 value="BOTH",
                                 clearable=False,
@@ -282,53 +281,54 @@ def get_layout(settings: Settings) -> html.Div:
                 ],
             ),
             html.Div(
+                className="summary-main-card",
                 style={
-                    "width": "98%",
-                    "height": "69vh",
-                    "margin": "16px 0 0 0",
                     "background": "rgba(45, 154, 35, 0.8)",
-                    "borderRadius": "9px",
-                    "display": "flex",
-                    "flexDirection": "column",
-                    "alignItems": "center",
+                    "position": "relative",
                 },
                 children=[
                     html.Div(
-                        "Resumen rapido SAIDI/SAIFI por circuito",
+                        id="summary-panel-overlay",
+                        className="panel-loading-overlay",
+                        style=_OVERLAY_HIDDEN_STYLE,
+                        children=[
+                            html.Div(
+                                "Actualizando resumen...",
+                                className="panel-loading-overlay-text",
+                            )
+                        ],
+                    ),
+                    html.Div(
+                        "Resumen rápido SAIDI/SAIFI por circuito",
+                        className="summary-main-title",
                         style={
-                            "width": "100%",
-                            "height": "8%",
-                            "display": "flex",
-                            "alignItems": "center",
-                            "justifyContent": "center",
                             "fontFamily": "'DM Sans', sans-serif",
-                            "fontSize": "26px",
                             "fontWeight": "700",
                             "color": "white",
                         },
                     ),
                     html.Div(
-                        style={
-                            "width": "97%",
-                            "height": "16%",
-                            "display": "flex",
-                            "flexDirection": "row",
-                            "justifyContent": "space-between",
-                            "alignItems": "center",
-                        },
+                        className="summary-kpi-row",
                         children=[
-                            _kpi_card("summary-kpi-saidi", "Total SAIDI", initial_saidi),
-                            _kpi_card("summary-kpi-saifi", "Total SAIFI", initial_saifi),
-                            _kpi_card("summary-kpi-events", "Eventos", initial_events),
+                            _kpi_card("summary-kpi-saidi", "Total SAIDI"),
+                            _kpi_card("summary-kpi-saifi", "Total SAIFI"),
+                            _kpi_card("summary-kpi-events", "Eventos"),
                         ],
                     ),
                     html.Div(
+                        id="summary-chart-title",
+                        className="summary-chart-title",
+                        children="Tendencia diaria del indicador seleccionado.",
                         style={
-                            "width": "97%",
-                            "height": "71%",
+                            "fontFamily": "'DM Sans', sans-serif",
+                            "fontWeight": "700",
+                            "color": "white",
+                        },
+                    ),
+                    html.Div(
+                        className="summary-chart-container",
+                        style={
                             "backgroundColor": "white",
-                            "borderRadius": "10px",
-                            "marginTop": "8px",
                             "padding": "8px",
                         },
                         children=[
@@ -344,10 +344,9 @@ def get_layout(settings: Settings) -> html.Div:
             ),
             html.Div(
                 id="summary-status-text",
-                children=initial_status,
+                className="summary-status-text",
+                children="Preparando filtros y resumen...",
                 style={
-                    "width": "98%",
-                    "marginTop": "6px",
                     "color": "#014719",
                     "fontFamily": "'DM Sans', sans-serif",
                     "fontWeight": "700",
@@ -355,66 +354,168 @@ def get_layout(settings: Settings) -> html.Div:
                 },
             ),
         ],
-        style={"width": "100%", "height": "100%", "display": "flex", "flexDirection": "column", "alignItems": "center"},
+        className="summary-page",
+        style={"width": "100%", "display": "flex", "flexDirection": "column", "alignItems": "center"},
     )
 
 
 def register_callbacks(app: Dash, settings: Settings) -> None:
+    _ = settings
+
     @app.callback(
+        Output("summary-date-window", "min_date_allowed"),
+        Output("summary-date-window", "max_date_allowed"),
+        Output("summary-date-window", "start_date"),
+        Output("summary-date-window", "end_date"),
+        Output("summary-date-window", "disabled"),
+        Output("summary-circuit", "options"),
+        Output("summary-circuit", "value"),
+        Output("summary-circuit", "disabled"),
         Output("summary-kpi-saidi", "children"),
         Output("summary-kpi-saifi", "children"),
         Output("summary-kpi-events", "children"),
         Output("summary-line-chart", "figure"),
+        Output("summary-chart-title", "children"),
         Output("summary-status-text", "children"),
+        Output("summary-initial-load-interval", "disabled"),
+        Input("summary-initial-load-interval", "n_intervals"),
         Input("summary-date-window", "start_date"),
         Input("summary-date-window", "end_date"),
         Input("summary-circuit", "value"),
         Input("summary-metric-mode", "value"),
         prevent_initial_call=True,
+        running=[
+            (Output("summary-panel-overlay", "style"), _OVERLAY_VISIBLE_STYLE, _OVERLAY_HIDDEN_STYLE),
+        ],
     )
     def update_summary(
+        n_intervals: int | None,
         start_date_raw: str | None,
         end_date_raw: str | None,
         circuito: str | None,
         metric_mode: str | None,
     ):
-        try:
-            dataset = load_summary_dataset(str(settings.data_dir))
-        except Exception as exc:
-            return "--", "--", "--", _empty_figure(str(exc)), str(exc)
-
+        triggered_id = ctx.triggered_id
         metric_mode = metric_mode or "BOTH"
-        start_date, end_date = coerce_window(dataset, start_date_raw, end_date_raw)
-        filtered = filter_summary_data(dataset, circuito, start_date, end_date)
-        daily_data = aggregate_daily(filtered, start_date, end_date)
-        kpis = compute_kpis(filtered)
 
-        circuit_label = circuito or "TODOS"
-        figure = _build_line_figure(
-            daily_data=daily_data,
-            metric_mode=metric_mode,
-            circuito=circuit_label,
-            start_date=start_date,
-            end_date=end_date,
-        )
+        if triggered_id == "summary-initial-load-interval":
+            if n_intervals is None:
+                raise PreventUpdate
+            try:
+                options_payload = fetch_summary_options()
+                circuits = options_payload.get("circuits", [])
+                default_circuit = options_payload.get("default_circuit") or (circuits[0] if circuits else None)
+                min_date = options_payload.get("min_date")
+                max_date = options_payload.get("max_date")
+                default_start = options_payload.get("default_start")
+                default_end = options_payload.get("default_end")
+                summary_payload = fetch_summary_data(
+                    start_date_raw=default_start,
+                    end_date_raw=default_end,
+                    circuito=default_circuit,
+                    metric_mode=metric_mode,
+                )
+                saidi, saifi, events, figure, title, status = _summary_visuals_from_payload(
+                    summary_payload,
+                    fallback_metric_mode=metric_mode,
+                    fallback_circuit=default_circuit or "TODOS",
+                )
+                return (
+                    min_date,
+                    max_date,
+                    default_start,
+                    default_end,
+                    False,
+                    circuits,
+                    default_circuit,
+                    False,
+                    saidi,
+                    saifi,
+                    events,
+                    figure,
+                    title,
+                    status,
+                    True,
+                )
+            except Exception as exc:
+                message = str(exc)
+                return (
+                    None,
+                    None,
+                    None,
+                    None,
+                    True,
+                    [],
+                    None,
+                    True,
+                    "--",
+                    "--",
+                    "--",
+                    _empty_figure(message),
+                    "Tendencia diaria del indicador seleccionado.",
+                    message,
+                    True,
+                )
 
-        if filtered.empty:
-            status_text = (
-                f"No se encontraron eventos para el circuito {circuit_label} "
-                f"entre {start_date.isoformat()} y {end_date.isoformat()}. "
-                "Se muestran series en cero."
+        if not start_date_raw or not end_date_raw:
+            return (
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                "--",
+                "--",
+                "--",
+                _empty_figure("Selecciona una ventana de tiempo válida."),
+                "Tendencia diaria del indicador seleccionado.",
+                "Selecciona una ventana de tiempo válida.",
+                no_update,
             )
-        else:
-            status_text = (
-                f"Circuito: {circuit_label}. "
-                f"Ventana: {start_date.isoformat()} a {end_date.isoformat()}. "
-                f"Eventos: {kpis['event_count']}."
-            )
 
-        return (
-            f"{kpis['saidi_total']:.4f}",
-            f"{kpis['saifi_total']:.4f}",
-            f"{kpis['event_count']}",
-            figure,
-            status_text,
-        )
+        try:
+            payload = fetch_summary_data(start_date_raw, end_date_raw, circuito, metric_mode)
+            saidi, saifi, events, figure, title, status = _summary_visuals_from_payload(
+                payload,
+                fallback_metric_mode=metric_mode,
+                fallback_circuit=circuito or "TODOS",
+            )
+            return (
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                saidi,
+                saifi,
+                events,
+                figure,
+                title,
+                status,
+                no_update,
+            )
+        except Exception as exc:
+            message = str(exc)
+            return (
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                no_update,
+                "--",
+                "--",
+                "--",
+                _empty_figure(message),
+                "Tendencia diaria del indicador seleccionado.",
+                message,
+                no_update,
+            )

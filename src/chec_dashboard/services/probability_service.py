@@ -40,6 +40,8 @@ def _validate_data_dir(data_dir: Path) -> None:
 
 @lru_cache(maxsize=1)
 def load_probability_dataset(data_dir_raw: str) -> ProbabilityDataset:
+    # Cached once per Python process. Multi-worker deployments still duplicate
+    # this memory per worker process.
     data_dir = Path(data_dir_raw)
     _validate_data_dir(data_dir)
 

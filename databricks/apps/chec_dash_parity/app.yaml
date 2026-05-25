@@ -1,0 +1,28 @@
+command:
+  - sh
+  - -c
+  - >-
+    gunicorn --workers 1 --threads 2 --timeout 120
+    --bind "0.0.0.0:${DATABRICKS_APP_PORT}"
+    databricks_app_wsgi:app
+env:
+  - name: ENVIRONMENT
+    value: databricks_app
+  - name: DATA_BACKEND
+    value: databricks_sql
+  - name: API_TRANSPORT
+    value: inproc
+  - name: OUTPUT_DIR
+    value: /tmp/outputs
+  - name: CACHE_ENABLED
+    value: "true"
+  - name: MODEL_BACKEND
+    value: mock
+  - name: DATABRICKS_SQL_WAREHOUSE_ID
+    value: __WAREHOUSE_ID__
+  - name: DATABRICKS_CATALOG_NAME
+    value: __CATALOG_NAME__
+  - name: DATABRICKS_GOLD_SCHEMA
+    value: __GOLD_SCHEMA__
+  - name: DATABRICKS_SILVER_SCHEMA
+    value: __SILVER_SCHEMA__

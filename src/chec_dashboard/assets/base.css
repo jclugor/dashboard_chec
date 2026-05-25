@@ -5,7 +5,7 @@ body {
   width: 100%;
   height: 100%;
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: hidden;
 }
 
 #react-entry-point,
@@ -16,4 +16,909 @@ body {
 
 * {
   box-sizing: border-box;
+}
+
+:root {
+  --chec-green: #00782b;
+  --chec-light-green: #16d622;
+  --chec-soft-green: #28db7f;
+}
+
+/* Shell */
+.dashboard-shell {
+  height: 100vh;
+  min-height: 100vh;
+  overflow: hidden;
+  background: #ffffff;
+}
+
+.dashboard-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  min-height: 84px;
+  padding: 10px clamp(12px, 2vw, 28px);
+}
+
+.dashboard-header-user-group {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+  flex: 1;
+}
+
+.dashboard-header-user-avatar {
+  width: clamp(42px, 5vw, 64px);
+  height: clamp(42px, 5vw, 64px);
+  border-radius: 12px;
+  flex: 0 0 auto;
+}
+
+.dashboard-header-user-text {
+  font-size: clamp(18px, 2.3vw, 32px);
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dashboard-header-logo {
+  width: clamp(120px, 16vw, 220px);
+  height: clamp(44px, 7vh, 84px);
+  flex: 0 0 auto;
+}
+
+.dashboard-warning-banner {
+  flex: 0 0 auto;
+}
+
+.dashboard-main {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.dashboard-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: center;
+  width: 92px;
+  flex: 0 0 92px;
+  padding: 16px 8px;
+  overflow-y: auto;
+}
+
+.dashboard-nav-button {
+  width: 100%;
+  min-height: 72px;
+  border-radius: 8px;
+  transition: transform 0.12s ease;
+}
+
+.dashboard-nav-button:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.dashboard-workspace {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0 0 8px;
+}
+
+.panel-loading-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  background: rgba(255, 255, 255, 0.68);
+  backdrop-filter: blur(1px);
+}
+
+.panel-loading-overlay-text {
+  padding: 10px 14px;
+  border-radius: 999px;
+  background: rgba(0, 120, 43, 0.9);
+  color: white;
+  font-family: "DM Sans", sans-serif;
+  font-weight: 700;
+  font-size: 14px;
+}
+
+/* Map page */
+.map-page {
+  width: min(1500px, 98%);
+  margin: 0 auto;
+}
+
+.map-filter-panel {
+  position: relative;
+  z-index: 20;
+  width: 100%;
+  border-radius: 9px;
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns:
+    auto
+    minmax(110px, 0.8fr)
+    minmax(130px, 0.9fr)
+    minmax(110px, 0.8fr)
+    minmax(180px, 1.25fr)
+    minmax(90px, 0.7fr)
+    minmax(150px, 1.05fr)
+    minmax(90px, 0.65fr)
+    minmax(120px, 0.8fr)
+    auto;
+  align-items: center;
+  gap: 8px;
+  overflow: visible;
+}
+
+.map-filter-icon {
+  width: 32px;
+  height: 32px;
+}
+
+.map-filter-label {
+  font-size: clamp(12px, 0.9vw, 16px);
+  line-height: 1.2;
+}
+
+.map-filter-input {
+  position: relative;
+  z-index: 1;
+  min-height: 42px;
+  display: flex;
+  align-items: center;
+  border-radius: 9px;
+  padding: 0 4px;
+  min-width: 0;
+  overflow: visible;
+}
+
+.map-filter-input:focus-within {
+  z-index: 100;
+}
+
+.map-filter-input .dash-dropdown,
+.map-filter-input .Select {
+  position: relative;
+  z-index: 2;
+}
+
+.map-filter-input:focus-within .dash-dropdown,
+.map-filter-input:focus-within .Select {
+  z-index: 1000;
+}
+
+.map-filter-input .Select-menu-outer {
+  z-index: 10000;
+}
+
+.map-filter-button {
+  min-width: 72px;
+  min-height: 42px;
+  padding: 0 16px;
+}
+
+.map-card {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  border-radius: 9px;
+  padding: 8px 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.map-banner {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 2px 0;
+}
+
+.map-icon {
+  width: 32px;
+  height: 32px;
+  flex: 0 0 auto;
+}
+
+.map-banner-title {
+  font-size: clamp(16px, 1.3vw, 22px);
+  line-height: 1.2;
+}
+
+.map-frame-container {
+  position: relative;
+  width: 100%;
+  min-height: 400px;
+  height: clamp(320px, 54vh, 620px);
+  border-radius: 9px;
+  overflow: hidden;
+}
+
+.map-slider-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.map-slider-arrow {
+  width: 44px;
+  height: 44px;
+  flex: 0 0 auto;
+}
+
+.map-slider-container {
+  flex: 1;
+  min-width: 0;
+}
+
+.map-status-text {
+  width: 100%;
+}
+
+/* Probability page */
+.probability-page {
+  width: 100%;
+  padding: 12px 0 8px;
+}
+
+.probability-workspace-row {
+  width: min(1500px, 98%);
+  margin: 0 auto;
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+}
+
+.probability-criteria-container {
+  flex: 0 0 34%;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 10px;
+}
+
+.probability-section-title {
+  width: 100%;
+  text-align: center;
+  font-size: clamp(20px, 1.8vw, 26px);
+}
+
+.probability-main-dropdown {
+  width: min(430px, 90%);
+  min-height: 44px;
+}
+
+.probability-subcriteria-block {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.probability-subcriteria-title {
+  width: 100%;
+  text-align: center;
+  font-size: clamp(16px, 1.3vw, 21px);
+}
+
+.probability-subcriteria-dropdown {
+  width: min(430px, 90%);
+  min-height: 44px;
+}
+
+.probability-subcriteria-filters {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.probability-target-block {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.probability-target-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.probability-target-dropdown {
+  width: min(430px, 90%);
+  min-height: 44px;
+}
+
+.probability-confirm-button {
+  min-height: 44px;
+  min-width: 72px;
+  padding: 0 16px;
+}
+
+.probability-graph-container {
+  flex: 1;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px;
+  gap: 10px;
+}
+
+.probability-title {
+  width: 100%;
+  text-align: center;
+  line-height: 1.2;
+  font-size: clamp(20px, 1.7vw, 34px);
+}
+
+.probability-figure-container {
+  width: 100%;
+  min-height: 340px;
+  flex: 1;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+}
+
+.probability-graph-wrapper {
+  width: 100%;
+  height: 100%;
+}
+
+.probability-graph-image {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+.probability-save-button {
+  width: 44px;
+  height: 44px;
+}
+
+.prob-filter-empty-message {
+  padding: 6px 0;
+}
+
+.prob-filter-label {
+  min-width: 95px;
+  line-height: 1.2;
+}
+
+.prob-filter-input {
+  min-height: 44px;
+  min-width: 130px;
+  display: flex;
+  align-items: center;
+  padding: 0 6px;
+}
+
+.prob-filter-input-select {
+  width: min(360px, 100%);
+}
+
+.prob-filter-input-operator {
+  min-width: 120px;
+}
+
+.prob-filter-input-value {
+  min-width: 140px;
+}
+
+.prob-filter-input-date {
+  min-width: 150px;
+}
+
+/* Summary page */
+.summary-page {
+  width: 100%;
+  padding: 12px 0 8px;
+  gap: 10px;
+}
+
+.summary-filter-panel {
+  width: min(1500px, 98%);
+  border-radius: 9px;
+  padding: 10px 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.summary-filter-label {
+  font-size: clamp(12px, 0.9vw, 16px);
+  line-height: 1.2;
+}
+
+.summary-filter-input {
+  min-height: 42px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  min-width: 150px;
+}
+
+.summary-select-dropdown,
+.summary-select-dropdown .Select,
+.summary-select-dropdown .Select-control {
+  width: 100%;
+}
+
+.summary-select-dropdown .Select {
+  display: block;
+  min-width: 0;
+}
+
+.summary-select-dropdown .Select-control {
+  display: table;
+  table-layout: fixed;
+  min-height: 42px;
+  height: 42px;
+  overflow: hidden;
+  position: relative;
+}
+
+.summary-select-dropdown .Select-input {
+  height: 42px;
+  padding-left: 10px;
+  padding-right: 30px;
+}
+
+.summary-select-dropdown .Select-multi-value-wrapper {
+  display: table-cell;
+  width: 100%;
+  min-width: 0;
+  vertical-align: middle;
+}
+
+.summary-select-dropdown .Select-input > input {
+  line-height: 20px;
+  padding: 10px 0;
+}
+
+.summary-select-dropdown .Select-placeholder,
+.summary-select-dropdown .Select--single > .Select-control .Select-value {
+  position: absolute;
+  top: 0;
+  right: 30px;
+  bottom: 0;
+  left: 0;
+  display: block;
+  height: 100%;
+  max-width: none;
+  line-height: 42px;
+  padding-left: 10px;
+  padding-right: 4px;
+}
+
+.summary-select-dropdown .Select-value-label,
+.summary-select-dropdown .Select-placeholder,
+.summary-select-dropdown .Select--single > .Select-control .Select-value {
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+.summary-select-dropdown .Select-value-label {
+  display: block !important;
+  max-width: 100%;
+  line-height: inherit !important;
+}
+
+.summary-select-dropdown .Select-arrow-zone {
+  display: table-cell;
+  vertical-align: middle;
+  text-align: center;
+  width: 30px;
+  padding-right: 6px;
+}
+
+.summary-filter-date {
+  flex: 1 1 300px;
+  min-width: 280px;
+}
+
+.summary-filter-date .DateRangePicker,
+.summary-filter-date .DateRangePickerInput {
+  width: 100%;
+}
+
+.summary-filter-circuit {
+  flex: 1 1 260px;
+  min-width: 220px;
+}
+
+.summary-filter-metric {
+  flex: 0 1 180px;
+  min-width: 160px;
+}
+
+.summary-main-card {
+  width: min(1500px, 98%);
+  border-radius: 9px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+
+.summary-main-title {
+  width: 100%;
+  text-align: center;
+  line-height: 1.2;
+  font-size: clamp(18px, 2vw, 30px);
+}
+
+.summary-kpi-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 10px;
+}
+
+.summary-kpi-card {
+  flex: 1 1 220px;
+  min-height: 92px;
+  padding: 8px;
+}
+
+.summary-kpi-title {
+  font-size: clamp(14px, 1vw, 18px);
+  text-align: center;
+}
+
+.summary-kpi-value {
+  font-size: clamp(24px, 2.2vw, 36px);
+  text-align: center;
+}
+
+.summary-chart-title {
+  width: 100%;
+  text-align: left;
+  line-height: 1.35;
+  font-size: clamp(14px, 1.1vw, 18px);
+  white-space: normal;
+  word-break: break-word;
+}
+
+.summary-chart-container {
+  width: 100%;
+  min-height: 330px;
+  border-radius: 10px;
+}
+
+.summary-chart-container .js-plotly-plot,
+.summary-chart-container .plot-container,
+.summary-chart-container .svg-container {
+  height: 100% !important;
+}
+
+.summary-status-text {
+  width: min(1500px, 98%);
+  white-space: normal;
+  word-break: break-word;
+}
+
+/* Tablet */
+@media (min-width: 768px) and (max-width: 1023px) {
+  .dashboard-nav {
+    width: 78px;
+    flex: 0 0 78px;
+    padding: 12px 6px;
+    gap: 10px;
+  }
+
+  .dashboard-nav-button {
+    min-height: 64px;
+  }
+
+  .map-filter-panel {
+    grid-template-columns: repeat(2, minmax(200px, 1fr));
+  }
+
+  .map-filter-icon {
+    grid-column: 1 / -1;
+  }
+
+  .map-filter-button {
+    grid-column: 1 / -1;
+    justify-self: end;
+  }
+
+  .probability-workspace-row {
+    flex-direction: column;
+  }
+
+  .probability-criteria-container,
+  .probability-graph-container {
+    width: 100%;
+  }
+
+  .summary-kpi-card {
+    flex: 1 1 calc(50% - 6px);
+  }
+
+  .summary-kpi-card:nth-child(3) {
+    flex-basis: 100%;
+  }
+}
+
+/* Mobile */
+@media (max-width: 767px) {
+  .dashboard-header {
+    min-height: 72px;
+    padding: 10px 12px;
+  }
+
+  .dashboard-header-user-text {
+    font-size: clamp(16px, 5vw, 22px);
+  }
+
+  .dashboard-header-logo {
+    width: clamp(90px, 30vw, 130px);
+    height: 44px;
+  }
+
+  .dashboard-main {
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .dashboard-nav {
+    order: 1;
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    width: 100%;
+    flex: 0 0 auto;
+    flex-direction: row;
+    justify-content: space-around;
+    align-items: center;
+    padding: 8px 10px 10px;
+    gap: 8px;
+    min-height: 68px;
+    background: #ffffff;
+    border-bottom: 2px solid #066e30;
+  }
+
+  .dashboard-nav-button {
+    flex: 1;
+    min-height: 52px;
+    background-size: 52%;
+  }
+
+  .dashboard-workspace {
+    order: 2;
+    padding: 0 0 8px;
+  }
+
+  .map-page {
+    width: 96%;
+    padding: 8px 0 6px !important;
+  }
+
+  .map-filter-panel {
+    grid-template-columns: 1fr;
+    gap: 8px;
+    padding: 10px;
+  }
+
+  .map-filter-icon {
+    display: none;
+  }
+
+  .map-filter-label {
+    font-size: 13px;
+  }
+
+  .map-filter-input,
+  .map-filter-input-wide,
+  .map-filter-button {
+    width: 100%;
+  }
+
+  .map-frame-container {
+    min-height: 280px;
+    height: 46vh;
+  }
+
+  .map-banner-title {
+    font-size: 16px;
+  }
+
+  .map-slider-row {
+    flex-wrap: wrap;
+  }
+
+  .map-slider-arrow {
+    width: 40px;
+    height: 40px;
+  }
+
+  .map-slider-container {
+    flex-basis: 100%;
+    width: 100%;
+  }
+
+  .probability-workspace-row {
+    width: 96%;
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .probability-criteria-container,
+  .probability-graph-container {
+    width: 100%;
+    padding: 8px;
+  }
+
+  .probability-main-dropdown,
+  .probability-subcriteria-dropdown,
+  .probability-target-dropdown,
+  .prob-filter-input {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .probability-title {
+    font-size: 20px;
+  }
+
+  .probability-target-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .probability-confirm-button {
+    width: 100%;
+  }
+
+  .probability-figure-container {
+    min-height: 300px;
+  }
+
+  .prob-filter-label {
+    width: 100%;
+    min-width: 0;
+    justify-content: flex-start;
+  }
+
+  .probability-save-button {
+    width: 40px;
+    height: 40px;
+  }
+
+  .summary-filter-panel,
+  .summary-main-card,
+  .summary-status-text {
+    width: 96%;
+    padding: 6px 8px;
+  }
+
+  .summary-filter-label {
+    width: 100%;
+  }
+
+  .summary-filter-input {
+    width: 100%;
+    min-width: 0;
+    flex: 1 1 100%;
+    min-height: 40px;
+    padding: 0 4px;
+  }
+
+  .summary-select-dropdown,
+  .summary-select-dropdown .Select,
+  .summary-select-dropdown .Select-control {
+    min-width: 0;
+  }
+
+  .summary-select-dropdown .Select-control {
+    min-height: 40px;
+    height: 40px;
+  }
+
+  .summary-select-dropdown .Select-input {
+    height: 40px;
+    padding-left: 10px;
+    padding-right: 28px;
+  }
+
+  .summary-select-dropdown .Select-input > input {
+    line-height: 18px;
+    padding: 10px 0;
+  }
+
+  .summary-select-dropdown .Select-placeholder,
+  .summary-select-dropdown .Select--single > .Select-control .Select-value {
+    top: 0;
+    right: 28px;
+    bottom: 0;
+    left: 0;
+    height: 40px;
+    min-height: 40px;
+    line-height: 40px;
+    font-size: 15px;
+    padding-left: 10px;
+    padding-right: 4px;
+  }
+
+  .summary-select-dropdown .Select-value-label,
+  .summary-select-dropdown .Select-placeholder {
+    font-size: 15px !important;
+    line-height: inherit !important;
+  }
+
+  .summary-select-dropdown .Select-arrow-zone {
+    width: 28px;
+    padding-right: 4px;
+  }
+
+  .summary-kpi-row {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .summary-kpi-card {
+    width: 100%;
+    flex: 0 0 auto;
+    min-height: 68px;
+    padding: 6px 8px;
+  }
+
+  .summary-kpi-title {
+    font-size: 13px;
+    margin-bottom: 2px;
+  }
+
+  .summary-kpi-value {
+    font-size: 18px;
+    line-height: 1.05;
+  }
+
+  .summary-chart-container {
+    min-height: 300px;
+  }
+
+  .summary-chart-title {
+    font-size: 14px;
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
 }

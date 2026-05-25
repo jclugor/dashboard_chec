@@ -1,27 +1,26 @@
+import base64
 import time
 from typing import Any
 
 from dash import Dash, Input, Output, State, dcc, html
 from dash import exceptions
-import pandas as pd
 
 from chec_dashboard.config import Settings
-from chec_dashboard.services.probability_service import (
-    ProbabilityDataset,
-    apply_filters,
-    criteria_options,
-    generate_probability_graph,
-    get_dataframe_by_criteria,
-    infer_filter_type,
-    load_probability_dataset,
+from chec_dashboard.dash_app.api_client import (
+    fetch_probability_data,
+    fetch_probability_metadata,
+    fetch_probability_options,
 )
 
 
 CHEC_GREEN = "#00782b"
 CHEC_BUTTON_GREEN = "#11BB52CF"
+PROBABILITY_INITIAL_INTERVAL_MS = 250
+_OVERLAY_HIDDEN_STYLE = {"display": "none"}
+_OVERLAY_VISIBLE_STYLE = {"display": "flex"}
 
 selection_criteria: list[Any] = [
-    [""],
+    "",
     ["", "", "", ""],
     ["", "", "", ""],
     ["", "", "", ""],
@@ -29,10 +28,6 @@ selection_criteria: list[Any] = [
     "",
 ]
 last_confirm_clicks = -1
-
-
-def _dataset(settings: Settings) -> ProbabilityDataset:
-    return load_probability_dataset(str(settings.data_dir))
 
 
 def _create_dropdown(
@@ -59,35 +54,38 @@ def _create_dropdown(
 
 
 def _create_filter_components(
-    filter_type_name: str,
-    column_data: Any,
+    filter_kind: str,
+    value_options: list[str],
     z_index: int,
     component_prefix: str,
+    *,
+    empty_message: str | None = None,
 ) -> list[html.Div] | html.Div | None:
     base_text_style = {
         "color": "white",
         "textAlign": "center",
-        "fontSize": "130%",
+        "fontSize": "18px",
         "fontWeight": "700",
         "display": "flex",
         "alignItems": "center",
         "justifyContent": "center",
     }
 
-    if column_data.empty:
+    if empty_message:
         return html.Div(
-            "No hay opciones con filtros previos.",
+            empty_message,
+            className="prob-filter-empty-message",
             style={**base_text_style, "width": "100%", "fontSize": "18px"},
         )
 
-    if filter_type_name in ["object", "int64", "int32"]:
-        options = sorted(list(column_data.dropna().unique()))
+    if filter_kind == "seleccion":
+        options = [""] + value_options
         return [
-            html.Div("Seleccion:", style={**base_text_style, "width": "20%"}),
+            html.Div("Selección:", className="prob-filter-label", style=base_text_style),
             html.Div(
                 dcc.Dropdown(
                     id=f"{component_prefix}-1",
-                    options=[""] + options,
+                    options=options,
                     value="",
                     maxHeight=160,
                     style={
@@ -98,20 +96,20 @@ def _create_filter_components(
                         "fontSize": "20px",
                     },
                 ),
+                className="prob-filter-input prob-filter-input-select",
                 style={
-                    "width": "50%",
                     "backgroundColor": "white",
                     "borderRadius": "5px",
-                    "marginLeft": "9%",
                 },
             ),
         ]
 
-    if filter_type_name in ["float32", "float64"]:
+    if filter_kind == "rango_num":
         return [
             html.Div(
                 "Operador:",
-                style={**base_text_style, "width": "20%", "fontSize": "131%", "margin": "0 0 0 2%"},
+                className="prob-filter-label",
+                style={**base_text_style, "fontSize": "18px"},
             ),
             html.Div(
                 dcc.Dropdown(
@@ -127,43 +125,36 @@ def _create_filter_components(
                         "fontSize": "20px",
                     },
                 ),
+                className="prob-filter-input prob-filter-input-operator",
                 style={
-                    "width": "20%",
                     "backgroundColor": "white",
                     "borderRadius": "5px",
-                    "margin": "0 0 0 8%",
                 },
             ),
-            html.Div("Valor:", style={**base_text_style, "width": "20%"}),
+            html.Div("Valor:", className="prob-filter-label", style=base_text_style),
             html.Div(
                 dcc.Input(
                     id=f"{component_prefix}-2",
                     type="number",
                     placeholder="Ingresa un valor",
                     style={
-                        "width": "91%",
-                        "height": "77%",
+                        "width": "100%",
+                        "height": "100%",
                         "border": "none",
                         "color": CHEC_GREEN,
                         "fontSize": "20px",
-                        "transform": "translate(1%, 11%)",
+                        "padding": "0 10px",
                     },
                 ),
-                style={"width": "20%", "backgroundColor": "white", "borderRadius": "5px"},
+                className="prob-filter-input prob-filter-input-value",
+                style={"backgroundColor": "white", "borderRadius": "5px"},
             ),
         ]
 
-    if "datetime" in filter_type_name or "period" in filter_type_name:
-        options = list(
-            sorted(
-                set(
-                    pd.to_datetime(d, errors="coerce").strftime("%Y-%m-%d")
-                    for d in column_data.dropna().unique()
-                )
-            )
-        )
+    if filter_kind == "fecha":
+        options = [""] + value_options
         return [
-            html.Div("Desde:", style={**base_text_style, "width": "20%"}),
+            html.Div("Desde:", className="prob-filter-label", style=base_text_style),
             html.Div(
                 dcc.Dropdown(
                     id=f"{component_prefix}-1",
@@ -178,14 +169,13 @@ def _create_filter_components(
                         "fontSize": "15px",
                     },
                 ),
+                className="prob-filter-input prob-filter-input-date",
                 style={
-                    "width": "20%",
                     "backgroundColor": "white",
                     "borderRadius": "5px",
-                    "margin": "0 0 0 3%",
                 },
             ),
-            html.Div("Hasta:", style={**base_text_style, "width": "20%", "margin": "0 0 0 3%"}),
+            html.Div("Hasta:", className="prob-filter-label", style=base_text_style),
             html.Div(
                 dcc.Dropdown(
                     id=f"{component_prefix}-2",
@@ -200,11 +190,10 @@ def _create_filter_components(
                         "fontSize": "15px",
                     },
                 ),
+                className="prob-filter-input prob-filter-input-date",
                 style={
-                    "width": "20%",
                     "backgroundColor": "white",
                     "borderRadius": "5px",
-                    "margin": "0 0 0 3%",
                 },
             ),
         ]
@@ -212,8 +201,64 @@ def _create_filter_components(
     return None
 
 
+def _api_error_block(message: str, font_size: str = "14px") -> html.Div:
+    return html.Div(
+        message,
+        style={
+            "padding": "6px",
+            "fontFamily": "'DM Sans', sans-serif",
+            "fontWeight": "700",
+            "color": "#a10c0c",
+            "fontSize": font_size,
+        },
+    )
+
+
+def _columns_for_criteria(criteria_value: str) -> list[str]:
+    if not criteria_value:
+        return []
+    payload = fetch_probability_metadata(action="columns", criteria=criteria_value)
+    return payload.get("columns", [])
+
+
+def _build_probability_graph_component(
+    graph_name: str,
+    graph_data_uri: str | None,
+) -> html.Div:
+    if graph_data_uri:
+        graph_src = graph_data_uri
+    else:
+        timestamp = int(time.time())
+        graph_src = f"/outputs/{graph_name}?v={timestamp}"
+
+    return html.Div(
+        [
+            html.Img(src=graph_src, className="probability-graph-image", style={"width": "100%", "borderRadius": "10px"}),
+            html.Button(
+                id="probability-save-button",
+                className="probability-save-button",
+                n_clicks=0,
+                style={
+                    "position": "absolute",
+                    "right": "1%",
+                    "top": "2%",
+                    "backgroundImage": "url('/assets/images/download-svgrepo-com.svg')",
+                    "backgroundSize": "cover",
+                    "border": "none",
+                    "backgroundColor": "transparent",
+                    "cursor": "pointer",
+                },
+            ),
+        ],
+        className="probability-graph-wrapper",
+        style={"position": "relative", "width": "100%", "height": "100%"},
+    )
+
+
 def get_layout() -> html.Div:
-    main_options = criteria_options()
+    initial_probability_text = "P(X|Y1,Y2,Y3,...,YN)"
+    initial_graph_children: str | html.Div = "Preparando criterios y filtros de probabilidad..."
+    main_options: list[Any] = []
     dummy_divs = [
         html.Div(id=f"prob-dummy-output-{i}-{j}", style={"display": "none"})
         for i in range(1, 5)
@@ -223,56 +268,41 @@ def get_layout() -> html.Div:
 
     return html.Div(
         [
+            dcc.Interval(
+                id="prob-options-load-interval",
+                interval=PROBABILITY_INITIAL_INTERVAL_MS,
+                n_intervals=0,
+                max_intervals=1,
+                disabled=False,
+            ),
             html.Div(
-                className="workspace-row",
-                style={
-                    "width": "98%",
-                    "height": "100%",
-                    "display": "flex",
-                    "flexDirection": "row",
-                    "alignItems": "center",
-                },
+                className="workspace-row probability-workspace-row",
                 children=[
                     html.Div(
-                        className="criteria-container",
+                        className="criteria-container probability-criteria-container",
                         style={
                             "position": "relative",
-                            "width": "30%",
-                            "height": "97%",
                             "backgroundColor": "#16D622",
-                            "margin": "0 0 0 1.5%",
-                            "borderRadius": "10px",
                             "opacity": "0.7",
-                            "display": "flex",
-                            "flexDirection": "column",
-                            "alignItems": "center",
-                            "justifyContent": "flex-start",
-                            "padding": "0.8vh 0 0.8vh 0",
                         },
                         children=[
                             html.Div(
                                 "Criterio",
+                                className="probability-section-title",
                                 style={
-                                    "width": "100%",
-                                    "height": "5%",
                                     "color": "#FFFFFF",
                                     "fontFamily": "'DM Sans', sans-serif",
-                                    "fontSize": "22px",
                                     "fontWeight": "700",
-                                    "textAlign": "center",
-                                    "display": "flex",
-                                    "alignItems": "center",
-                                    "justifyContent": "center",
-                                    "margin": "1vh 0 0 0",
                                 },
                             ),
                             html.Div(
-                                style={"width": "70%", "height": "4%", "borderRadius": "5px"},
+                                className="probability-main-dropdown",
                                 children=[
                                     dcc.Dropdown(
                                         id="prob-select-criteria",
                                         options=main_options,
                                         value="",
+                                        disabled=True,
                                         maxHeight=160,
                                         style={
                                             "width": "100%",
@@ -286,70 +316,121 @@ def get_layout() -> html.Div:
                                 ],
                             ),
                             html.Div(
-                                style={
-                                    "margin": "1% 0 0 0",
-                                    "width": "100%",
-                                    "height": "16%",
-                                    "display": "flex",
-                                    "flexDirection": "column",
-                                    "alignItems": "center",
-                                },
+                                className="probability-subcriteria-block",
                                 children=[
                                     html.Div(
                                         "Sub-criterio 1",
+                                        className="probability-subcriteria-title",
                                         style={
-                                            "width": "100%",
-                                            "height": "28%",
                                             "color": "#FFFFFF",
                                             "fontFamily": "'DM Sans', sans-serif",
-                                            "fontSize": "21px",
                                             "fontWeight": "700",
-                                            "textAlign": "center",
-                                            "display": "flex",
-                                            "alignItems": "center",
-                                            "justifyContent": "center",
-                                            "margin": "3% 0 0 0",
                                         },
                                     ),
-                                    html.Div(id="prob-sub-criteria-1-container", style={"width": "70%", "height": "28%", "borderRadius": "5px", "backgroundColor": "white"}),
-                                    html.Div(id="prob-sub-criteria-1-filters-container", style={"width": "100%", "height": "28%", "display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "margin": "3% 0 0 0"}),
-                                ],
-                            ),
-                            html.Div(
-                                style={"margin": "1% 0 0 0", "width": "100%", "height": "16%", "display": "flex", "flexDirection": "column", "alignItems": "center"},
-                                children=[
-                                    html.Div("Sub-criterio 2", style={"width": "100%", "height": "28%", "color": "#FFFFFF", "fontFamily": "'DM Sans', sans-serif", "fontSize": "21px", "fontWeight": "700", "textAlign": "center", "display": "flex", "alignItems": "center", "justifyContent": "center", "margin": "3% 0 0 0"}),
-                                    html.Div(id="prob-sub-criteria-2-container", style={"width": "70%", "height": "28%", "borderRadius": "5px", "backgroundColor": "white"}),
-                                    html.Div(id="prob-sub-criteria-2-filters-container", style={"width": "100%", "height": "28%", "display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "margin": "3% 0 0 0"}),
-                                ],
-                            ),
-                            html.Div(
-                                style={"margin": "1% 0 0 0", "width": "100%", "height": "16%", "display": "flex", "flexDirection": "column", "alignItems": "center"},
-                                children=[
-                                    html.Div("Sub-criterio 3", style={"width": "100%", "height": "28%", "color": "#FFFFFF", "fontFamily": "'DM Sans', sans-serif", "fontSize": "21px", "fontWeight": "700", "textAlign": "center", "display": "flex", "alignItems": "center", "justifyContent": "center", "margin": "3% 0 0 0"}),
-                                    html.Div(id="prob-sub-criteria-3-container", style={"width": "70%", "height": "28%", "borderRadius": "5px", "backgroundColor": "white"}),
-                                    html.Div(id="prob-sub-criteria-3-filters-container", style={"width": "100%", "height": "28%", "display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "margin": "3% 0 0 0"}),
-                                ],
-                            ),
-                            html.Div(
-                                style={"margin": "1% 0 0 0", "width": "100%", "height": "16%", "display": "flex", "flexDirection": "column", "alignItems": "center"},
-                                children=[
-                                    html.Div("Sub-criterio 4", style={"width": "100%", "height": "28%", "color": "#FFFFFF", "fontFamily": "'DM Sans', sans-serif", "fontSize": "21px", "fontWeight": "700", "textAlign": "center", "display": "flex", "alignItems": "center", "justifyContent": "center", "margin": "3% 0 0 0"}),
-                                    html.Div(id="prob-sub-criteria-4-container", style={"width": "70%", "height": "28%", "borderRadius": "5px", "backgroundColor": "white"}),
-                                    html.Div(id="prob-sub-criteria-4-filters-container", style={"width": "100%", "height": "28%", "display": "flex", "flexDirection": "row", "alignItems": "center", "justifyContent": "center", "margin": "3% 0 0 0"}),
-                                ],
-                            ),
-                            html.Div(
-                                style={"width": "100%", "height": "12%", "display": "flex", "flexDirection": "column", "alignItems": "center", "margin": "1vh 0 0 0"},
-                                children=[
-                                    html.Div("Variable objetivo", style={"width": "100%", "height": "28%", "color": "#FFFFFF", "fontFamily": "'DM Sans', sans-serif", "fontSize": "21px", "fontWeight": "700", "textAlign": "center", "display": "flex", "alignItems": "center", "justifyContent": "center"}),
                                     html.Div(
-                                        style={"display": "flex", "width": "100%", "flexDirection": "row", "alignItems": "center", "margin": "1% 0 0 0", "height": "48%"},
+                                        id="prob-sub-criteria-1-container",
+                                        className="probability-subcriteria-dropdown",
+                                        style={"borderRadius": "5px", "backgroundColor": "white"},
+                                    ),
+                                    html.Div(
+                                        id="prob-sub-criteria-1-filters-container",
+                                        className="probability-subcriteria-filters",
+                                    ),
+                                ],
+                            ),
+                            html.Div(
+                                className="probability-subcriteria-block",
+                                children=[
+                                    html.Div(
+                                        "Sub-criterio 2",
+                                        className="probability-subcriteria-title",
+                                        style={
+                                            "color": "#FFFFFF",
+                                            "fontFamily": "'DM Sans', sans-serif",
+                                            "fontWeight": "700",
+                                        },
+                                    ),
+                                    html.Div(
+                                        id="prob-sub-criteria-2-container",
+                                        className="probability-subcriteria-dropdown",
+                                        style={"borderRadius": "5px", "backgroundColor": "white"},
+                                    ),
+                                    html.Div(
+                                        id="prob-sub-criteria-2-filters-container",
+                                        className="probability-subcriteria-filters",
+                                    ),
+                                ],
+                            ),
+                            html.Div(
+                                className="probability-subcriteria-block",
+                                children=[
+                                    html.Div(
+                                        "Sub-criterio 3",
+                                        className="probability-subcriteria-title",
+                                        style={
+                                            "color": "#FFFFFF",
+                                            "fontFamily": "'DM Sans', sans-serif",
+                                            "fontWeight": "700",
+                                        },
+                                    ),
+                                    html.Div(
+                                        id="prob-sub-criteria-3-container",
+                                        className="probability-subcriteria-dropdown",
+                                        style={"borderRadius": "5px", "backgroundColor": "white"},
+                                    ),
+                                    html.Div(
+                                        id="prob-sub-criteria-3-filters-container",
+                                        className="probability-subcriteria-filters",
+                                    ),
+                                ],
+                            ),
+                            html.Div(
+                                className="probability-subcriteria-block",
+                                children=[
+                                    html.Div(
+                                        "Sub-criterio 4",
+                                        className="probability-subcriteria-title",
+                                        style={
+                                            "color": "#FFFFFF",
+                                            "fontFamily": "'DM Sans', sans-serif",
+                                            "fontWeight": "700",
+                                        },
+                                    ),
+                                    html.Div(
+                                        id="prob-sub-criteria-4-container",
+                                        className="probability-subcriteria-dropdown",
+                                        style={"borderRadius": "5px", "backgroundColor": "white"},
+                                    ),
+                                    html.Div(
+                                        id="prob-sub-criteria-4-filters-container",
+                                        className="probability-subcriteria-filters",
+                                    ),
+                                ],
+                            ),
+                            html.Div(
+                                className="probability-target-block",
+                                children=[
+                                    html.Div(
+                                        "Variable objetivo",
+                                        className="probability-subcriteria-title",
+                                        style={
+                                            "color": "#FFFFFF",
+                                            "fontFamily": "'DM Sans', sans-serif",
+                                            "fontWeight": "700",
+                                        },
+                                    ),
+                                    html.Div(
+                                        className="probability-target-row",
                                         children=[
-                                            html.Div(id="prob-target-variable-container", style={"width": "70%", "height": "89%", "borderRadius": "5px", "backgroundColor": "white", "left": "6%", "position": "relative"}),
+                                            html.Div(
+                                                id="prob-target-variable-container",
+                                                className="probability-target-dropdown",
+                                                style={"borderRadius": "5px", "backgroundColor": "white"},
+                                            ),
                                             html.Button(
                                                 "OK",
                                                 id="prob-confirm-button-ok",
+                                                className="probability-confirm-button",
                                                 n_clicks=0,
                                                 style={
                                                     "fontFamily": "'DM Sans', sans-serif",
@@ -357,14 +438,9 @@ def get_layout() -> html.Div:
                                                     "fontWeight": "700",
                                                     "color": "black",
                                                     "cursor": "pointer",
-                                                    "borderRadius": "3px",
+                                                    "borderRadius": "4px",
                                                     "borderColor": "white",
-                                                    "width": "12%",
-                                                    "height": "100%",
                                                     "backgroundColor": CHEC_BUTTON_GREEN,
-                                                    "position": "relative",
-                                                    "right": "-12%",
-                                                    "top": "9%",
                                                 },
                                             ),
                                         ],
@@ -374,51 +450,41 @@ def get_layout() -> html.Div:
                         ],
                     ),
                     html.Div(
-                        className="graph-container",
-                        style={
-                            "position": "relative",
-                            "width": "65.5%",
-                            "height": "97%",
-                            "backgroundColor": "#28DB7F",
-                            "margin": "0 0 0 1.5%",
-                            "borderRadius": "10px",
-                            "display": "flex",
-                            "flexDirection": "column",
-                            "alignItems": "center",
-                        },
+                        className="graph-container probability-graph-container",
+                        style={"position": "relative", "backgroundColor": "#28DB7F"},
                         children=[
                             html.Div(
-                                "P(X|Y1,Y2,Y3,...,YN)",
+                                id="prob-graph-overlay",
+                                className="panel-loading-overlay",
+                                style=_OVERLAY_HIDDEN_STYLE,
+                                children=[
+                                    html.Div(
+                                        "Generando gráfica...",
+                                        className="panel-loading-overlay-text",
+                                    )
+                                ],
+                            ),
+                            html.Div(
+                                initial_probability_text,
                                 id="probability-text",
+                                className="probability-title",
                                 style={
-                                    "width": "100%",
-                                    "height": "10%",
                                     "color": "#000000",
-                                    "fontFamily": "'Poppins', sans-serif",
-                                    "fontSize": "3vh",
+                                    "fontFamily": "'DM Sans', sans-serif",
                                     "fontWeight": "700",
-                                    "textAlign": "center",
-                                    "display": "flex",
-                                    "alignItems": "center",
-                                    "justifyContent": "center",
                                 },
                             ),
                             html.Div(
                                 id="prob-graph-fig-container",
+                                className="probability-figure-container",
                                 style={
                                     "position": "relative",
-                                    "width": "90%",
-                                    "height": "85%",
                                     "backgroundColor": "#FFFFFF",
-                                    "borderRadius": "10px",
-                                    "display": "flex",
-                                    "alignItems": "center",
-                                    "justifyContent": "center",
                                     "fontFamily": "'DM Sans', sans-serif",
                                     "color": CHEC_GREEN,
                                     "fontWeight": "700",
                                 },
-                                children="Selecciona criterios y presiona OK para generar la distribucion.",
+                                children=initial_graph_children,
                             ),
                         ],
                     ),
@@ -428,11 +494,58 @@ def get_layout() -> html.Div:
             dcc.Download(id="prob-download-file"),
             *dummy_divs,
         ],
-        style={"width": "100%", "height": "100%", "display": "flex", "flexDirection": "column"},
+        className="probability-page",
+        style={"width": "100%", "display": "flex", "flexDirection": "column"},
     )
 
 
 def register_callbacks(app: Dash, settings: Settings) -> None:
+    @app.callback(
+        Output("prob-select-criteria", "options"),
+        Output("prob-select-criteria", "disabled"),
+        Output("probability-text", "children", allow_duplicate=True),
+        Output("prob-graph-fig-container", "children", allow_duplicate=True),
+        Output("prob-options-load-interval", "disabled"),
+        Input("prob-options-load-interval", "n_intervals"),
+        prevent_initial_call=True,
+    )
+    def load_probability_options_after_render(n_intervals: int | None):
+        global selection_criteria
+        global last_confirm_clicks
+        if n_intervals is None:
+            raise exceptions.PreventUpdate
+
+        try:
+            options_payload = fetch_probability_options()
+            main_options = options_payload.get("criteria_options", [])
+            selection_criteria = [
+                "",
+                ["", "", "", ""],
+                ["", "", "", ""],
+                ["", "", "", ""],
+                ["", "", "", ""],
+                "",
+            ]
+            last_confirm_clicks = -1
+            return (
+                main_options,
+                False,
+                "P(X|Y1,Y2,Y3,...,YN)",
+                "Selecciona criterios y presiona OK para generar la distribución.",
+                True,
+            )
+        except Exception as exc:
+            return (
+                [],
+                True,
+                "Datos no disponibles",
+                _api_error_block(
+                    f"No fue posible cargar los datos requeridos: {exc}",
+                    font_size="16px",
+                ),
+                True,
+            )
+
     @app.callback(
         Output("prob-sub-criteria-1-container", "children"),
         Output("prob-sub-criteria-2-container", "children"),
@@ -448,31 +561,20 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
     )
     def select_main_criteria(select_criteria_value: str):
         global selection_criteria
-        try:
-            dataset = _dataset(settings)
-        except Exception as exc:
-            selection_criteria = [[""], ["", "", "", ""], ["", "", "", ""], ["", "", "", ""], ["", "", "", ""], ""]
-            error_msg = html.Div(
-                str(exc),
-                style={
-                    "padding": "6px",
-                    "fontFamily": "'DM Sans', sans-serif",
-                    "fontWeight": "700",
-                    "color": "#a10c0c",
-                    "fontSize": "14px",
-                },
-            )
-            return None, None, None, None, error_msg, None, None, None, None
-        selected_df = get_dataframe_by_criteria(dataset, select_criteria_value)
-        if selected_df is None:
-            selection_criteria = [[""], ["", "", "", ""], ["", "", "", ""], ["", "", "", ""], ["", "", "", ""], ""]
+        if not select_criteria_value:
+            selection_criteria = ["", ["", "", "", ""], ["", "", "", ""], ["", "", "", ""], ["", "", "", ""], ""]
             return [None] * 9
+
+        try:
+            columns = _columns_for_criteria(select_criteria_value)
+        except Exception as exc:
+            selection_criteria = ["", ["", "", "", ""], ["", "", "", ""], ["", "", "", ""], ["", "", "", ""], ""]
+            return None, None, None, None, _api_error_block(str(exc)), None, None, None, None
 
         selection_criteria[0] = select_criteria_value
         selection_criteria[1:5] = [["", "", "", ""] for _ in range(4)]
         selection_criteria[5] = ""
 
-        columns = selected_df.columns.to_list()
         outputs = [
             _create_dropdown(f"prob-select-subcriteria-{i}", columns, 900 - (i - 1) * 100, "")
             for i in range(1, 5)
@@ -494,34 +596,25 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
                 return None
 
             try:
-                dataset = _dataset(settings)
-            except Exception as exc:
-                return html.Div(
-                    str(exc),
-                    style={
-                        "padding": "4px",
-                        "fontFamily": "'DM Sans', sans-serif",
-                        "fontWeight": "700",
-                        "color": "#a10c0c",
-                        "fontSize": "13px",
-                    },
+                previous_filters = selection_criteria[1:index]
+                payload = fetch_probability_metadata(
+                    action="filter_options",
+                    criteria=main_criteria,
+                    selected_column=selected_column,
+                    previous_filters=previous_filters,
                 )
-            source_df = get_dataframe_by_criteria(dataset, main_criteria)
-            if source_df is None:
-                return None
+            except Exception as exc:
+                return _api_error_block(str(exc), font_size="13px")
 
-            previous_filters = selection_criteria[1:index]
-            filtered_data = apply_filters(source_df, previous_filters)
-            if selected_column not in filtered_data.columns:
-                return None
-
-            column_data = filtered_data[selected_column]
-            filter_type_name = column_data.dtype.name
-            crit_type = infer_filter_type(filter_type_name)
-            selection_criteria[index] = [crit_type, selected_column, "", ""]
+            filter_kind = payload.get("filter_kind", "")
+            selection_criteria[index] = [filter_kind, selected_column, "", ""]
             z_index = 850 - (index - 1) * 100
             return _create_filter_components(
-                filter_type_name, column_data, z_index, f"prob-select-subcriteria-{index}"
+                filter_kind=filter_kind,
+                value_options=payload.get("value_options", []),
+                z_index=z_index,
+                component_prefix=f"prob-select-subcriteria-{index}",
+                empty_message=payload.get("message") if payload.get("is_empty", False) else None,
             )
 
         if index < 4:
@@ -547,15 +640,9 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
                 selection_criteria[5] = ""
 
                 try:
-                    dataset = _dataset(settings)
+                    columns = _columns_for_criteria(main_criteria)
                 except Exception:
-                    dataset = None
-                source_df = (
-                    get_dataframe_by_criteria(dataset, main_criteria)
-                    if dataset is not None
-                    else None
-                )
-                columns = source_df.columns.to_list() if source_df is not None else []
+                    columns = []
 
                 return_values = []
                 for next_index in range(index + 1, 5):
@@ -628,6 +715,10 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
         Output("prob-graph-fig-container", "children"),
         Output("prob-last-graph-file", "data"),
         Input("prob-confirm-button-ok", "n_clicks"),
+        running=[
+            (Output("prob-graph-overlay", "style"), _OVERLAY_VISIBLE_STYLE, _OVERLAY_HIDDEN_STYLE),
+            (Output("prob-confirm-button-ok", "disabled"), True, False),
+        ],
     )
     def confirm_and_generate_graph(n_clicks: int | None):
         global last_confirm_clicks
@@ -638,77 +729,38 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
         if not selection_criteria[0] or not selection_criteria[5]:
             return (
                 "Selecciona criterio principal y variable objetivo.",
-                "Completa los campos requeridos para generar la grafica.",
+                "Completa los campos requeridos para generar la gráfica.",
                 None,
             )
 
         try:
-            dataset = _dataset(settings)
-        except Exception as exc:
-            return "Error cargando datos.", str(exc), None
-        source_df = get_dataframe_by_criteria(dataset, selection_criteria[0])
-        if source_df is None:
-            return "Criterio no valido.", "No se pudo cargar el dataset seleccionado.", None
-
-        filtered_df = apply_filters(source_df, selection_criteria[1:5])
-        if filtered_df.empty:
-            return (
-                "Sin datos tras aplicar filtros.",
-                "No hay registros para la combinacion seleccionada.",
-                None,
-            )
-
-        parts = [f"P({selection_criteria[5]} | {selection_criteria[0]}"]
-        for filter_type, name, value_1, value_2 in selection_criteria[1:5]:
-            if not all([filter_type, name, value_1]):
-                continue
-            if filter_type == "seleccion":
-                parts.append(f"{name} = {value_1}")
-            elif filter_type == "rango_num" and value_2 is not None:
-                parts.append(f"{name} {value_1} {value_2}")
-            elif filter_type == "fecha" and value_2:
-                parts.append(f"{name} {value_1} - {value_2}")
-        probability_text = ", ".join(parts) + ")"
-
-        try:
-            graph_path = generate_probability_graph(
-                filtered_df,
+            payload = fetch_probability_data(
+                criteria=selection_criteria[0],
                 target_column=selection_criteria[5],
-                probability_text=probability_text,
-                output_dir=settings.output_dir,
+                filters=selection_criteria[1:5],
             )
         except Exception as exc:
             return (
-                "Error al generar grafica.",
-                f"No fue posible crear la distribucion: {str(exc)}",
+                "Error de API.",
+                str(exc),
                 None,
-            )
-
-        timestamp = int(time.time())
-        graph_src = f"/outputs/{graph_path.name}?v={timestamp}"
-        graph_component = html.Div(
-            [
-                html.Img(src=graph_src, style={"width": "100%", "borderRadius": "10px"}),
-                html.Button(
-                    id="probability-save-button",
-                    n_clicks=0,
-                    style={
-                        "width": "5vh",
-                        "position": "absolute",
-                        "height": "5vh",
-                        "right": "1%",
-                        "top": "2%",
-                        "backgroundImage": "url('/assets/images/download-svgrepo-com.svg')",
-                        "backgroundSize": "cover",
-                        "border": "none",
-                        "backgroundColor": "transparent",
-                        "cursor": "pointer",
-                    },
-                ),
-            ],
-            style={"position": "relative", "width": "100%", "height": "100%"},
         )
-        return probability_text, graph_component, graph_path.name
+
+        probability_text = payload.get("probability_text", "P(X|Y)")
+        status_text = payload.get("status_text", "Sin información disponible.")
+        graph_name = payload.get("graph_name")
+        graph_data_uri = payload.get("graph_data_uri")
+        if not graph_name and not graph_data_uri:
+            return probability_text, status_text, None
+
+        graph_component = _build_probability_graph_component(
+            graph_name=graph_name or "probability_graph.png",
+            graph_data_uri=graph_data_uri,
+        )
+        return probability_text, graph_component, {
+            "graph_name": graph_name,
+            "graph_data_uri": graph_data_uri,
+        }
 
     @app.callback(
         Output("prob-download-file", "data"),
@@ -716,8 +768,22 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
         State("prob-last-graph-file", "data"),
         prevent_initial_call=True,
     )
-    def download_graph(n_clicks: int | None, graph_name: str | None):
-        if n_clicks is None or n_clicks <= 0 or not graph_name:
+    def download_graph(n_clicks: int | None, graph_state: dict[str, Any] | None):
+        if n_clicks is None or n_clicks <= 0 or not graph_state:
+            raise exceptions.PreventUpdate
+        graph_name = graph_state.get("graph_name")
+        graph_data_uri = graph_state.get("graph_data_uri")
+        if graph_data_uri:
+            if "," in graph_data_uri:
+                _, encoded_image = graph_data_uri.split(",", 1)
+            else:
+                encoded_image = graph_data_uri
+
+            def _write_image(buffer):
+                buffer.write(base64.b64decode(encoded_image))
+
+            return dcc.send_bytes(_write_image, filename=graph_name or "probability_graph.png")
+        if not graph_name:
             raise exceptions.PreventUpdate
         file_path = settings.output_dir / graph_name
         if not file_path.exists():

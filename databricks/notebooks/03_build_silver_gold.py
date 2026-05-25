@@ -257,9 +257,66 @@ map_points_gold = (
     )
     .withColumn("display_label", F.coalesce(F.col("display_label"), F.col("source_file_name")))
     .withColumn("popup_text", F.coalesce(F.col("popup_text"), F.col("display_label")))
+    .withColumn(
+        "map_date",
+        F.coalesce(
+            F.to_date(F.col("inicio_ts")),
+            F.to_date(F.col("fecha_registro")),
+        ),
+    )
+    .withColumn("map_period", F.date_format(F.col("map_date"), "yyyy-MM"))
+    .withColumn("map_day", F.dayofmonth(F.col("map_date")))
     .filter(F.col("latitude").isNotNull() & F.col("longitude").isNotNull())
 )
 write_table(map_points_gold, "gold", "gold_map_points")
 
+map_line_segments_gold = (
+    assets_silver.filter(F.col("asset_family") == F.lit("LineSegments"))
+    .withColumn("map_date", F.to_date(F.col("fecha_registro")))
+    .withColumn("map_period", F.date_format(F.col("map_date"), "yyyy-MM"))
+    .withColumn("map_day", F.dayofmonth(F.col("map_date")))
+    .filter(
+        F.col("latitude").isNotNull()
+        & F.col("longitude").isNotNull()
+        & F.col("latitude_end").isNotNull()
+        & F.col("longitude_end").isNotNull()
+    )
+)
+write_table(map_line_segments_gold, "gold", "gold_map_line_segments")
+
+map_filter_index_gold = (
+    map_points_gold.select(
+        "map_period",
+        F.coalesce(F.col("municipio"), F.lit("Sin municipio")).alias("municipio"),
+        F.coalesce(F.col("circuito"), F.lit("Sin circuito")).alias("circuito"),
+    )
+    .unionByName(
+        map_line_segments_gold.select(
+            "map_period",
+            F.coalesce(F.col("municipio"), F.lit("Sin municipio")).alias("municipio"),
+            F.coalesce(F.col("circuito"), F.lit("Sin circuito")).alias("circuito"),
+        ),
+        allowMissingColumns=True,
+    )
+    .filter(F.col("map_period").isNotNull())
+    .dropDuplicates(["map_period", "municipio", "circuito"])
+)
+write_table(map_filter_index_gold, "gold", "gold_map_filter_index")
+
+map_event_days_gold = (
+    events_silver.withColumn("map_date", F.to_date(F.col("inicio_ts")))
+    .withColumn("map_period", F.date_format(F.col("map_date"), "yyyy-MM"))
+    .withColumn("map_day", F.dayofmonth(F.col("map_date")))
+    .withColumn("LATITUD", F.col("latitude"))
+    .withColumn("LONGITUD", F.col("longitude"))
+    .withColumn("MUN", F.col("municipio"))
+    .withColumn("cto_equi_ope", F.col("circuito"))
+    .withColumn("SAIDI", F.col("severity_saidi"))
+    .withColumn("SAIFI", F.col("severity_saifi"))
+    .withColumn("duracion_h", F.col("duration_hours"))
+    .filter(F.col("LATITUD").isNotNull() & F.col("LONGITUD").isNotNull())
+)
+write_table(map_event_days_gold, "gold", "gold_map_event_days")
+
 # COMMAND ----------
-print("Built silver normalization tables and the first gold tables for Databricks dashboards.")
+print("Built silver normalization tables and the Databricks gold presentation tables.")

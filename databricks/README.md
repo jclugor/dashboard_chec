@@ -1,6 +1,7 @@
 # CHEC Databricks Migration Bundle
 
-This folder now contains the Databricks bundle scaffold for both the Phase 1 foundation and the Phase 2 consumption pilot.
+This folder now contains the Databricks bundle scaffold for the Phase 1 foundation,
+the Phase 2 consumption pilot, and the Phase 3-5 Dash-parity app scaffolding.
 
 ## What Is Included
 - A bundle configuration at `databricks.yml`.
@@ -12,6 +13,7 @@ This folder now contains the Databricks bundle scaffold for both the Phase 1 fou
 - Classic fallback bootstrap and ingest-validation workflows with approved East US SKUs.
 - A paused Phase 2 pilot refresh workflow.
 - Local scripts for preflight, upload, notebook promotion, dashboard publishing, and pilot permissions.
+- A Databricks App staging/deploy workflow for full Dash parity.
 
 ## Bundle Layout
 ```text
@@ -23,6 +25,7 @@ databricks/
   references/
   resources/
   scripts/
+  apps/
   README.md
 ```
 
@@ -80,6 +83,38 @@ What Phase 2 adds:
 
 Bundle-managed dashboards are deployed with the target prefix in the live workspace, so the draft appears as `[dev <user>] CHEC Summary Pilot` even though the local resource suffix is `CHEC Summary Pilot`.
 
+## Phase 3-5 Flow
+Phase 3-5 keeps the current Lakeview dashboard as the summary landing page and
+introduces a Databricks App for the full `summary`, `probability`, and `map`
+parity experience.
+
+```bash
+cd /home/jclugor/unal/CHEC/dashboard
+./.venv/bin/python databricks/scripts/stage_phase35_databricks_app.py
+
+cd /home/jclugor/unal/CHEC/dashboard/databricks
+bash scripts/deploy_phase35_databricks_app.sh
+bash scripts/apply_phase35_app_permissions.sh
+```
+
+Use these environment variables before staging if you need non-default targets:
+- `APP_WAREHOUSE_ID`
+- `APP_CATALOG_NAME`
+- `APP_GOLD_SCHEMA`
+- `APP_SILVER_SCHEMA`
+
+The Databricks App path is documented in:
+- `docs/phase35_databricks_app_parity.md`
+
+What Phase 3-5 adds:
+- `DATA_BACKEND=databricks_sql` provider mode for Dash/FastAPI parity paths.
+- `API_TRANSPORT=inproc` so the Dash app can run in Databricks without an external API base URL.
+- New gold presentation tables for map parity:
+  - `gold_map_line_segments`
+  - `gold_map_filter_index`
+  - `gold_map_event_days`
+- A staged Databricks App source bundle under `databricks/build/` for deployment.
+
 ## Current Defaults
 - Catalog: `chec_dbx_demo`
 - Dashboard warehouse: `4437a6195e05c59c` (`Serverless Starter Warehouse`)
@@ -116,5 +151,8 @@ Each classic fallback task retries up to 3 total attempts with a 10-minute backo
 - `publish_phase2_dashboard.sh` publishes the draft dashboard and can optionally embed publisher credentials for a broader pilot review path.
 - `sync_phase2_dashboard_from_workspace.sh` pulls the current Lakeview draft back into `dashboards/chec_summary_pilot.lvdash.json` after UI-side widget repairs.
 - `apply_phase2_pilot_permissions.sh` resolves the live permission levels Databricks supports before applying dashboard, notebook-folder, job, and optional UC read grants for the pilot.
+- `stage_phase35_databricks_app.py` builds the deployable Databricks App source from the main Dash repo without duplicating the UI code in two places.
+- `deploy_phase35_databricks_app.sh` creates the Databricks App if needed, uploads the staged source to workspace files, and deploys it in `SNAPSHOT` mode.
+- `apply_phase35_app_permissions.sh` applies reviewer/editor permissions to the Databricks App using the permission levels the live workspace actually supports.
 - The default reviewer audience is the workspace `users` group. Direct reviewer notebook and SQL access are opt-in so the script does not grant broad read access accidentally.
 - Pilot assets under `/Shared` inherit broad workspace access from parent folders. Use a restricted parent folder instead if you need strict reviewer-versus-editor separation.

@@ -1,0 +1,75 @@
+# Azure Container Apps YAML template for the Dash web app.
+# Replace every <...> placeholder before deploying.
+
+# Required placeholder values:
+# - <subscription-id>
+# - <resource-group>
+# - <managed-environment-name>
+# - <app-name>
+# - <azure-region>
+# - <acr-server>                 (example: myregistry.azurecr.io)
+# - <image-name>                 (example: chec-dashboard)
+# - <image-tag>                  (example: v1)
+# - <acr-username>
+# - <acr-password>
+# - <azure-files-storage-mount-name>  (name used in az containerapp env storage set)
+
+location: <azure-region>
+name: <app-name>
+resourceGroup: <resource-group>
+type: Microsoft.App/containerApps
+properties:
+  managedEnvironmentId: /subscriptions/<subscription-id>/resourceGroups/<resource-group>/providers/Microsoft.App/managedEnvironments/<managed-environment-name>
+  configuration:
+    activeRevisionsMode: Single
+    ingress:
+      external: true
+      allowInsecure: false
+      targetPort: 8050
+      transport: auto
+    registries:
+      - server: <acr-server>
+        username: <acr-username>
+        passwordSecretRef: acr-password
+    secrets:
+      - name: acr-password
+        value: "<acr-password>"
+  template:
+    containers:
+      - name: <app-name>
+        image: <acr-server>/<image-name>:<image-tag>
+        resources:
+          cpu: 0.5
+          memory: 1Gi
+        env:
+          - name: PORT
+            value: "8050"
+          - name: DEBUG
+            value: "false"
+          - name: DATA_DIR
+            value: "/app/data"
+          - name: OUTPUT_DIR
+            value: "/tmp/outputs"
+          - name: WEB_CONCURRENCY
+            value: "1"
+          - name: WEB_THREADS
+            value: "2"
+          - name: API_BASE_URL
+            value: "http://<api-app-name>"
+          - name: API_STARTUP_POLL_SECONDS
+            value: "3"
+          - name: API_KEEPALIVE_SECONDS
+            value: "60"
+          - name: API_STARTUP_MAX_ATTEMPTS
+            value: "0"
+        volumeMounts:
+          - volumeName: azurefiles-data
+            mountPath: /app/data
+            readOnly: true
+    scale:
+      minReplicas: 0
+      maxReplicas: 1
+    volumes:
+      - name: azurefiles-data
+        storageType: AzureFile
+        storageName: <azure-files-storage-mount-name>

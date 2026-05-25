@@ -15,6 +15,7 @@ REQUIRED_MAP_FILES = [
     "REDMT.pkl",
     "SuperEventos_Criticidad_AguasAbajo_CODEs.pkl",
 ]
+ALL_CIRCUITS_LABEL = "Todos"
 
 
 @dataclass(frozen=True)
@@ -46,6 +47,8 @@ def _validate_data_dir(data_dir: Path) -> None:
 
 @lru_cache(maxsize=1)
 def load_map_dataset(data_dir_raw: str) -> MapDataset:
+    # Cached once per Python process. Multi-worker deployments still duplicate
+    # this memory per worker process.
     data_dir = Path(data_dir_raw)
     _validate_data_dir(data_dir)
 
@@ -71,6 +74,31 @@ def load_map_dataset(data_dir_raw: str) -> MapDataset:
     )
 
 
+@lru_cache(maxsize=1)
+def load_map_filter_options(data_dir_raw: str) -> tuple[list[str], list[str]]:
+    # Metadata for dropdowns only needs TRAFOS.pkl. Avoid loading the full map
+    # dataset during Azure cold start; full data still loads lazily on map render.
+    data_dir = Path(data_dir_raw)
+    missing = "TRAFOS.pkl"
+    if not (data_dir / missing).exists():
+        raise FileNotFoundError(f"Missing required map data file in '{data_dir}': {missing}")
+
+    trafos = pd.read_pickle(data_dir / "TRAFOS.pkl")
+    trafos["FECHA"] = pd.to_datetime(trafos["FECHA"], errors="coerce")
+
+    periods = (
+        trafos["FECHA"]
+        .dropna()
+        .dt.to_period("M")
+        .drop_duplicates()
+        .sort_values()
+        .to_list()
+    )
+    dates = [period.strftime("%Y-%m") for period in periods]
+    municipios = sorted(trafos["MUN"].dropna().astype(str).unique().tolist())
+    return dates, municipios
+
+
 def get_map_filter_options(dataset: MapDataset) -> tuple[list[str], list[str]]:
     periods = (
         dataset.trafos["FECHA"]
@@ -85,34 +113,144 @@ def get_map_filter_options(dataset: MapDataset) -> tuple[list[str], list[str]]:
     return dates, municipios
 
 
+def _parse_period(selected_period: str) -> tuple[int, int]:
+    year, month = selected_period.split("-")
+    return int(year), int(month)
+
+
+def _asset_period_municipio_mask(
+    frame: pd.DataFrame,
+    *,
+    target_year: int,
+    target_month: int,
+    selected_municipio: str,
+) -> pd.Series:
+    return (
+        (frame["FECHA"].dt.year == target_year)
+        & (frame["FECHA"].dt.month == target_month)
+        & (frame["MUN"].astype(str) == selected_municipio)
+    )
+
+
+def _events_period_municipio_mask(
+    frame: pd.DataFrame,
+    *,
+    target_year: int,
+    target_month: int,
+    selected_municipio: str,
+) -> pd.Series:
+    return (
+        (frame["inicio"].dt.year == target_year)
+        & (frame["inicio"].dt.month == target_month)
+        & (frame["MUN"].astype(str) == selected_municipio)
+    )
+
+
+def _normalize_circuit_value(value: Any) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def _is_all_circuit(value: str | None) -> bool:
+    normalized = _normalize_circuit_value(value)
+    return normalized is None or normalized.casefold() == ALL_CIRCUITS_LABEL.casefold()
+
+
+def get_map_circuit_options(
+    dataset: MapDataset,
+    *,
+    selected_period: str,
+    selected_municipio: str,
+) -> list[str]:
+    target_year, target_month = _parse_period(selected_period)
+    circuit_values: set[str] = set()
+
+    for frame in (dataset.trafos, dataset.switches, dataset.redmt):
+        filtered = frame.loc[
+            _asset_period_municipio_mask(
+                frame,
+                target_year=target_year,
+                target_month=target_month,
+                selected_municipio=selected_municipio,
+            )
+        ]
+        if "FPARENT" in filtered.columns:
+            circuit_values.update(
+                value
+                for value in filtered["FPARENT"].dropna().astype(str).str.strip().tolist()
+                if value
+            )
+
+    filtered_events = dataset.super_eventos.loc[
+        _events_period_municipio_mask(
+            dataset.super_eventos,
+            target_year=target_year,
+            target_month=target_month,
+            selected_municipio=selected_municipio,
+        )
+    ]
+    if "cto_equi_ope" in filtered_events.columns:
+        circuit_values.update(
+            value
+            for value in filtered_events["cto_equi_ope"].dropna().astype(str).str.strip().tolist()
+            if value
+        )
+
+    return [ALL_CIRCUITS_LABEL, *sorted(circuit_values)]
+
+
 def filter_map_dataset(
     dataset: MapDataset,
     selected_period: str,
     selected_municipio: str,
+    selected_circuit: str | None = None,
+    selected_output: str | None = None,
 ) -> FilteredMapDataset:
-    year, month = selected_period.split("-")
-    target_year = int(year)
-    target_month = int(month)
+    if selected_output not in {None, "", "BASE"}:
+        raise ValueError(f"Salida de mapa no soportada: {selected_output}")
+
+    target_year, target_month = _parse_period(selected_period)
+    selected_circuit = _normalize_circuit_value(selected_circuit)
 
     def _filter_asset(frame: pd.DataFrame) -> pd.DataFrame:
-        return frame.loc[
-            (frame["FECHA"].dt.year == target_year)
-            & (frame["FECHA"].dt.month == target_month)
-            & (frame["MUN"] == selected_municipio)
+        filtered = frame.loc[
+            _asset_period_municipio_mask(
+                frame,
+                target_year=target_year,
+                target_month=target_month,
+                selected_municipio=selected_municipio,
+            )
         ]
+        if _is_all_circuit(selected_circuit) or "FPARENT" not in filtered.columns:
+            return filtered
+        return filtered.loc[filtered["FPARENT"].astype(str).str.strip() == selected_circuit]
 
     filtered_events = dataset.super_eventos.loc[
-        (dataset.super_eventos["inicio"].dt.year == target_year)
-        & (dataset.super_eventos["inicio"].dt.month == target_month)
-        & (dataset.super_eventos["MUN"] == selected_municipio)
+        _events_period_municipio_mask(
+            dataset.super_eventos,
+            target_year=target_year,
+            target_month=target_month,
+            selected_municipio=selected_municipio,
+        )
     ]
+    if not _is_all_circuit(selected_circuit) and "cto_equi_ope" in filtered_events.columns:
+        filtered_events = filtered_events.loc[
+            filtered_events["cto_equi_ope"].astype(str).str.strip() == selected_circuit
+        ]
+
+    filtered_apoyos = _filter_asset(dataset.apoyos)
+    if not _is_all_circuit(selected_circuit):
+        filtered_apoyos = filtered_apoyos.iloc[0:0].copy()
+
     events_by_day: list[pd.DataFrame] = []
     for day in range(1, 32):
         events_by_day.append(filtered_events[filtered_events["inicio"].dt.day == day])
 
     return FilteredMapDataset(
         trafos=_filter_asset(dataset.trafos),
-        apoyos=_filter_asset(dataset.apoyos),
+        apoyos=filtered_apoyos,
         switches=_filter_asset(dataset.switches),
         redmt=_filter_asset(dataset.redmt),
         events_by_day=events_by_day,
@@ -182,23 +320,26 @@ def render_base_map(filtered: FilteredMapDataset, day: int) -> str:
     ).add_to(map_view)
 
     redmt_group = folium.FeatureGroup(name="Red MT", show=True).add_to(map_view)
-    apoyos_group = folium.FeatureGroup(name="Apoyos", show=True).add_to(map_view)
+    apoyos_group = folium.FeatureGroup(name="Apoyos", show=False).add_to(map_view)
     trafos_group = folium.FeatureGroup(name="Trafos", show=True).add_to(map_view)
-    switches_group = folium.FeatureGroup(name="Switches", show=True).add_to(map_view)
+    switches_group = folium.FeatureGroup(name="Seccionadores", show=True).add_to(map_view)
     eventos_group = folium.FeatureGroup(name="Eventos", show=True).add_to(map_view)
 
     bounds: list[tuple[float, float]] = []
 
     legend_html = """
     <div style="position: fixed;
-                top: 10px; right: 10px; width: 95px; height: 120px;
-                background-color: white; border: 2px solid black;
-                z-index: 9999; font-size: 12px; padding: 8px; opacity: 0.7;">
-        <i style="background-color:blue; width: 15px; height: 15px; display: inline-block;"></i> Apoyos<br>
-        <i style="background-color:green; width: 15px; height: 15px; display: inline-block;"></i> Trafos<br>
-        <i style="background-color:brown; width: 15px; height: 15px; display: inline-block;"></i> Switches<br>
-        <i style="background-color:black; width: 15px; height: 15px; display: inline-block;"></i> Red MT<br>
-        <i style="background-color:red; width: 15px; height: 15px; display: inline-block;"></i> Eventos<br>
+                bottom: 14px; right: 14px; width: 116px;
+                background-color: rgba(255, 255, 255, 0.92);
+                border: 1px solid #0b5d25; border-radius: 8px;
+                z-index: 9999; font-size: 11px; line-height: 1.3;
+                padding: 8px 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.18);">
+        <div style="font-weight:700; margin-bottom:4px;">Capas</div>
+        <div><i style="background-color:blue; width: 10px; height: 10px; display: inline-block; border-radius: 50%;"></i> Apoyos</div>
+        <div><i style="background-color:green; width: 10px; height: 10px; display: inline-block; border-radius: 50%;"></i> Trafos</div>
+        <div><i style="background-color:brown; width: 10px; height: 10px; display: inline-block; border-radius: 50%;"></i> Seccionadores</div>
+        <div><i style="background-color:black; width: 10px; height: 10px; display: inline-block;"></i> Red MT</div>
+        <div><i style="background-color:red; width: 10px; height: 10px; display: inline-block; border-radius: 50%;"></i> Eventos</div>
     </div>
     """
     map_view.get_root().html.add_child(folium.Element(legend_html))
@@ -223,7 +364,7 @@ def render_base_map(filtered: FilteredMapDataset, day: int) -> str:
             f"Resistencia: {_format_value(row.get('RESISTANCE'))}\n"
             f"Acometida conductor: {_format_value(row.get('ACOMETIDACONDUCTOR'))}"
         )
-        line = folium.PolyLine(locations=[p1, p2], color="black", weight=1.5, opacity=1)
+        line = folium.PolyLine(locations=[p1, p2], color="black", weight=1.3, opacity=0.82)
         line.add_child(folium.Popup(popup_text))
         line.add_to(redmt_group)
 
@@ -234,11 +375,11 @@ def render_base_map(filtered: FilteredMapDataset, day: int) -> str:
         _append_bounds(bounds, point)
         folium.CircleMarker(
             location=point,
-            radius=2,
+            radius=1.6,
             color="blue",
             fill=True,
             fill_color="cyan",
-            fill_opacity=0.6,
+            fill_opacity=0.45,
             popup=(
                 f"Apoyo Propietario: {_format_value(row.get('TOWNER'))}\n"
                 f"Tipo: {_format_value(row.get('TIPO'))}\n"
@@ -258,18 +399,18 @@ def render_base_map(filtered: FilteredMapDataset, day: int) -> str:
         date_fab = _format_value(row.get("DATE_FAB"))[:10]
         folium.CircleMarker(
             location=point,
-            radius=2,
+            radius=2.4,
             color="green",
             fill=True,
             fill_color="green",
-            fill_opacity=0.6,
+            fill_opacity=0.55,
             popup=(
                 f"Trafo Fase: {_format_value(row.get('PHASES'))}\n"
                 f"Propietario: {_format_value(row.get('OWNER1'))}\n"
                 f"Impedancia: {_format_value(row.get('IMPEDANCE'))}\n"
                 f"Marca: {_format_value(row.get('MARCA'))}\n"
-                f"Fecha fabricacion: {date_fab}\n"
-                f"Tipo subestacion: {_format_value(row.get('TIPO_SUB'))}\n"
+                f"Fecha de fabricación: {date_fab}\n"
+                f"Tipo de subestación: {_format_value(row.get('TIPO_SUB'))}\n"
                 f"KVA: {_format_value(row.get('KVA'))}\n"
                 f"KV1: {_format_value(row.get('KV1'))}\n"
                 f"FPARENT: {_format_value(row.get('FPARENT'))}"
@@ -283,14 +424,14 @@ def render_base_map(filtered: FilteredMapDataset, day: int) -> str:
         _append_bounds(bounds, point)
         folium.CircleMarker(
             location=point,
-            radius=2,
+            radius=2.3,
             color="brown",
             fill=True,
             fill_color="brown",
-            fill_opacity=0.6,
+            fill_opacity=0.55,
             popup=(
-                f"Switche Fase: {_format_value(row.get('PHASES'))}\n"
-                f"Codigo assembly: {_format_value(row.get('ASSEMBLY'))}\n"
+                f"Seccionador - Fase: {_format_value(row.get('PHASES'))}\n"
+                f"Código de ensamble: {_format_value(row.get('ASSEMBLY'))}\n"
                 f"KV: {_format_value(row.get('KV'))}\n"
                 f"Estado: {_format_value(row.get('STATE'))}"
             ),
@@ -303,21 +444,25 @@ def render_base_map(filtered: FilteredMapDataset, day: int) -> str:
         _append_bounds(bounds, point)
         popup_text = (
             "Evento\n"
-            f"Equipo opero: {_format_value(row.get('equipo_ope'))}\n"
+            f"Equipo operó: {_format_value(row.get('equipo_ope'))}\n"
             f"Tipo equipo: {_format_value(row.get('tipo_equi_ope'))}\n"
-            f"Circuito opero: {_format_value(row.get('cto_equi_ope'))}\n"
+            f"Circuito operó: {_format_value(row.get('cto_equi_ope'))}\n"
             f"Tipo elemento: {_format_value(row.get('tipo_elemento'))}\n"
-            f"Duracion: {_format_value(row.get('duracion_h'))}\n"
+            f"Duración: {_format_value(row.get('duracion_h'))}\n"
             f"Causa: {_format_value(row.get('causa'))}\n"
-            f"Cantidad usuarios: {_format_value(row.get('cnt_usus'))}\n"
+            f"Usuarios afectados: {_format_value(row.get('cnt_usus'))}\n"
             f"SAIDI: {_format_value(row.get('SAIDI'))}\n"
             f"Inicio: {_format_value(row.get('inicio'))}\n"
             f"Fin: {_format_value(row.get('fin'))}"
         )
-        folium.Marker(
+        folium.CircleMarker(
             location=point,
             popup=popup_text,
-            icon=folium.Icon(icon="exclamation-triangle", prefix="fa", color="red"),
+            radius=5,
+            color="#bf0d0d",
+            fill=True,
+            fill_color="#ff4d4d",
+            fill_opacity=0.75,
         ).add_to(eventos_group)
 
     if bounds:
@@ -330,10 +475,10 @@ def render_base_map(filtered: FilteredMapDataset, day: int) -> str:
     Fullscreen(position="topleft", title="Pantalla completa", title_cancel="Salir").add_to(map_view)
     MiniMap(toggle_display=True, minimized=True, position="bottomleft").add_to(map_view)
     MeasureControl(
-        position="topleft",
+        position="topright",
         primary_length_unit="kilometers",
         secondary_length_unit="meters",
     ).add_to(map_view)
-    folium.LayerControl(collapsed=False).add_to(map_view)
+    folium.LayerControl(collapsed=True).add_to(map_view)
 
     return map_view._repr_html_()
