@@ -41,6 +41,13 @@ def summary_nav_style(active: bool) -> dict:
     )
 
 
+def chat_nav_style(active: bool) -> dict:
+    return _nav_button_style(
+        "url('/assets/images/ecb71657-f660-4b09-83e9-4f473f3ea97e.png')",
+        active,
+    )
+
+
 def build_startup_screen(
     message: str = "Inicializando dashboard...",
     *,
@@ -188,6 +195,13 @@ def build_shell_layout(
                                 id="nav-button-summary",
                                 className="dashboard-nav-button dashboard-nav-button-summary Summary-Button",
                                 style=summary_nav_style(False),
+                                n_clicks=0,
+                                disabled=True,
+                            ),
+                            html.Button(
+                                id="nav-button-chat",
+                                className="dashboard-nav-button dashboard-nav-button-chat Chat-Button",
+                                style=chat_nav_style(False),
                                 n_clicks=0,
                                 disabled=True,
                             ),

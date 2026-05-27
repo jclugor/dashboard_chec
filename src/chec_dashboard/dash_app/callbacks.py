@@ -22,8 +22,15 @@ from chec_dashboard.services.data_service import (
     get_summary_metadata,
     get_summary_payload,
 )
+from chec_dashboard.services.chatbot_service import (
+    assess_chatbot_context,
+    get_chatbot_context_options,
+    get_chatbot_status,
+)
 from chec_dashboard.services.databricks_data_service import databricks_data_readiness_check
 from chec_dashboard.services.startup_validation import find_missing_required_files
+from chec_dashboard.pages.chatbot_page import get_layout as chatbot_layout
+from chec_dashboard.pages.chatbot_page import register_callbacks as register_chatbot_callbacks
 from chec_dashboard.pages.map_page import get_layout as map_layout
 from chec_dashboard.pages.map_page import register_callbacks as register_map_callbacks
 from chec_dashboard.pages.probability_page import get_layout as probability_layout
@@ -34,6 +41,7 @@ from chec_dashboard.ui.shell import (
     build_startup_screen,
     map_nav_style,
     prob_nav_style,
+    chat_nav_style,
     summary_nav_style,
 )
 
@@ -47,6 +55,7 @@ def register_dash_callbacks(app: Dash, settings: Settings) -> None:
     register_map_callbacks(app, settings)
     register_probability_callbacks(app, settings)
     register_summary_callbacks(app, settings)
+    register_chatbot_callbacks(app, settings)
 
 
 def _register_health_route(app: Dash) -> None:
@@ -218,6 +227,7 @@ def _register_local_contract_routes(app: Dash, settings: Settings) -> None:
                         selected_period=map_payload.get("selected_period") or "",
                         selected_municipio=map_payload.get("selected_municipio") or "",
                         selected_circuit=map_payload.get("selected_circuit"),
+                        selected_circuits=map_payload.get("selected_circuits"),
                         selected_output=map_payload.get("selected_output"),
                         day=int(map_payload.get("day") or 1),
                     ),
@@ -225,6 +235,40 @@ def _register_local_contract_routes(app: Dash, settings: Settings) -> None:
             else:
                 raise ValueError(f"Unsupported mode: {mode}")
 
+            return jsonify(response_payload), 200
+        except Exception as exc:
+            return jsonify({"detail": str(exc), "error_type": "dash_local_contract_error"}), 400
+
+    @app.server.route("/chatbot/status", methods=["GET"])
+    def chatbot_status():
+        return jsonify(get_chatbot_status(settings)), 200
+
+    @app.server.route("/chatbot/context-options", methods=["POST"])
+    def chatbot_context_options():
+        try:
+            payload = request.get_json(force=True) or {}
+            response_payload = get_chatbot_context_options(
+                settings=settings,
+                context_kind=payload.get("context_kind") or "event",
+                selected_period=payload.get("selected_period") or "",
+                selected_municipio=payload.get("selected_municipio") or "",
+                selected_circuits=payload.get("selected_circuits"),
+                search=payload.get("search"),
+                limit=int(payload.get("limit") or 50),
+            )
+            return jsonify(response_payload), 200
+        except Exception as exc:
+            return jsonify({"detail": str(exc), "error_type": "dash_local_contract_error"}), 400
+
+    @app.server.route("/chatbot/assess", methods=["POST"])
+    def chatbot_assess():
+        try:
+            payload = request.get_json(force=True) or {}
+            response_payload = assess_chatbot_context(
+                settings=settings,
+                selected_context=payload.get("selected_context") or {},
+                question=payload.get("question"),
+            )
             return jsonify(response_payload), 200
         except Exception as exc:
             return jsonify({"detail": str(exc), "error_type": "dash_local_contract_error"}), 400
@@ -262,6 +306,7 @@ def _register_startup_callbacks(app: Dash, settings: Settings) -> None:
         Output("nav-button-map", "disabled"),
         Output("nav-button-prob", "disabled"),
         Output("nav-button-summary", "disabled"),
+        Output("nav-button-chat", "disabled"),
         Output("api-startup-interval", "disabled"),
         Output("api-heartbeat-interval", "disabled"),
         Output("api-startup-state", "data"),
@@ -285,6 +330,7 @@ def _register_startup_callbacks(app: Dash, settings: Settings) -> None:
                     False,
                     False,
                     False,
+                    False,
                     True,
                     False,
                     {"status": "ready", "message": status.message},
@@ -297,6 +343,7 @@ def _register_startup_callbacks(app: Dash, settings: Settings) -> None:
                     detail=status.message,
                     is_error=True,
                 ),
+                True,
                 True,
                 True,
                 True,
@@ -317,6 +364,7 @@ def _register_startup_callbacks(app: Dash, settings: Settings) -> None:
                 True,
                 True,
                 True,
+                True,
                 {"status": "error", "message": message},
             )
 
@@ -326,6 +374,7 @@ def _register_startup_callbacks(app: Dash, settings: Settings) -> None:
                 detail=status.message,
                 is_error=False,
             ),
+            True,
             True,
             True,
             True,
@@ -358,13 +407,19 @@ def _register_root_callbacks(app: Dash, settings: Settings) -> None:
         Output("nav-button-map", "style"),
         Output("nav-button-prob", "style"),
         Output("nav-button-summary", "style"),
+        Output("nav-button-chat", "style"),
         Input("nav-button-map", "n_clicks"),
         Input("nav-button-prob", "n_clicks"),
         Input("nav-button-summary", "n_clicks"),
+        Input("nav-button-chat", "n_clicks"),
         State("api-startup-state", "data"),
         prevent_initial_call=True,
     )
-    def navigate_tabs(n_map: int, n_prob: int, n_summary: int, startup_state: dict | None):
+    def navigate_tabs(n_map: int, n_prob: int, n_summary: int, n_chat: int, startup_state: dict | None):
+        _ = n_map
+        _ = n_prob
+        _ = n_summary
+        _ = n_chat
         if ctx.triggered_id is None:
             raise exceptions.PreventUpdate
         if not startup_state or startup_state.get("status") != "ready":
@@ -375,6 +430,7 @@ def _register_root_callbacks(app: Dash, settings: Settings) -> None:
                 map_nav_style(True),
                 prob_nav_style(False),
                 summary_nav_style(False),
+                chat_nav_style(False),
             )
         if ctx.triggered_id == "nav-button-prob":
             return (
@@ -382,6 +438,7 @@ def _register_root_callbacks(app: Dash, settings: Settings) -> None:
                 map_nav_style(False),
                 prob_nav_style(True),
                 summary_nav_style(False),
+                chat_nav_style(False),
             )
         if ctx.triggered_id == "nav-button-summary":
             return (
@@ -389,5 +446,14 @@ def _register_root_callbacks(app: Dash, settings: Settings) -> None:
                 map_nav_style(False),
                 prob_nav_style(False),
                 summary_nav_style(True),
+                chat_nav_style(False),
+            )
+        if ctx.triggered_id == "nav-button-chat":
+            return (
+                chatbot_layout(settings),
+                map_nav_style(False),
+                prob_nav_style(False),
+                summary_nav_style(False),
+                chat_nav_style(True),
             )
         raise exceptions.PreventUpdate

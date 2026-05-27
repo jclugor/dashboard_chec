@@ -5,6 +5,7 @@ from uuid import uuid4
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
+from chec_dashboard.api.routes.chatbot import router as chatbot_router
 from chec_dashboard.api.routes.data import router as data_router
 from chec_dashboard.api.routes.health import router as health_router
 from chec_dashboard.api.routes.inference import router as inference_router
@@ -58,6 +59,7 @@ def create_api_app() -> FastAPI:
     app.include_router(health_router)
     app.include_router(data_router)
     app.include_router(inference_router)
+    app.include_router(chatbot_router)
 
     @app.exception_handler(FileNotFoundError)
     async def file_not_found_handler(request: Request, exc: FileNotFoundError) -> JSONResponse:

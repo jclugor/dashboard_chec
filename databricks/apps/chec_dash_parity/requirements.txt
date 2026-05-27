@@ -10,3 +10,6 @@ seaborn==0.13.2
 fastapi
 uvicorn
 httpx
+google-genai
+pypdf
+openpyxl

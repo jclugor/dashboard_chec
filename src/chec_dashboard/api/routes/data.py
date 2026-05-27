@@ -83,6 +83,7 @@ def post_data(request: DataRequest) -> DataResponse:
             selected_period=request.map.selected_period,
             selected_municipio=request.map.selected_municipio,
             selected_circuit=request.map.selected_circuit,
+            selected_circuits=request.map.selected_circuits,
             selected_output=request.map.selected_output,
             day=request.map.day,
         )

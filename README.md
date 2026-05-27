@@ -11,6 +11,7 @@ The project now supports two runtime patterns:
 [Dash Frontend]
   - layout/charts/user interactions
   - lightweight callback orchestration
+  - contextual technical chatbot tab
           |\
           | \ in-process provider
           |  \
@@ -25,14 +26,25 @@ The project now supports two runtime patterns:
   - GET /data      (light metadata)
   - POST /data     (map/summary/probability heavy payloads)
   - POST /inference
+  - GET /chatbot/status
+  - POST /chatbot/context-options
+  - POST /chatbot/assess
           |
           v
 [Services Layer]
   - data_service.py
   - inference_service.py
   - model_loader.py
+  - chatbot_service.py
   - cache.py
 ```
+
+## Dashboard Features
+
+- Map explorer for circuits, network elements, and event layers.
+- Probability distributions for interruption event families.
+- SAIDI/SAIFI summary by circuit and date window.
+- Technical Chatbot / RAG Assessment. This restored chatbot tab is intended to be a contextual Spanish-language assistant, not a general open-ended chat. The user will select an event or a specific network element, and the assistant will receive structured context such as event or asset metadata, indicator values, circuit, municipio, time window, and external-condition features. It will retrieve relevant technical requirements from indexed documents, then explain the observed state, requirement compliance, likely external or operational drivers behind indicator values, and recommended follow-up checks.
 
 ## Project Structure
 
@@ -71,6 +83,16 @@ Inference:
 - `DATABRICKS_HOST`, `DATABRICKS_TOKEN`, `DATABRICKS_MODEL_ENDPOINT`
 - `AZURE_ML_ENDPOINT`, `AZURE_ML_KEY`
 
+Technical chatbot / RAG assessment:
+- `CHATBOT_ENABLED` (`true|false`; the tab loads either way and reports the configured state)
+- `GEMINI_API_KEY` (placeholder only; provide through environment variables or a secret manager)
+- `GEMINI_MODEL` (defaults to `gemini-2.5-flash`)
+- `CHATBOT_CORPUS_DIR` (local/dev explicit directory containing `chunks.jsonl` and chatbot manifests)
+- `CHATBOT_CORPUS_VOLUME_DIR` (Databricks App resource path exposed with `valueFrom`)
+- `CHATBOT_CORPUS_SUBDIR` (defaults to `chatbot_corpus`)
+- `CHATBOT_RETRIEVAL_TOP_K`
+- `CHATBOT_MAX_CONTEXT_CHARS`
+
 Databricks SQL parity runtime:
 - `DATABRICKS_SQL_WAREHOUSE_ID`
 - `DATABRICKS_SQL_HTTP_PATH` (optional; derived from warehouse id when omitted)
@@ -102,6 +124,11 @@ Payload guardrails:
 ### Inference
 - `POST /inference`
 - Response includes `request_id` and `X-Request-ID` header for traceability.
+
+### Technical Chatbot
+- `GET /chatbot/status`: reports feature, Gemini, and corpus readiness.
+- `POST /chatbot/context-options`: returns selectable events or network elements from the dashboard data context.
+- `POST /chatbot/assess`: retrieves technical document chunks and, when Gemini is configured, generates the Spanish technical assessment.
 
 ## Local Setup
 
@@ -185,6 +212,7 @@ File: `.github/workflows/ci.yml`
 - Each worker can duplicate dataset/model memory due process-local caching.
 - Prefer Azure ML or Databricks Model Serving for large model hosting.
 - Keep cloud tokens/secrets in environment variables or secret managers.
+- Provide the Gemini key through environment variables or platform secrets only; never commit real keys or generated private document indexes.
 - Azure Container Apps runbook (from zero account to public URL): `docs/AZURE_CONTAINER_APPS_DEPLOYMENT.md`
 - Databricks is not required for the first containerized web demo deployment.
 - Databricks App parity runbook: `docs/phase35_databricks_app_parity.md`

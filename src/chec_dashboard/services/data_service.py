@@ -11,10 +11,13 @@ from chec_dashboard.core.config import Settings
 from chec_dashboard.services import databricks_data_service
 from chec_dashboard.services.cache import CACHE, build_cache_key
 from chec_dashboard.services.map_service import (
+    ALL_CIRCUITS_LABEL,
+    describe_selected_circuits,
     filter_map_dataset,
     get_map_circuit_options,
     load_map_filter_options,
     load_map_dataset,
+    normalize_selected_circuits,
     render_base_map,
 )
 from chec_dashboard.services.probability_service import (
@@ -308,6 +311,7 @@ def get_map_payload(
     selected_circuit: str | None,
     selected_output: str | None,
     day: int,
+    selected_circuits: list[str] | None = None,
 ) -> dict[str, Any]:
     if _use_databricks_backend(settings):
         return databricks_data_service.get_map_payload(
@@ -315,6 +319,7 @@ def get_map_payload(
             selected_period=selected_period,
             selected_municipio=selected_municipio,
             selected_circuit=selected_circuit,
+            selected_circuits=selected_circuits,
             selected_output=selected_output,
             day=day,
         )
@@ -322,13 +327,24 @@ def get_map_payload(
         raise ValueError("selected_period and selected_municipio are required")
 
     safe_day = max(1, min(int(day), 31))
-    normalized_circuit = selected_circuit or "Todos"
+    normalized_circuits = normalize_selected_circuits(
+        selected_circuit=selected_circuit,
+        selected_circuits=selected_circuits,
+    )
+    circuit_label = describe_selected_circuits(normalized_circuits)
+    circuit_cache_token = (
+        ALL_CIRCUITS_LABEL
+        if normalized_circuits is None
+        else "SIN_CIRCUITOS"
+        if not normalized_circuits
+        else "|".join(sorted(normalized_circuits))
+    )
     normalized_output = selected_output or MAP_OUTPUT_OPTIONS[0]
     cache_key = build_cache_key(
         "map",
         selected_period,
         selected_municipio,
-        normalized_circuit,
+        circuit_cache_token,
         normalized_output,
         str(safe_day),
     )
@@ -342,6 +358,7 @@ def get_map_payload(
         selected_period=selected_period,
         selected_municipio=selected_municipio,
         selected_circuit=selected_circuit,
+        selected_circuits=selected_circuits,
         selected_output=selected_output,
     )
 
@@ -353,7 +370,7 @@ def get_map_payload(
         )
 
     status = (
-        f"Mapa cargado para municipio {selected_municipio}, circuito {normalized_circuit}, "
+        f"Mapa cargado para municipio {selected_municipio}, {circuit_label}, "
         f"salida {normalized_output}, período {selected_period}. Día actual: {safe_day}."
     )
 

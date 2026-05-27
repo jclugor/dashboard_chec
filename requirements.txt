@@ -11,3 +11,6 @@ fastapi
 uvicorn
 httpx
 pytest
+google-genai
+pypdf
+openpyxl

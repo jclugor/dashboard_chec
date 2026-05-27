@@ -20,6 +20,23 @@ def _to_int(value: str | None, default: int) -> int:
         return default
 
 
+def _env_value(name: str) -> str | None:
+    value = os.getenv(name)
+    if value is None:
+        return None
+    stripped = value.strip()
+    return stripped or None
+
+
+def _env_path(value: str) -> Path:
+    if value.startswith("dbfs:/"):
+        value = value.removeprefix("dbfs:")
+    if not value.startswith("/") and value.count(".") == 2:
+        catalog, schema, volume = value.split(".")
+        value = f"/Volumes/{catalog}/{schema}/{volume}"
+    return Path(value)
+
+
 @dataclass(frozen=True)
 class Settings:
     project_root: Path
@@ -51,6 +68,12 @@ class Settings:
     request_timeout_seconds: int
     inference_http_retries: int
     inference_retry_backoff_ms: int
+    chatbot_enabled: bool
+    gemini_api_key: str | None
+    gemini_model: str
+    chatbot_corpus_dir: Path
+    chatbot_retrieval_top_k: int
+    chatbot_max_context_chars: int
     max_summary_points: int
     max_map_html_chars: int
     api_startup_poll_seconds: int
@@ -66,6 +89,18 @@ def load_settings() -> Settings:
     data_dir = Path(os.getenv("DATA_DIR", str(default_data_dir))).resolve()
     output_dir = Path(os.getenv("OUTPUT_DIR", str(default_output_dir))).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
+    default_chatbot_corpus_dir = (data_dir / "chatbot_corpus").resolve()
+    explicit_chatbot_corpus_dir = _env_value("CHATBOT_CORPUS_DIR")
+    chatbot_corpus_volume_dir = _env_value("CHATBOT_CORPUS_VOLUME_DIR")
+    chatbot_corpus_subdir = (_env_value("CHATBOT_CORPUS_SUBDIR") or "chatbot_corpus").strip("/")
+    prefer_volume_corpus = os.getenv("ENVIRONMENT", "").strip().lower() == "databricks_app"
+    if chatbot_corpus_volume_dir and (prefer_volume_corpus or not explicit_chatbot_corpus_dir):
+        volume_root = _env_path(chatbot_corpus_volume_dir)
+        chatbot_corpus_dir = (volume_root / chatbot_corpus_subdir if chatbot_corpus_subdir else volume_root).resolve()
+    elif explicit_chatbot_corpus_dir:
+        chatbot_corpus_dir = Path(explicit_chatbot_corpus_dir).resolve()
+    else:
+        chatbot_corpus_dir = default_chatbot_corpus_dir
 
     api_host = os.getenv("API_HOST", "0.0.0.0")
     api_port = _to_int(os.getenv("API_PORT"), 8000)
@@ -100,6 +135,12 @@ def load_settings() -> Settings:
         request_timeout_seconds=_to_int(os.getenv("REQUEST_TIMEOUT_SECONDS"), 30),
         inference_http_retries=max(_to_int(os.getenv("INFERENCE_HTTP_RETRIES"), 1), 0),
         inference_retry_backoff_ms=max(_to_int(os.getenv("INFERENCE_RETRY_BACKOFF_MS"), 250), 0),
+        chatbot_enabled=_to_bool(os.getenv("CHATBOT_ENABLED"), False),
+        gemini_api_key=os.getenv("GEMINI_API_KEY") or None,
+        gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
+        chatbot_corpus_dir=chatbot_corpus_dir,
+        chatbot_retrieval_top_k=max(_to_int(os.getenv("CHATBOT_RETRIEVAL_TOP_K"), 5), 1),
+        chatbot_max_context_chars=max(_to_int(os.getenv("CHATBOT_MAX_CONTEXT_CHARS"), 12000), 1000),
         max_summary_points=max(_to_int(os.getenv("MAX_SUMMARY_POINTS"), 5000), 100),
         max_map_html_chars=max(_to_int(os.getenv("MAX_MAP_HTML_CHARS"), 8000000), 100000),
         api_startup_poll_seconds=max(_to_int(os.getenv("API_STARTUP_POLL_SECONDS"), 3), 1),

@@ -17,11 +17,30 @@ IGNORE_PATTERNS = shutil.ignore_patterns(
 
 
 def _render_app_yaml(template_text: str) -> str:
+    gemini_secret_resource_key = os.getenv("APP_GEMINI_SECRET_RESOURCE_KEY", "").strip()
+    if gemini_secret_resource_key:
+        gemini_api_key_env = (
+            "  - name: GEMINI_API_KEY\n"
+            f"    valueFrom: {gemini_secret_resource_key}"
+        )
+    else:
+        gemini_api_key_env = "  - name: GEMINI_API_KEY\n    value: \"\""
+
     replacements = {
         "__WAREHOUSE_ID__": os.getenv("APP_WAREHOUSE_ID", "4437a6195e05c59c"),
         "__CATALOG_NAME__": os.getenv("APP_CATALOG_NAME", "chec_dbx_demo"),
         "__GOLD_SCHEMA__": os.getenv("APP_GOLD_SCHEMA", "gold"),
         "__SILVER_SCHEMA__": os.getenv("APP_SILVER_SCHEMA", "silver"),
+        "__CHATBOT_ENABLED__": os.getenv("APP_CHATBOT_ENABLED", "false"),
+        "__CHATBOT_CORPUS_VOLUME_RESOURCE_KEY__": os.getenv(
+            "APP_CHATBOT_CORPUS_VOLUME_RESOURCE_KEY",
+            "chatbot_corpus_volume",
+        ),
+        "__CHATBOT_CORPUS_SUBDIR__": os.getenv("APP_CHATBOT_CORPUS_SUBDIR", "chatbot_corpus"),
+        "__CHATBOT_RETRIEVAL_TOP_K__": os.getenv("APP_CHATBOT_RETRIEVAL_TOP_K", "5"),
+        "__CHATBOT_MAX_CONTEXT_CHARS__": os.getenv("APP_CHATBOT_MAX_CONTEXT_CHARS", "12000"),
+        "__GEMINI_MODEL__": os.getenv("APP_GEMINI_MODEL", "gemini-2.5-flash"),
+        "__GEMINI_API_KEY_ENV__": gemini_api_key_env,
     }
     rendered = template_text
     for placeholder, value in replacements.items():

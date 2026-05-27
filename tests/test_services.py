@@ -5,6 +5,7 @@ import pandas as pd
 import pytest
 
 from chec_dashboard.core.config import settings as base_settings
+from chec_dashboard.services.databricks_data_service import _build_map_where_clause
 from chec_dashboard.services.data_service import (
     get_map_filter_metadata,
     get_map_payload,
@@ -270,6 +271,88 @@ def test_map_payload_filters_selected_circuit_and_hides_apoyos(
         "apoyos": 0,
         "events": 1,
     }
+
+
+def test_map_payload_filters_selected_circuit_list_and_empty_selection(
+    tmp_path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+    _write_map_files(data_dir)
+
+    settings = _test_settings(tmp_path, data_dir)
+    observed: dict[str, dict[str, int]] = {}
+
+    def fake_render(filtered, day: int) -> str:
+        observed[f"day-{day}"] = {
+            "trafos": len(filtered.trafos),
+            "switches": len(filtered.switches),
+            "redmt": len(filtered.redmt),
+            "apoyos": len(filtered.apoyos),
+            "events": len(filtered.events_by_day[day - 1]),
+        }
+        return "<html>map</html>"
+
+    monkeypatch.setattr("chec_dashboard.services.data_service.render_base_map", fake_render)
+
+    partial = get_map_payload(
+        settings=settings,
+        selected_period="2024-01",
+        selected_municipio="Manizales",
+        selected_circuit=None,
+        selected_circuits=["CKT-1", "CKT-2"],
+        selected_output="BASE",
+        day=5,
+    )
+    empty = get_map_payload(
+        settings=settings,
+        selected_period="2024-01",
+        selected_municipio="Manizales",
+        selected_circuit="CKT-1",
+        selected_circuits=[],
+        selected_output="BASE",
+        day=10,
+    )
+
+    assert "2 circuitos seleccionados" in partial["status_text"]
+    assert "sin circuitos seleccionados" in empty["status_text"]
+    assert observed["day-5"] == {
+        "trafos": 2,
+        "switches": 2,
+        "redmt": 2,
+        "apoyos": 0,
+        "events": 1,
+    }
+    assert observed["day-10"] == {
+        "trafos": 0,
+        "switches": 0,
+        "redmt": 0,
+        "apoyos": 0,
+        "events": 0,
+    }
+
+
+def test_databricks_map_where_clause_supports_multi_and_empty_circuits() -> None:
+    multi = _build_map_where_clause(
+        selected_period="2024-01",
+        selected_municipio="Manizales",
+        selected_circuits=["CKT-1", "CKT-2"],
+    )
+    empty = _build_map_where_clause(
+        selected_period="2024-01",
+        selected_municipio="Manizales",
+        selected_circuits=[],
+    )
+    all_circuits = _build_map_where_clause(
+        selected_period="2024-01",
+        selected_municipio="Manizales",
+        selected_circuits=None,
+    )
+
+    assert "circuito IN ('CKT-1', 'CKT-2')" in multi
+    assert "1 = 0" in empty
+    assert "circuito" not in all_circuits
 
 
 def test_probability_payload_includes_data_uri(tmp_path) -> None:

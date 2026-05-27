@@ -22,6 +22,22 @@ def _get_map_callback():
     return getattr(callback, "__wrapped__", callback)
 
 
+def _get_circuit_callback():
+    app = create_app()
+    callback_key = next(
+        key
+        for key in app.callback_map
+        if "map-select-circuit.options" in key
+        and "map-select-all-circuits.disabled" in key
+    )
+    callback = app.callback_map[callback_key]["callback"]
+    return getattr(callback, "__wrapped__", callback)
+
+
+def _circuit_options(*values: str) -> list[dict[str, str]]:
+    return [{"label": value, "value": value} for value in values]
+
+
 def _session_state(**overrides):
     state = map_page._initial_map_session_state()
     state.update(overrides)
@@ -39,7 +55,8 @@ def test_map_ok_with_missing_filters_returns_visible_validation(monkeypatch: pyt
         1,
         None,
         None,
-        "Todos",
+        [],
+        [],
         "BASE",
         1,
         31,
@@ -66,13 +83,13 @@ def test_map_ok_retries_transient_failure_then_renders(monkeypatch: pytest.Monke
         *,
         selected_period: str,
         selected_municipio: str,
-        selected_circuit: str | None,
+        selected_circuits: list[str] | None,
         selected_output: str | None,
         day: int,
     ):
         _ = selected_period
         _ = selected_municipio
-        _ = selected_circuit
+        assert selected_circuits is None
         _ = selected_output
         _ = day
         calls["count"] += 1
@@ -92,7 +109,8 @@ def test_map_ok_retries_transient_failure_then_renders(monkeypatch: pytest.Monke
         1,
         "2024-01",
         "Manizales",
-        "Todos",
+        ["CKT-1", "CKT-2"],
+        _circuit_options("CKT-1", "CKT-2"),
         "BASE",
         1,
         31,
@@ -117,13 +135,13 @@ def test_map_ok_repeated_transient_failure_keeps_previous_map(monkeypatch: pytes
         *,
         selected_period: str,
         selected_municipio: str,
-        selected_circuit: str | None,
+        selected_circuits: list[str] | None,
         selected_output: str | None,
         day: int,
     ):
         _ = selected_period
         _ = selected_municipio
-        _ = selected_circuit
+        assert selected_circuits is None
         _ = selected_output
         _ = day
         raise RuntimeError("API request failed: Transient API status 503")
@@ -137,7 +155,8 @@ def test_map_ok_repeated_transient_failure_keeps_previous_map(monkeypatch: pytes
         1,
         "2024-01",
         "Manizales",
-        "Todos",
+        ["CKT-1", "CKT-2"],
+        _circuit_options("CKT-1", "CKT-2"),
         "BASE",
         1,
         31,
@@ -146,9 +165,11 @@ def test_map_ok_repeated_transient_failure_keeps_previous_map(monkeypatch: pytes
             current_day=5,
             selected_date="2023-12",
             selected_municipio="Villamaria",
+            selected_circuits=["CKT-1", "CKT-2"],
             last_successful_render={
                 "selected_date": "2023-12",
                 "selected_municipio": "Villamaria",
+                "selected_circuits": ["CKT-1", "CKT-2"],
                 "current_day": 5,
             },
         ),
@@ -173,14 +194,15 @@ def test_map_confirm_click_not_globally_suppressed_across_calls(monkeypatch: pyt
         *,
         selected_period: str,
         selected_municipio: str,
-        selected_circuit: str | None,
+        selected_circuits: list[str] | None,
         selected_output: str | None,
         day: int,
     ):
         calls["count"] += 1
+        circuit_label = "Todos" if selected_circuits is None else ",".join(selected_circuits)
         return {
             "map_html": (
-                f"<html>{selected_period}-{selected_municipio}-{selected_circuit}-{selected_output}-d{day}</html>"
+                f"<html>{selected_period}-{selected_municipio}-{circuit_label}-{selected_output}-d{day}</html>"
             ),
             "current_day": day,
         }
@@ -194,7 +216,8 @@ def test_map_confirm_click_not_globally_suppressed_across_calls(monkeypatch: pyt
         1,
         "2024-01",
         "Manizales",
-        "Todos",
+        ["CKT-1", "CKT-2"],
+        _circuit_options("CKT-1", "CKT-2"),
         "BASE",
         1,
         31,
@@ -207,7 +230,8 @@ def test_map_confirm_click_not_globally_suppressed_across_calls(monkeypatch: pyt
         1,
         "2024-02",
         "Neira",
-        "Circuito 7",
+        ["Circuito 7"],
+        _circuit_options("Circuito 7", "Circuito 8"),
         "BASE",
         1,
         31,
@@ -230,7 +254,8 @@ def test_map_slider_boundary_click_shows_visible_feedback(monkeypatch: pytest.Mo
         31,
         "2024-01",
         "Manizales",
-        "Todos",
+        ["CKT-1", "CKT-2"],
+        _circuit_options("CKT-1", "CKT-2"),
         "BASE",
         1,
         31,
@@ -239,9 +264,11 @@ def test_map_slider_boundary_click_shows_visible_feedback(monkeypatch: pytest.Mo
             current_day=31,
             selected_date="2024-01",
             selected_municipio="Manizales",
+            selected_circuits=["CKT-1", "CKT-2"],
             last_successful_render={
                 "selected_date": "2024-01",
                 "selected_municipio": "Manizales",
+                "selected_circuits": ["CKT-1", "CKT-2"],
                 "current_day": 31,
             },
         ),
@@ -250,3 +277,66 @@ def test_map_slider_boundary_click_shows_visible_feedback(monkeypatch: pytest.Mo
     assert result[0] is no_update
     assert "Ya estás en el límite del rango" in result[2]
     assert result[1] == 31
+
+
+def test_map_circuit_options_selects_all_real_circuits(monkeypatch: pytest.MonkeyPatch) -> None:
+    callback = _get_circuit_callback()
+    monkeypatch.setattr(map_page, "ctx", SimpleNamespace(triggered_id="map-select-date"))
+    monkeypatch.setattr(
+        map_page,
+        "fetch_map_circuit_options",
+        lambda **_: {
+            "circuits": ["Todos", "CKT-1", "CKT-2"],
+            "outputs": ["BASE"],
+            "default_output": "BASE",
+        },
+    )
+
+    result = callback(
+        "2024-01",
+        "Manizales",
+        0,
+        0,
+        [],
+        _session_state(),
+    )
+
+    assert result[0] == _circuit_options("CKT-1", "CKT-2")
+    assert result[1] == ["CKT-1", "CKT-2"]
+    assert result[4] is False
+    assert result[5] is False
+    assert "todos los circuitos seleccionados" in result[6]
+    assert result[7]["selected_circuits"] == ["CKT-1", "CKT-2"]
+
+
+def test_map_circuit_buttons_select_all_and_clear(monkeypatch: pytest.MonkeyPatch) -> None:
+    callback = _get_circuit_callback()
+    options = _circuit_options("CKT-1", "CKT-2")
+
+    monkeypatch.setattr(map_page, "ctx", SimpleNamespace(triggered_id="map-clear-circuits"))
+    cleared = callback(
+        "2024-01",
+        "Manizales",
+        0,
+        1,
+        options,
+        _session_state(selected_circuits=["CKT-1", "CKT-2"]),
+    )
+
+    assert cleared[1] == []
+    assert "Selección limpia" in cleared[6]
+    assert cleared[7]["selected_circuits"] == []
+
+    monkeypatch.setattr(map_page, "ctx", SimpleNamespace(triggered_id="map-select-all-circuits"))
+    selected = callback(
+        "2024-01",
+        "Manizales",
+        1,
+        1,
+        options,
+        cleared[7],
+    )
+
+    assert selected[1] == ["CKT-1", "CKT-2"]
+    assert "Todos los circuitos" in selected[6]
+    assert selected[7]["selected_circuits"] == ["CKT-1", "CKT-2"]

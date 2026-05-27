@@ -19,7 +19,13 @@ from chec_dashboard.services.databricks_sql import (
     sql_literal,
     sql_table_name,
 )
-from chec_dashboard.services.map_service import ALL_CIRCUITS_LABEL, FilteredMapDataset, render_base_map
+from chec_dashboard.services.map_service import (
+    ALL_CIRCUITS_LABEL,
+    FilteredMapDataset,
+    describe_selected_circuits,
+    normalize_selected_circuits,
+    render_base_map,
+)
 from chec_dashboard.services.probability_service import (
     criteria_options,
     generate_probability_graph,
@@ -702,14 +708,20 @@ def _build_map_where_clause(
     *,
     selected_period: str,
     selected_municipio: str,
-    selected_circuit: str | None,
+    selected_circuits: list[str] | None,
 ) -> str:
     clauses = [
         f"map_period = {sql_literal(selected_period)}",
         f"municipio = {sql_literal(selected_municipio)}",
     ]
-    if selected_circuit and selected_circuit != ALL_CIRCUITS_LABEL:
-        clauses.append(f"circuito = {sql_literal(selected_circuit)}")
+    if selected_circuits is not None:
+        if not selected_circuits:
+            clauses.append("1 = 0")
+        elif len(selected_circuits) == 1:
+            clauses.append(f"circuito = {sql_literal(selected_circuits[0])}")
+        else:
+            literals = ", ".join(sql_literal(circuit) for circuit in selected_circuits)
+            clauses.append(f"circuito IN ({literals})")
     return " AND ".join(clauses)
 
 
@@ -720,6 +732,7 @@ def get_map_payload(
     selected_circuit: str | None,
     selected_output: str | None,
     day: int,
+    selected_circuits: list[str] | None = None,
 ) -> dict[str, Any]:
     if not selected_period or not selected_municipio:
         raise ValueError("selected_period and selected_municipio are required")
@@ -728,14 +741,25 @@ def get_map_payload(
 
     normalized_period = _normalize_period(selected_period)
     safe_day = max(1, min(int(day), 31))
-    normalized_circuit = selected_circuit or ALL_CIRCUITS_LABEL
+    normalized_circuits = normalize_selected_circuits(
+        selected_circuit=selected_circuit,
+        selected_circuits=selected_circuits,
+    )
+    circuit_label = describe_selected_circuits(normalized_circuits)
+    circuit_cache_token = (
+        ALL_CIRCUITS_LABEL
+        if normalized_circuits is None
+        else "SIN_CIRCUITOS"
+        if not normalized_circuits
+        else "|".join(sorted(normalized_circuits))
+    )
     normalized_output = selected_output or MAP_OUTPUT_OPTIONS[0]
     cache_key = build_cache_key(
         "dbx",
         "map",
         normalized_period,
         selected_municipio,
-        normalized_circuit,
+        circuit_cache_token,
         normalized_output,
         str(safe_day),
     )
@@ -746,7 +770,7 @@ def get_map_payload(
     where_clause = _build_map_where_clause(
         selected_period=normalized_period,
         selected_municipio=selected_municipio,
-        selected_circuit=selected_circuit,
+        selected_circuits=normalized_circuits,
     )
 
     points_table = _gold_table(settings, "gold_map_points")
@@ -761,7 +785,7 @@ def get_map_payload(
         WHERE point_kind = 'asset' AND {where_clause}
         """
     )
-    if selected_circuit and selected_circuit != ALL_CIRCUITS_LABEL:
+    if normalized_circuits is not None:
         apoyos = asset_points.iloc[0:0].copy()
     else:
         apoyos = asset_points[asset_points["asset_family"] == "Supports"].copy()
@@ -808,7 +832,7 @@ def get_map_payload(
         "map_html": map_html,
         "current_day": safe_day,
         "status_text": (
-            f"Mapa cargado para municipio {selected_municipio}, circuito {normalized_circuit}, "
+            f"Mapa cargado para municipio {selected_municipio}, {circuit_label}, "
             f"salida {normalized_output}, período {normalized_period}. Día actual: {safe_day}."
         ),
     }

@@ -19,6 +19,11 @@ from chec_dashboard.services.data_service import (
     get_summary_metadata,
     get_summary_payload,
 )
+from chec_dashboard.services.chatbot_service import (
+    assess_chatbot_context,
+    get_chatbot_context_options,
+    get_chatbot_status,
+)
 
 
 TRANSIENT_STARTUP_STATUS_CODES = {502, 503, 504}
@@ -314,6 +319,7 @@ def fetch_map_render(
     day: int,
     *,
     selected_circuit: str | None = None,
+    selected_circuits: list[str] | None = None,
     selected_output: str | None = None,
 ) -> dict[str, Any]:
     if _use_inproc_transport():
@@ -322,6 +328,7 @@ def fetch_map_render(
             selected_period=selected_period,
             selected_municipio=selected_municipio,
             selected_circuit=selected_circuit,
+            selected_circuits=selected_circuits,
             selected_output=selected_output,
             day=day,
         )
@@ -334,6 +341,7 @@ def fetch_map_render(
                 "selected_period": selected_period,
                 "selected_municipio": selected_municipio,
                 "selected_circuit": selected_circuit,
+                "selected_circuits": selected_circuits,
                 "selected_output": selected_output,
                 "day": day,
             },
@@ -399,3 +407,63 @@ def fetch_probability_data(
         },
     )
     return payload.get("probability", {})
+
+
+def fetch_chatbot_status() -> dict[str, Any]:
+    if _use_inproc_transport():
+        return get_chatbot_status(settings)
+    return _request_json("GET", "/chatbot/status")
+
+
+def fetch_chatbot_context_options(
+    *,
+    context_kind: str,
+    selected_period: str,
+    selected_municipio: str,
+    selected_circuits: list[str] | None = None,
+    search: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    if _use_inproc_transport():
+        return get_chatbot_context_options(
+            settings=settings,
+            context_kind=context_kind,
+            selected_period=selected_period,
+            selected_municipio=selected_municipio,
+            selected_circuits=selected_circuits,
+            search=search,
+            limit=limit,
+        )
+    return _request_json(
+        "POST",
+        "/chatbot/context-options",
+        json_body={
+            "context_kind": context_kind,
+            "selected_period": selected_period,
+            "selected_municipio": selected_municipio,
+            "selected_circuits": selected_circuits,
+            "search": search,
+            "limit": limit,
+        },
+    )
+
+
+def fetch_chatbot_assessment(
+    *,
+    selected_context: dict[str, Any],
+    question: str | None = None,
+) -> dict[str, Any]:
+    if _use_inproc_transport():
+        return assess_chatbot_context(
+            settings=settings,
+            selected_context=selected_context,
+            question=question,
+        )
+    return _request_json(
+        "POST",
+        "/chatbot/assess",
+        json_body={
+            "selected_context": selected_context,
+            "question": question,
+        },
+    )

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -262,6 +265,11 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
 
     deploy_app_script = _read(DATABRICKS_DIR / "scripts" / "deploy_phase35_databricks_app.sh")
     assert "databricks apps create" in deploy_app_script
+    assert "databricks apps update" in deploy_app_script
+    assert "APP_CHATBOT_CORPUS_VOLUME_RESOURCE_KEY" in deploy_app_script
+    assert "READ_VOLUME" in deploy_app_script
+    assert "databricks workspace delete" in deploy_app_script
+    assert "--recursive" in deploy_app_script
     assert "databricks workspace import-dir" in deploy_app_script
     assert "databricks apps deploy" in deploy_app_script
     assert "SNAPSHOT" in deploy_app_script
@@ -285,6 +293,9 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "DATA_BACKEND" in app_template
     assert "API_TRANSPORT" in app_template
     assert "DATABRICKS_SQL_WAREHOUSE_ID" in app_template
+    assert "CHATBOT_CORPUS_DIR" in app_template
+    assert "CHATBOT_CORPUS_VOLUME_DIR" in app_template
+    assert "valueFrom: \"__CHATBOT_CORPUS_VOLUME_RESOURCE_KEY__\"" in app_template
     assert "gunicorn" in app_template
     assert "- sh" in app_template
     assert '- -c' in app_template
@@ -350,3 +361,32 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "GRANT_REVIEWER_NOTEBOOK_ACCESS=true" in readme_text
     assert "GRANT_REVIEWER_DATA_ACCESS=true" in readme_text
     assert "workspace `users` group" in readme_text
+
+
+def test_phase35_app_staging_uses_chatbot_volume_resource() -> None:
+    env = os.environ.copy()
+    env.update(
+        {
+            "APP_CHATBOT_ENABLED": "true",
+            "APP_CHATBOT_CORPUS_VOLUME_RESOURCE_KEY": "chatbot_corpus_volume",
+            "APP_CHATBOT_CORPUS_SUBDIR": "chatbot_corpus",
+        }
+    )
+    subprocess.run(
+        [sys.executable, "databricks/scripts/stage_phase35_databricks_app.py"],
+        cwd=ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    build_root = DATABRICKS_DIR / "build" / "chec_dash_parity"
+    app_yaml = _read(build_root / "app.yaml")
+
+    assert "CHATBOT_CORPUS_VOLUME_DIR" in app_yaml
+    assert "CHATBOT_CORPUS_DIR" in app_yaml
+    assert "valueFrom: \"chatbot_corpus_volume\"" in app_yaml
+    assert "CHATBOT_CORPUS_SUBDIR" in app_yaml
+    assert "value: \"chatbot_corpus\"" in app_yaml
+    assert not (build_root / "data" / "chatbot_corpus").exists()

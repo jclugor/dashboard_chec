@@ -18,6 +18,21 @@ env:
     value: "true"
   - name: MODEL_BACKEND
     value: mock
+  - name: CHATBOT_ENABLED
+    value: "__CHATBOT_ENABLED__"
+  - name: CHATBOT_CORPUS_DIR
+    value: ""
+  - name: CHATBOT_CORPUS_VOLUME_DIR
+    valueFrom: "__CHATBOT_CORPUS_VOLUME_RESOURCE_KEY__"
+  - name: CHATBOT_CORPUS_SUBDIR
+    value: "__CHATBOT_CORPUS_SUBDIR__"
+  - name: CHATBOT_RETRIEVAL_TOP_K
+    value: "__CHATBOT_RETRIEVAL_TOP_K__"
+  - name: CHATBOT_MAX_CONTEXT_CHARS
+    value: "__CHATBOT_MAX_CONTEXT_CHARS__"
+  - name: GEMINI_MODEL
+    value: "__GEMINI_MODEL__"
+__GEMINI_API_KEY_ENV__
   - name: DATABRICKS_SQL_WAREHOUSE_ID
     value: __WAREHOUSE_ID__
   - name: DATABRICKS_CATALOG_NAME

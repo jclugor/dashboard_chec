@@ -158,6 +158,41 @@ def _is_all_circuit(value: str | None) -> bool:
     return normalized is None or normalized.casefold() == ALL_CIRCUITS_LABEL.casefold()
 
 
+def normalize_selected_circuits(
+    *,
+    selected_circuit: str | None = None,
+    selected_circuits: list[str] | tuple[str, ...] | None = None,
+) -> list[str] | None:
+    if selected_circuits is None:
+        normalized = _normalize_circuit_value(selected_circuit)
+        if _is_all_circuit(normalized):
+            return None
+        return [normalized] if normalized else None
+
+    normalized_values: list[str] = []
+    seen: set[str] = set()
+    for value in selected_circuits:
+        normalized = _normalize_circuit_value(value)
+        if normalized is None:
+            continue
+        if normalized.casefold() == ALL_CIRCUITS_LABEL.casefold():
+            return None
+        if normalized not in seen:
+            normalized_values.append(normalized)
+            seen.add(normalized)
+    return normalized_values
+
+
+def describe_selected_circuits(selected_circuits: list[str] | None) -> str:
+    if selected_circuits is None:
+        return "todos los circuitos"
+    if not selected_circuits:
+        return "sin circuitos seleccionados"
+    if len(selected_circuits) == 1:
+        return f"circuito {selected_circuits[0]}"
+    return f"{len(selected_circuits)} circuitos seleccionados"
+
+
 def get_map_circuit_options(
     dataset: MapDataset,
     *,
@@ -206,13 +241,17 @@ def filter_map_dataset(
     selected_period: str,
     selected_municipio: str,
     selected_circuit: str | None = None,
+    selected_circuits: list[str] | tuple[str, ...] | None = None,
     selected_output: str | None = None,
 ) -> FilteredMapDataset:
     if selected_output not in {None, "", "BASE"}:
         raise ValueError(f"Salida de mapa no soportada: {selected_output}")
 
     target_year, target_month = _parse_period(selected_period)
-    selected_circuit = _normalize_circuit_value(selected_circuit)
+    normalized_circuits = normalize_selected_circuits(
+        selected_circuit=selected_circuit,
+        selected_circuits=selected_circuits,
+    )
 
     def _filter_asset(frame: pd.DataFrame) -> pd.DataFrame:
         filtered = frame.loc[
@@ -223,9 +262,11 @@ def filter_map_dataset(
                 selected_municipio=selected_municipio,
             )
         ]
-        if _is_all_circuit(selected_circuit) or "FPARENT" not in filtered.columns:
+        if normalized_circuits is None or "FPARENT" not in filtered.columns:
             return filtered
-        return filtered.loc[filtered["FPARENT"].astype(str).str.strip() == selected_circuit]
+        if not normalized_circuits:
+            return filtered.iloc[0:0].copy()
+        return filtered.loc[filtered["FPARENT"].astype(str).str.strip().isin(normalized_circuits)]
 
     filtered_events = dataset.super_eventos.loc[
         _events_period_municipio_mask(
@@ -235,13 +276,16 @@ def filter_map_dataset(
             selected_municipio=selected_municipio,
         )
     ]
-    if not _is_all_circuit(selected_circuit) and "cto_equi_ope" in filtered_events.columns:
-        filtered_events = filtered_events.loc[
-            filtered_events["cto_equi_ope"].astype(str).str.strip() == selected_circuit
-        ]
+    if normalized_circuits is not None and "cto_equi_ope" in filtered_events.columns:
+        if not normalized_circuits:
+            filtered_events = filtered_events.iloc[0:0].copy()
+        else:
+            filtered_events = filtered_events.loc[
+                filtered_events["cto_equi_ope"].astype(str).str.strip().isin(normalized_circuits)
+            ]
 
     filtered_apoyos = _filter_asset(dataset.apoyos)
-    if not _is_all_circuit(selected_circuit):
+    if normalized_circuits is not None:
         filtered_apoyos = filtered_apoyos.iloc[0:0].copy()
 
     events_by_day: list[pd.DataFrame] = []

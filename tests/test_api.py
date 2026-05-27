@@ -14,7 +14,8 @@ from chec_dashboard.services.inference_service import (
 @pytest.fixture()
 def client() -> TestClient:
     app = create_api_app()
-    return TestClient(app)
+    with TestClient(app) as test_client:
+        yield test_client
 
 
 class _FakeInferenceService:
@@ -162,9 +163,15 @@ def test_post_data_summary_route(client: TestClient, monkeypatch: pytest.MonkeyP
 
 
 def test_post_data_map_route(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_get_map_payload(**kwargs):
+        captured.update(kwargs)
+        return {"map_html": "<html></html>", "current_day": 2, "status_text": "ok"}
+
     monkeypatch.setattr(
         "chec_dashboard.api.routes.data.get_map_payload",
-        lambda **_: {"map_html": "<html></html>", "current_day": 2, "status_text": "ok"},
+        fake_get_map_payload,
     )
 
     response = client.post(
@@ -175,6 +182,7 @@ def test_post_data_map_route(client: TestClient, monkeypatch: pytest.MonkeyPatch
                 "selected_period": "2024-01",
                 "selected_municipio": "Manizales",
                 "selected_circuit": "Todos",
+                "selected_circuits": ["CKT-1", "CKT-2"],
                 "selected_output": "BASE",
                 "day": 2,
             },
@@ -184,6 +192,7 @@ def test_post_data_map_route(client: TestClient, monkeypatch: pytest.MonkeyPatch
     payload = response.json()
     assert payload["mode"] == "map"
     assert payload["map"]["current_day"] == 2
+    assert captured["selected_circuits"] == ["CKT-1", "CKT-2"]
 
 
 

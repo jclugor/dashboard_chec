@@ -13,6 +13,7 @@ class MapDataPayload(APIRequestModel):
     selected_period: str
     selected_municipio: str
     selected_circuit: str | None = None
+    selected_circuits: list[str] | None = None
     selected_output: str | None = None
     day: int = Field(default=1, ge=1, le=31)
 
