@@ -45,5 +45,7 @@ def chatbot_assess(request: ChatbotAssessmentRequest) -> ChatbotAssessmentRespon
         settings=settings,
         selected_context=request.selected_context,
         question=request.question,
+        briefing_type=request.briefing_type,
+        question_id=request.question_id,
     )
     return ChatbotAssessmentResponse(**payload)

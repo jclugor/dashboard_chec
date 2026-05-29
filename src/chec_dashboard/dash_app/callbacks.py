@@ -268,6 +268,8 @@ def _register_local_contract_routes(app: Dash, settings: Settings) -> None:
                 settings=settings,
                 selected_context=payload.get("selected_context") or {},
                 question=payload.get("question"),
+                briefing_type=payload.get("briefing_type") or "reliability",
+                question_id=payload.get("question_id"),
             )
             return jsonify(response_payload), 200
         except Exception as exc:

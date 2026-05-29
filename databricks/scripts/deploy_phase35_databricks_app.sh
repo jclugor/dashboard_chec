@@ -13,6 +13,12 @@ BUILD_APP_DIR="${DATABRICKS_DIR}/build/chec_dash_parity"
 APP_CHATBOT_CORPUS_VOLUME_RESOURCE_KEY="${APP_CHATBOT_CORPUS_VOLUME_RESOURCE_KEY:-chatbot_corpus_volume}"
 APP_CHATBOT_CORPUS_VOLUME_FULL_NAME="${APP_CHATBOT_CORPUS_VOLUME_FULL_NAME:-${APP_CATALOG_NAME:-chec_dbx_demo}.raw.${APP_SOURCE_VOLUME_NAME:-source_files}}"
 APP_CHATBOT_CORPUS_VOLUME_DESCRIPTION="${APP_CHATBOT_CORPUS_VOLUME_DESCRIPTION:-Read-only CHEC chatbot corpus and source documents volume}"
+APP_GEMINI_SECRET_RESOURCE_KEY="${APP_GEMINI_SECRET_RESOURCE_KEY:-gemini_api_key}"
+APP_GEMINI_SECRET_SCOPE="${APP_GEMINI_SECRET_SCOPE:-chec_dash_parity}"
+APP_GEMINI_SECRET_KEY="${APP_GEMINI_SECRET_KEY:-gemini_api_key}"
+APP_GEMINI_SECRET_DESCRIPTION="${APP_GEMINI_SECRET_DESCRIPTION:-Gemini API key for the CHEC technical chatbot}"
+
+export APP_GEMINI_SECRET_RESOURCE_KEY
 
 cd "${REPO_ROOT}"
 ./.venv/bin/python databricks/scripts/stage_phase35_databricks_app.py
@@ -29,19 +35,41 @@ APP_RESOURCE_UPDATE_JSON="$(jq -c \
   --arg resource_key "${APP_CHATBOT_CORPUS_VOLUME_RESOURCE_KEY}" \
   --arg resource_description "${APP_CHATBOT_CORPUS_VOLUME_DESCRIPTION}" \
   --arg volume_full_name "${APP_CHATBOT_CORPUS_VOLUME_FULL_NAME}" \
+  --arg gemini_resource_key "${APP_GEMINI_SECRET_RESOURCE_KEY}" \
+  --arg gemini_resource_description "${APP_GEMINI_SECRET_DESCRIPTION}" \
+  --arg gemini_secret_scope "${APP_GEMINI_SECRET_SCOPE}" \
+  --arg gemini_secret_key "${APP_GEMINI_SECRET_KEY}" \
   '{
     description: $description,
-    resources: (((.resources // []) | map(select(.name != $resource_key))) + [{
-      name: $resource_key,
-      description: $resource_description,
-      uc_securable: {
-        securable_type: "VOLUME",
-        securable_full_name: $volume_full_name,
-        permission: "READ_VOLUME"
-      }
-    }])
+    resources: (
+      ((.resources // []) | map(select(.name != $resource_key and .name != $gemini_resource_key)))
+      + [{
+        name: $resource_key,
+        description: $resource_description,
+        uc_securable: {
+          securable_type: "VOLUME",
+          securable_full_name: $volume_full_name,
+          permission: "READ_VOLUME"
+        }
+      }]
+      + (if ($gemini_resource_key != "" and $gemini_secret_scope != "" and $gemini_secret_key != "") then [{
+        name: $gemini_resource_key,
+        description: $gemini_resource_description,
+        secret: {
+          scope: $gemini_secret_scope,
+          key: $gemini_secret_key,
+          permission: "READ"
+        }
+      }] else [] end)
+    )
   }' <<< "${APP_JSON}")"
 databricks apps update "${APP_NAME}" --json "${APP_RESOURCE_UPDATE_JSON}" >/dev/null
+
+APP_JSON="$(databricks apps get "${APP_NAME}" -o json)"
+COMPUTE_STATE="$(jq -r '.compute_status.state // empty' <<< "${APP_JSON}")"
+if [[ "${COMPUTE_STATE}" != "ACTIVE" ]]; then
+  databricks apps start "${APP_NAME}" >/dev/null
+fi
 
 databricks workspace delete "${WORKSPACE_SOURCE_PATH}" --recursive >/dev/null 2>&1 || true
 databricks workspace import-dir "${BUILD_APP_DIR}" "${WORKSPACE_SOURCE_PATH}" --overwrite

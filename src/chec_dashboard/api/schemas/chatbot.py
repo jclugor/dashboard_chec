@@ -20,7 +20,7 @@ class ChatbotStatusResponse(ChatbotAPIModel):
 
 
 class ChatbotContextOptionsRequest(ChatbotAPIModel):
-    context_kind: Literal["event", "asset"]
+    context_kind: Literal["view", "event", "asset"]
     selected_period: str
     selected_municipio: str
     selected_circuits: list[str] | None = None
@@ -31,7 +31,7 @@ class ChatbotContextOptionsRequest(ChatbotAPIModel):
 class ChatbotContextItem(ChatbotAPIModel):
     id: str
     label: str
-    kind: Literal["event", "asset"]
+    kind: Literal["view", "event", "asset"]
     summary: str
     context: dict[str, Any] = Field(default_factory=dict)
 
@@ -53,6 +53,8 @@ class ChatbotCitation(ChatbotAPIModel):
 class ChatbotAssessmentRequest(ChatbotAPIModel):
     selected_context: dict[str, Any] = Field(default_factory=dict)
     question: str | None = None
+    briefing_type: Literal["reliability", "compliance", "maintenance"] = "reliability"
+    question_id: str | None = None
 
 
 class ChatbotAssessmentResponse(ChatbotAPIModel):
@@ -60,3 +62,4 @@ class ChatbotAssessmentResponse(ChatbotAPIModel):
     citations: list[ChatbotCitation] = Field(default_factory=list)
     status_text: str
     ready: bool
+    briefing_type: Literal["reliability", "compliance", "maintenance"] = "reliability"

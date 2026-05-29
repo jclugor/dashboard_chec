@@ -44,7 +44,7 @@ The project now supports two runtime patterns:
 - Map explorer for circuits, network elements, and event layers.
 - Probability distributions for interruption event families.
 - SAIDI/SAIFI summary by circuit and date window.
-- Technical Chatbot / RAG Assessment. This restored chatbot tab is intended to be a contextual Spanish-language assistant, not a general open-ended chat. The user will select an event or a specific network element, and the assistant will receive structured context such as event or asset metadata, indicator values, circuit, municipio, time window, and external-condition features. It will retrieve relevant technical requirements from indexed documents, then explain the observed state, requirement compliance, likely external or operational drivers behind indicator values, and recommended follow-up checks.
+- Asistente técnico con recuperación documental. Esta pestaña funciona como una herramienta de análisis guiado en español, no como un chat general de respuesta abierta. La persona usuaria puede analizar una vista filtrada del tablero, un evento específico o un elemento de red desde confiabilidad, cumplimiento basado en evidencia y mantenimiento. El asistente recibe contexto estructurado como resúmenes de indicadores, metadatos de eventos o activos, circuito, municipio, ventana temporal y variables de condiciones externas. Recupera requisitos técnicos relevantes desde documentos indexados y explica el estado observado, banderas de evidencia, posibles factores externos u operativos y revisiones recomendadas.
 
 ## Project Structure
 
@@ -129,6 +129,16 @@ Payload guardrails:
 - `GET /chatbot/status`: reports feature, Gemini, and corpus readiness.
 - `POST /chatbot/context-options`: returns selectable events or network elements from the dashboard data context.
 - `POST /chatbot/assess`: retrieves technical document chunks and, when Gemini is configured, generates the Spanish technical assessment.
+
+## Chatbot Data Roadmap
+
+La primera implementación del asistente usa solo los datos existentes del tablero CHEC y el corpus técnico desplegado. Buenas fuentes futuras para análisis más ricos de confiabilidad y cumplimiento en Colombia incluyen:
+- SUI/Superservicios for official utility-reported quality data and benchmarking.
+- CREG and MinEnergía for versioned regulatory updates, especially CREG 015/2018 and RETIE Resolución 40117 of April 2, 2024.
+- IDEAM DHIME for official hydrometeorological station series.
+- XM/SIMEM/Sinergox for SIN/MEM operating context, demand, hydrology, restrictions, and market signals.
+- IGAC/DANE for official boundaries, rural/urban context, terrain, cartography, and socioeconomic overlays.
+- SGC/UNGRD for landslide, hazard, and emergency-event overlays in mountainous service areas.
 
 ## Local Setup
 

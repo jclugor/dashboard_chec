@@ -452,12 +452,16 @@ def fetch_chatbot_assessment(
     *,
     selected_context: dict[str, Any],
     question: str | None = None,
+    briefing_type: str = "reliability",
+    question_id: str | None = None,
 ) -> dict[str, Any]:
     if _use_inproc_transport():
         return assess_chatbot_context(
             settings=settings,
             selected_context=selected_context,
             question=question,
+            briefing_type=briefing_type,
+            question_id=question_id,
         )
     return _request_json(
         "POST",
@@ -465,5 +469,7 @@ def fetch_chatbot_assessment(
         json_body={
             "selected_context": selected_context,
             "question": question,
+            "briefing_type": briefing_type,
+            "question_id": question_id,
         },
     )

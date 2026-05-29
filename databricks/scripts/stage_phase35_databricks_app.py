@@ -21,7 +21,7 @@ def _render_app_yaml(template_text: str) -> str:
     if gemini_secret_resource_key:
         gemini_api_key_env = (
             "  - name: GEMINI_API_KEY\n"
-            f"    valueFrom: {gemini_secret_resource_key}"
+            f"    valueFrom: \"{gemini_secret_resource_key}\""
         )
     else:
         gemini_api_key_env = "  - name: GEMINI_API_KEY\n    value: \"\""

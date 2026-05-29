@@ -71,6 +71,15 @@ def test_chatbot_search_context_callback_preserves_items(monkeypatch: pytest.Mon
     assert result[3][0]["context"]["equipo_ope"] == "EQ-1"
 
 
+def test_chatbot_guided_questions_switch_by_analysis_type() -> None:
+    callback = _callback_with_output("chatbot-question-id.options")
+
+    result = callback("maintenance")
+
+    assert result[1] == "maintenance_field_checks"
+    assert any("revisión de campo" in option["label"] for option in result[0])
+
+
 def test_chatbot_select_context_summary_returns_store() -> None:
     callback = _callback_with_output("chatbot-context-summary.children")
     result = callback(

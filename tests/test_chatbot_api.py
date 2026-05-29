@@ -1,20 +1,26 @@
 from __future__ import annotations
 
-from fastapi.testclient import TestClient
 import pytest
 
-from chec_dashboard.api.main import create_api_app
+from chec_dashboard.api.routes import chatbot as chatbot_routes
+from chec_dashboard.api.schemas.chatbot import ChatbotAssessmentRequest, ChatbotContextOptionsRequest
 
 
-@pytest.fixture()
-def client() -> TestClient:
-    with TestClient(create_api_app()) as test_client:
-        yield test_client
+@pytest.mark.parametrize("context_kind", ["view", "event", "asset"])
+def test_chatbot_context_schema_accepts_supported_kinds(context_kind: str) -> None:
+    request = ChatbotContextOptionsRequest(
+        context_kind=context_kind,
+        selected_period="2024-01",
+        selected_municipio="Manizales",
+    )
+
+    assert request.context_kind == context_kind
 
 
-def test_chatbot_status_route(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_chatbot_status_route(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "chec_dashboard.api.routes.chatbot.get_chatbot_status",
+        chatbot_routes,
+        "get_chatbot_status",
         lambda settings: {
             "enabled": True,
             "gemini_configured": False,
@@ -26,60 +32,65 @@ def test_chatbot_status_route(client: TestClient, monkeypatch: pytest.MonkeyPatc
         },
     )
 
-    response = client.get("/chatbot/status")
+    response = chatbot_routes.chatbot_status()
 
-    assert response.status_code == 200
-    assert response.json()["chunks_count"] == 5
-    assert response.json()["ready"] is False
+    assert response.chunks_count == 5
+    assert response.ready is False
 
 
-def test_chatbot_context_options_route(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_chatbot_context_options_route(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "chec_dashboard.api.routes.chatbot.get_chatbot_context_options",
+        chatbot_routes,
+        "get_chatbot_context_options",
         lambda **_: {
             "items": [
                 {
                     "id": "event-1",
                     "label": "EQ-1 | CKT-1",
-                    "kind": "event",
-                    "summary": "Evento de prueba",
-                    "context": {"equipo_ope": "EQ-1"},
+                    "kind": "view",
+                    "summary": "Vista de prueba",
+                    "context": {"kind": "view", "selected_period": "2024-01"},
                 }
             ],
-            "status_text": "Se encontraron 1 eventos.",
+            "status_text": "Se encontraron 1 vistas filtradas.",
         },
     )
 
-    response = client.post(
-        "/chatbot/context-options",
-        json={
-            "context_kind": "event",
-            "selected_period": "2024-01",
-            "selected_municipio": "Manizales",
-            "selected_circuits": ["CKT-1"],
-        },
+    response = chatbot_routes.chatbot_context_options(
+        ChatbotContextOptionsRequest(
+            context_kind="view",
+            selected_period="2024-01",
+            selected_municipio="Manizales",
+            selected_circuits=["CKT-1"],
+        )
     )
 
-    assert response.status_code == 200
-    assert response.json()["items"][0]["id"] == "event-1"
+    assert response.items[0].id == "event-1"
+    assert response.items[0].kind == "view"
 
 
-def test_chatbot_assess_route_unconfigured(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_chatbot_assess_route_unconfigured(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(
-        "chec_dashboard.api.routes.chatbot.assess_chatbot_context",
+        chatbot_routes,
+        "assess_chatbot_context",
         lambda **_: {
             "answer": "Gemini no está configurado todavía.",
             "citations": [],
             "status_text": "Gemini no está configurado.",
             "ready": False,
+            "briefing_type": "compliance",
         },
     )
 
-    response = client.post(
-        "/chatbot/assess",
-        json={"selected_context": {"equipo_ope": "EQ-1"}, "question": "estado"},
+    response = chatbot_routes.chatbot_assess(
+        ChatbotAssessmentRequest(
+            selected_context={"equipo_ope": "EQ-1"},
+            question="estado",
+            briefing_type="compliance",
+            question_id="compliance_risk_flags",
+        )
     )
 
-    assert response.status_code == 200
-    assert response.json()["ready"] is False
-    assert "Gemini no está configurado" in response.json()["answer"]
+    assert response.ready is False
+    assert response.briefing_type == "compliance"
+    assert "Gemini no está configurado" in response.answer

@@ -13,6 +13,7 @@ from chec_dashboard.dash_app.api_client import (
     fetch_map_circuit_options,
     fetch_map_options,
 )
+from chec_dashboard.services.chatbot_service import BRIEFING_LABELS, GUIDED_QUESTIONS
 
 
 CHEC_GREEN = "#00782b"
@@ -53,16 +54,33 @@ def _status_class(payload: dict[str, Any] | None) -> str:
 
 def _context_summary_component(item: dict[str, Any] | None):
     if not item:
-        return html.Div("Selecciona un evento o elemento de red.", className="chatbot-empty-state")
+        return html.Div("Selecciona una vista, evento o elemento de red.", className="chatbot-empty-state")
     context = item.get("context") or {}
-    key_values = [
-        ("Tipo", "Evento" if item.get("kind") == "event" else "Elemento de red"),
-        ("Resumen", item.get("summary")),
-        ("Circuito", context.get("cto_equi_ope") or context.get("circuito") or context.get("FPARENT")),
-        ("Municipio", context.get("MUN") or context.get("municipio")),
-        ("Equipo", context.get("equipo_ope") or context.get("CODE") or context.get("display_label")),
-        ("Indicadores", f"SAIDI {context.get('SAIDI') or context.get('severity_saidi') or 'N/D'} / SAIFI {context.get('SAIFI') or context.get('severity_saifi') or 'N/D'}"),
-    ]
+    if item.get("kind") == "view":
+        kpis = context.get("kpi_summary") or {}
+        date_bounds = context.get("date_bounds") or {}
+        top_circuits = ", ".join(entry.get("label", "") for entry in (context.get("top_circuits") or [])[:3])
+        top_causes = ", ".join(entry.get("label", "") for entry in (context.get("top_causes") or [])[:3])
+        key_values = [
+            ("Tipo", "Vista filtrada"),
+            ("Resumen", item.get("summary")),
+            ("Período", context.get("selected_period")),
+            ("Municipio", context.get("selected_municipio")),
+            ("Circuitos", context.get("scope_label")),
+            ("Fechas", f"{date_bounds.get('start') or 'N/D'} a {date_bounds.get('end') or 'N/D'}"),
+            ("Indicadores", f"Eventos {kpis.get('event_count', 0)} / SAIDI {kpis.get('saidi_total', 0)} / SAIFI {kpis.get('saifi_total', 0)}"),
+            ("Circuitos críticos", top_circuits),
+            ("Causas", top_causes),
+        ]
+    else:
+        key_values = [
+            ("Tipo", "Evento" if item.get("kind") == "event" else "Elemento de red"),
+            ("Resumen", item.get("summary")),
+            ("Circuito", context.get("cto_equi_ope") or context.get("circuito") or context.get("FPARENT")),
+            ("Municipio", context.get("MUN") or context.get("municipio")),
+            ("Equipo", context.get("equipo_ope") or context.get("CODE") or context.get("display_label")),
+            ("Indicadores", f"SAIDI {context.get('SAIDI') or context.get('severity_saidi') or 'N/D'} / SAIFI {context.get('SAIFI') or context.get('severity_saifi') or 'N/D'}"),
+        ]
     rows = [
         html.Div(
             [html.Span(label, className="chatbot-context-key"), html.Span(str(value), className="chatbot-context-value")],
@@ -93,6 +111,11 @@ def _citations_component(citations: list[dict[str, Any]] | None):
     )
 
 
+def _guided_question_options(briefing_type: str | None) -> list[dict[str, str]]:
+    questions = GUIDED_QUESTIONS.get(briefing_type or "reliability", GUIDED_QUESTIONS["reliability"])
+    return [{"label": question["question"], "value": question["id"]} for question in questions]
+
+
 def get_layout(settings: Settings) -> html.Div:
     _ = settings
     return html.Div(
@@ -106,7 +129,7 @@ def get_layout(settings: Settings) -> html.Div:
                         [
                             html.H2("Asistente técnico", className="chatbot-title"),
                             html.Div(
-                                "Selecciona un evento o elemento de red para evaluar su estado con documentos técnicos.",
+                                "Análisis guiados para confiabilidad, cumplimiento y mantenimiento con datos CHEC y documentos técnicos.",
                                 className="chatbot-subtitle",
                             ),
                             html.Div(id="chatbot-status-banner", className="chatbot-status chatbot-status-warning"),
@@ -121,10 +144,11 @@ def get_layout(settings: Settings) -> html.Div:
                                     dcc.Dropdown(
                                         id="chatbot-context-kind",
                                         options=[
+                                            {"label": "Vista filtrada", "value": "view"},
                                             {"label": "Evento", "value": "event"},
                                             {"label": "Elemento de red", "value": "asset"},
                                         ],
-                                        value="event",
+                                        value="view",
                                         clearable=False,
                                         className="chatbot-dropdown",
                                     ),
@@ -179,13 +203,36 @@ def get_layout(settings: Settings) -> html.Div:
                     html.Div(id="chatbot-context-status", className="chatbot-inline-status"),
                     html.Div(
                         [
+                            dcc.Tabs(
+                                id="chatbot-analysis-type",
+                                value="reliability",
+                                children=[
+                                    dcc.Tab(label=BRIEFING_LABELS["reliability"], value="reliability", className="chatbot-analysis-tab", selected_className="chatbot-analysis-tab-selected"),
+                                    dcc.Tab(label=BRIEFING_LABELS["compliance"], value="compliance", className="chatbot-analysis-tab", selected_className="chatbot-analysis-tab-selected"),
+                                    dcc.Tab(label=BRIEFING_LABELS["maintenance"], value="maintenance", className="chatbot-analysis-tab", selected_className="chatbot-analysis-tab-selected"),
+                                ],
+                                className="chatbot-analysis-tabs",
+                            ),
+                            dcc.RadioItems(
+                                id="chatbot-question-id",
+                                options=_guided_question_options("reliability"),
+                                value=GUIDED_QUESTIONS["reliability"][0]["id"],
+                                className="chatbot-question-cards",
+                                inputClassName="chatbot-question-card-input",
+                                labelClassName="chatbot-question-card",
+                            ),
+                        ],
+                        className="chatbot-analysis-panel",
+                    ),
+                    html.Div(
+                        [
                             html.Div(
                                 [
-                                    html.Label("EVENTO O ELEMENTO", className="chatbot-filter-label"),
+                                    html.Label("VISTA O CONTEXTO", className="chatbot-filter-label"),
                                     dcc.Dropdown(
                                         id="chatbot-context-select",
                                         options=[],
-                                        placeholder="Busca y selecciona un contexto",
+                                        placeholder="Busca y selecciona una vista o contexto",
                                         disabled=True,
                                         className="chatbot-dropdown",
                                     ),
@@ -198,7 +245,7 @@ def get_layout(settings: Settings) -> html.Div:
                                     html.Label("PREGUNTA ADICIONAL", className="chatbot-filter-label"),
                                     dcc.Textarea(
                                         id="chatbot-question",
-                                        placeholder="Ej: ¿qué condiciones podrían explicar estos indicadores?",
+                                        placeholder="Matiza el análisis o pide un ángulo específico.",
                                         className="chatbot-question-input",
                                     ),
                                     html.Button("ANALIZAR", id="chatbot-assess-button", n_clicks=0, className="chatbot-primary-button"),
@@ -276,6 +323,16 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
         return options, [], not bool(options)
 
     @app.callback(
+        Output("chatbot-question-id", "options"),
+        Output("chatbot-question-id", "value"),
+        Input("chatbot-analysis-type", "value"),
+    )
+    def load_guided_questions(briefing_type: str | None):
+        questions = GUIDED_QUESTIONS.get(briefing_type or "reliability", GUIDED_QUESTIONS["reliability"])
+        options = [{"label": question["question"], "value": question["id"]} for question in questions]
+        return options, questions[0]["id"] if questions else None
+
+    @app.callback(
         Output("chatbot-context-select", "options"),
         Output("chatbot-context-select", "value"),
         Output("chatbot-context-select", "disabled"),
@@ -334,18 +391,31 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
         Input("chatbot-assess-button", "n_clicks"),
         State("chatbot-selected-context-store", "data"),
         State("chatbot-question", "value"),
+        State("chatbot-analysis-type", "value"),
+        State("chatbot-question-id", "value"),
         prevent_initial_call=True,
     )
-    def assess_context(n_clicks: int | None, selected_context: dict[str, Any] | None, question: str | None):
+    def assess_context(
+        n_clicks: int | None,
+        selected_context: dict[str, Any] | None,
+        question: str | None,
+        briefing_type: str | None = None,
+        question_id: str | None = None,
+    ):
         if not n_clicks:
             raise exceptions.PreventUpdate
         if not selected_context:
             return (
-                "Selecciona un evento o elemento de red antes de analizar.",
+                "Selecciona una vista, evento o elemento de red antes de analizar.",
                 _citations_component([]),
                 "Falta contexto seleccionado.",
             )
-        payload = fetch_chatbot_assessment(selected_context=selected_context, question=question)
+        payload = fetch_chatbot_assessment(
+            selected_context=selected_context,
+            question=question,
+            briefing_type=briefing_type or "reliability",
+            question_id=question_id,
+        )
         answer = dcc.Markdown(payload.get("answer") or "Sin respuesta.", className="chatbot-answer-markdown")
         citations = _citations_component(payload.get("citations", []))
         status_text = payload.get("status_text", "")

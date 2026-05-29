@@ -267,7 +267,11 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "databricks apps create" in deploy_app_script
     assert "databricks apps update" in deploy_app_script
     assert "APP_CHATBOT_CORPUS_VOLUME_RESOURCE_KEY" in deploy_app_script
+    assert "APP_GEMINI_SECRET_RESOURCE_KEY" in deploy_app_script
+    assert "APP_GEMINI_SECRET_SCOPE" in deploy_app_script
+    assert "APP_GEMINI_SECRET_KEY" in deploy_app_script
     assert "READ_VOLUME" in deploy_app_script
+    assert "GEMINI_API_KEY" not in deploy_app_script
     assert "databricks workspace delete" in deploy_app_script
     assert "--recursive" in deploy_app_script
     assert "databricks workspace import-dir" in deploy_app_script
@@ -390,3 +394,26 @@ def test_phase35_app_staging_uses_chatbot_volume_resource() -> None:
     assert "CHATBOT_CORPUS_SUBDIR" in app_yaml
     assert "value: \"chatbot_corpus\"" in app_yaml
     assert not (build_root / "data" / "chatbot_corpus").exists()
+
+
+def test_phase35_app_staging_can_bind_gemini_secret_resource() -> None:
+    env = os.environ.copy()
+    env.update(
+        {
+            "APP_CHATBOT_ENABLED": "true",
+            "APP_GEMINI_SECRET_RESOURCE_KEY": "gemini_api_key",
+        }
+    )
+    subprocess.run(
+        [sys.executable, "databricks/scripts/stage_phase35_databricks_app.py"],
+        cwd=ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    app_yaml = _read(DATABRICKS_DIR / "build" / "chec_dash_parity" / "app.yaml")
+
+    assert "GEMINI_API_KEY" in app_yaml
+    assert "valueFrom: \"gemini_api_key\"" in app_yaml
