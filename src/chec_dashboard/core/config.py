@@ -75,6 +75,9 @@ class Settings:
     gemini_model: str
     chatbot_corpus_dir: Path
     chatbot_skills_dir: Path | None
+    chatbot_conversation_backend: str
+    chatbot_conversation_schema: str
+    chatbot_memory_max_turns: int
     chatbot_retrieval_top_k: int
     chatbot_max_context_chars: int
     max_summary_points: int
@@ -155,6 +158,9 @@ def load_settings() -> Settings:
         gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
         chatbot_corpus_dir=chatbot_corpus_dir,
         chatbot_skills_dir=chatbot_skills_dir,
+        chatbot_conversation_backend=os.getenv("CHATBOT_CONVERSATION_BACKEND", "memory").strip().lower(),
+        chatbot_conversation_schema=os.getenv("CHATBOT_CONVERSATION_SCHEMA", "agent").strip() or "agent",
+        chatbot_memory_max_turns=max(_to_int(os.getenv("CHATBOT_MEMORY_MAX_TURNS"), 8), 1),
         chatbot_retrieval_top_k=max(_to_int(os.getenv("CHATBOT_RETRIEVAL_TOP_K"), 5), 1),
         chatbot_max_context_chars=max(_to_int(os.getenv("CHATBOT_MAX_CONTEXT_CHARS"), 12000), 1000),
         max_summary_points=max(_to_int(os.getenv("MAX_SUMMARY_POINTS"), 5000), 100),

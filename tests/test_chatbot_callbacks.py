@@ -117,3 +117,134 @@ def test_chatbot_assessment_callback_renders_spanish_message(monkeypatch: pytest
     assert isinstance(result[0], dcc.Markdown)
     assert "Gemini no está configurado" in result[0].children
     assert result[2] == "Gemini no está configurado."
+
+
+def test_chatbot_assessment_callback_stores_conversation_id(monkeypatch: pytest.MonkeyPatch) -> None:
+    callback = _callback_with_output("chatbot-answer.children")
+    monkeypatch.setattr(
+        chatbot_page,
+        "fetch_chatbot_assessment",
+        lambda **_: {
+            "answer": "Respuesta guiada.",
+            "citations": [],
+            "status_text": "ok",
+            "ready": True,
+            "conversation_id": "conv-1",
+        },
+    )
+    monkeypatch.setattr(
+        chatbot_page,
+        "fetch_chatbot_conversation",
+        lambda conversation_id: {
+            "conversation_id": conversation_id,
+            "messages": [
+                {
+                    "conversation_id": conversation_id,
+                    "turn_id": "turn-1",
+                    "role": "assistant",
+                    "content": "Respuesta guiada.",
+                    "skill_id": "confiabilidad",
+                    "skill_version": "1.0",
+                    "skill_hash": "hash-1",
+                    "trace_id": "trace-1",
+                }
+            ],
+        },
+    )
+
+    result = callback(1, {"equipo_ope": "EQ-1"}, "estado")
+
+    assert result[3] == "conv-1"
+    assert result[4]["conversation_id"] == "conv-1"
+    assert result[6]["turn_id"] == "turn-1"
+    assert "Respuesta guiada" in _all_text(result[5])
+
+
+def test_chatbot_followup_callback_sends_existing_conversation(monkeypatch: pytest.MonkeyPatch) -> None:
+    callback = _callback_with_output("chatbot-followup-input.value")
+    calls: dict[str, object] = {}
+
+    def fake_message(**kwargs):
+        calls.update(kwargs)
+        return {"status_text": "Respuesta de seguimiento generada."}
+
+    monkeypatch.setattr(chatbot_page, "fetch_chatbot_message", fake_message)
+    monkeypatch.setattr(
+        chatbot_page,
+        "fetch_chatbot_conversation",
+        lambda conversation_id: {
+            "conversation_id": conversation_id,
+            "messages": [
+                {
+                    "conversation_id": conversation_id,
+                    "turn_id": "turn-2",
+                    "role": "assistant",
+                    "content": "Seguimiento.",
+                }
+            ],
+        },
+    )
+
+    result = callback(
+        1,
+        "conv-1",
+        {"conversation_id": "conv-1", "messages": []},
+        {"equipo_ope": "EQ-1"},
+        "  Que sigue?  ",
+        "maintenance",
+    )
+
+    assert calls["conversation_id"] == "conv-1"
+    assert calls["message"] == "Que sigue?"
+    assert calls["selected_context"] == {"equipo_ope": "EQ-1"}
+    assert result[2] == "Respuesta de seguimiento generada."
+    assert result[3] == ""
+    assert result[4]["turn_id"] == "turn-2"
+
+
+def test_chatbot_followup_callback_creates_free_form_conversation(monkeypatch: pytest.MonkeyPatch) -> None:
+    callback = _callback_with_output("chatbot-followup-input.value")
+    created: dict[str, object] = {}
+
+    def fake_create(**kwargs):
+        created.update(kwargs)
+        return {"conversation_id": "conv-created"}
+
+    monkeypatch.setattr(chatbot_page, "fetch_chatbot_create_conversation", fake_create)
+    monkeypatch.setattr(
+        chatbot_page,
+        "fetch_chatbot_message",
+        lambda **_: {"status_text": "Respuesta de seguimiento generada."},
+    )
+    monkeypatch.setattr(
+        chatbot_page,
+        "fetch_chatbot_conversation",
+        lambda conversation_id: {"conversation_id": conversation_id, "messages": []},
+    )
+
+    result = callback(1, None, {}, {"equipo_ope": "EQ-1"}, "Nueva pregunta", "reliability")
+
+    assert created["mode"] == "free_form"
+    assert created["selected_context"] == {"equipo_ope": "EQ-1"}
+    assert result[5] == "conv-created"
+
+
+def test_chatbot_feedback_callback_calls_feedback_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
+    callback = _callback_with_output("chatbot-feedback-status.children")
+    calls: dict[str, object] = {}
+
+    def fake_feedback(**kwargs):
+        calls.update(kwargs)
+        return {"status_text": "Retroalimentación registrada."}
+
+    monkeypatch.setattr(chatbot_page, "ctx", SimpleNamespace(triggered_id="chatbot-feedback-not-helpful"))
+    monkeypatch.setattr(chatbot_page, "fetch_chatbot_feedback", fake_feedback)
+
+    result = callback(0, 1, "conv-1", {"turn_id": "turn-1"})
+
+    assert calls == {
+        "conversation_id": "conv-1",
+        "turn_id": "turn-1",
+        "rating": "not_helpful",
+    }
+    assert result == "Retroalimentación registrada."

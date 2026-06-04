@@ -39,6 +39,8 @@ class ChatbotSkillStatusResponse(ChatbotAPIModel):
     skills_available: bool
     skills_count: int
     skill_errors_count: int
+    supported_file_types: list[str] = Field(default_factory=list)
+    lifecycle_directories: dict[str, Any] = Field(default_factory=dict)
     skills: list[ChatbotSkillStatusItem] = Field(default_factory=list)
     validation_errors: list[ChatbotSkillStatusItem] = Field(default_factory=list)
 
@@ -94,3 +96,74 @@ class ChatbotAssessmentResponse(ChatbotAPIModel):
     skill_version: str | None = None
     skill_hash: str | None = None
     trace_id: str | None = None
+    llm_provider: str | None = None
+    model_endpoint_name: str | None = None
+
+
+class ChatbotConversationMessage(ChatbotAPIModel):
+    conversation_id: str
+    turn_id: str
+    role: Literal["user", "assistant"]
+    content: str
+    created_at: str | None = None
+    briefing_type: Literal["reliability", "compliance", "maintenance"] = "reliability"
+    question_id: str | None = None
+    skill_id: str | None = None
+    skill_version: str | None = None
+    skill_hash: str | None = None
+    trace_id: str | None = None
+    llm_provider: str | None = None
+    model_endpoint_name: str | None = None
+    citations: list[ChatbotCitation] = Field(default_factory=list)
+    retrieved_chunk_ids: list[str] = Field(default_factory=list)
+    status_text: str | None = None
+    ready: bool = True
+
+
+class ChatbotConversationCreateRequest(ChatbotAPIModel):
+    selected_context: dict[str, Any] = Field(default_factory=dict)
+    briefing_type: Literal["reliability", "compliance", "maintenance"] = "reliability"
+    mode: Literal["guided", "free_form"] = "guided"
+
+
+class ChatbotConversationResponse(ChatbotAPIModel):
+    conversation_id: str
+    mode: str = "guided"
+    briefing_type: Literal["reliability", "compliance", "maintenance"] = "reliability"
+    title: str | None = None
+    context_snapshot: dict[str, Any] = Field(default_factory=dict)
+    skill_id: str | None = None
+    skill_version: str | None = None
+    skill_hash: str | None = None
+    llm_provider: str | None = None
+    model_endpoint_name: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    messages: list[ChatbotConversationMessage] = Field(default_factory=list)
+
+
+class ChatbotConversationMessageRequest(ChatbotAPIModel):
+    message: str
+    briefing_type: Literal["reliability", "compliance", "maintenance"] | None = None
+    selected_context: dict[str, Any] | None = None
+
+
+class ChatbotConversationMessageResponse(ChatbotAssessmentResponse):
+    pass
+
+
+class ChatbotFeedbackRequest(ChatbotAPIModel):
+    conversation_id: str
+    turn_id: str
+    rating: Literal["helpful", "not_helpful"]
+    comment: str | None = None
+
+
+class ChatbotFeedbackResponse(ChatbotAPIModel):
+    feedback_id: str
+    conversation_id: str
+    turn_id: str
+    rating: Literal["helpful", "not_helpful"]
+    comment: str | None = None
+    created_at: str | None = None
+    status_text: str

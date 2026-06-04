@@ -6,6 +6,9 @@ from chec_dashboard.api.routes import chatbot as chatbot_routes
 from chec_dashboard.api.schemas.chatbot import (
     ChatbotAssessmentRequest,
     ChatbotAssessmentResponse,
+    ChatbotConversationCreateRequest,
+    ChatbotConversationMessageRequest,
+    ChatbotFeedbackRequest,
     ChatbotContextOptionsRequest,
     ChatbotSkillStatusResponse,
 )
@@ -138,6 +141,157 @@ def test_chatbot_assessment_schema_accepts_conversation_metadata() -> None:
     assert response.conversation_id == "conv-existing"
     assert response.trace_id == "trace-1"
     assert response.skill_hash == "hash-1"
+
+
+def test_chatbot_conversation_routes(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        chatbot_routes,
+        "create_chatbot_conversation",
+        lambda **_: {
+            "conversation_id": "conv-1",
+            "mode": "guided",
+            "briefing_type": "reliability",
+            "context_snapshot": {"selected_context": {"equipo_ope": "EQ-1"}},
+            "skill_id": "confiabilidad",
+            "skill_version": "1.0",
+            "skill_hash": "hash-1",
+            "llm_provider": "mock",
+            "model_endpoint_name": "mock",
+            "messages": [],
+        },
+    )
+    monkeypatch.setattr(
+        chatbot_routes,
+        "get_chatbot_conversation",
+        lambda settings, conversation_id: {
+            "conversation_id": conversation_id,
+            "mode": "guided",
+            "briefing_type": "reliability",
+            "context_snapshot": {},
+            "skill_id": "confiabilidad",
+            "skill_version": "1.0",
+            "skill_hash": "hash-1",
+            "llm_provider": "mock",
+            "model_endpoint_name": "mock",
+            "messages": [
+                {
+                    "conversation_id": conversation_id,
+                    "turn_id": "turn-1",
+                    "role": "assistant",
+                    "content": "Respuesta",
+                    "briefing_type": "reliability",
+                    "citations": [],
+                    "retrieved_chunk_ids": [],
+                    "skill_id": "confiabilidad",
+                    "skill_version": "1.0",
+                    "skill_hash": "hash-1",
+                    "trace_id": "trace-1",
+                    "llm_provider": "mock",
+                    "model_endpoint_name": "mock",
+                    "ready": True,
+                }
+            ],
+        },
+    )
+
+    created = chatbot_routes.chatbot_create_conversation(
+        ChatbotConversationCreateRequest(selected_context={"equipo_ope": "EQ-1"})
+    )
+    detail = chatbot_routes.chatbot_get_conversation("conv-1")
+
+    assert created.conversation_id == "conv-1"
+    assert created.llm_provider == "mock"
+    assert detail.messages[0].turn_id == "turn-1"
+    assert detail.messages[0].skill_hash == "hash-1"
+
+
+def test_chatbot_conversation_get_returns_404(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(chatbot_routes, "get_chatbot_conversation", lambda settings, conversation_id: None)
+
+    with pytest.raises(chatbot_routes.HTTPException) as exc_info:
+        chatbot_routes.chatbot_get_conversation("missing")
+
+    assert exc_info.value.status_code == 404
+
+
+def test_chatbot_send_message_route_and_validation(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        chatbot_routes,
+        "send_chatbot_message",
+        lambda **_: {
+            "answer": "Seguimiento",
+            "citations": [],
+            "status_text": "ok",
+            "ready": True,
+            "briefing_type": "reliability",
+            "conversation_id": "conv-1",
+            "turn_id": "turn-2",
+            "skill_id": "confiabilidad",
+            "skill_version": "1.0",
+            "skill_hash": "hash-1",
+            "trace_id": "trace-2",
+            "llm_provider": "mock",
+            "model_endpoint_name": "mock",
+        },
+    )
+
+    response = chatbot_routes.chatbot_send_message(
+        "conv-1",
+        ChatbotConversationMessageRequest(message="Que sigue?"),
+    )
+
+    assert response.answer == "Seguimiento"
+    assert response.conversation_id == "conv-1"
+    assert response.llm_provider == "mock"
+    with pytest.raises(chatbot_routes.HTTPException) as exc_info:
+        chatbot_routes.chatbot_send_message("conv-1", ChatbotConversationMessageRequest(message="   "))
+    assert exc_info.value.status_code == 400
+
+
+def test_chatbot_send_message_missing_conversation_returns_404(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(chatbot_routes, "send_chatbot_message", lambda **_: None)
+
+    with pytest.raises(chatbot_routes.HTTPException) as exc_info:
+        chatbot_routes.chatbot_send_message("missing", ChatbotConversationMessageRequest(message="hola"))
+
+    assert exc_info.value.status_code == 404
+
+
+def test_chatbot_feedback_route(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        chatbot_routes,
+        "submit_chatbot_feedback",
+        lambda **_: {
+            "feedback_id": "feedback-1",
+            "conversation_id": "conv-1",
+            "turn_id": "turn-1",
+            "rating": "helpful",
+            "comment": None,
+            "created_at": "2026-01-01T00:00:00Z",
+            "status_text": "Retroalimentación registrada.",
+        },
+    )
+
+    response = chatbot_routes.chatbot_feedback(
+        ChatbotFeedbackRequest(conversation_id="conv-1", turn_id="turn-1", rating="helpful")
+    )
+
+    assert response.feedback_id == "feedback-1"
+    assert response.rating == "helpful"
+
+
+def test_chatbot_feedback_route_converts_validation_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    def fake_feedback(**_):
+        raise ValueError("rating debe ser valido")
+
+    monkeypatch.setattr(chatbot_routes, "submit_chatbot_feedback", fake_feedback)
+
+    with pytest.raises(chatbot_routes.HTTPException) as exc_info:
+        chatbot_routes.chatbot_feedback(
+            ChatbotFeedbackRequest(conversation_id="conv-1", turn_id="turn-1", rating="helpful")
+        )
+
+    assert exc_info.value.status_code == 400
 
 
 def test_chatbot_skills_status_route(monkeypatch: pytest.MonkeyPatch) -> None:

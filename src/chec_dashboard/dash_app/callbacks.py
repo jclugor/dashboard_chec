@@ -24,9 +24,13 @@ from chec_dashboard.services.data_service import (
 )
 from chec_dashboard.services.chatbot_service import (
     assess_chatbot_context,
+    create_chatbot_conversation,
     get_chatbot_context_options,
+    get_chatbot_conversation,
     get_skill_status,
     get_chatbot_status,
+    send_chatbot_message,
+    submit_chatbot_feedback,
 )
 from chec_dashboard.services.databricks_data_service import databricks_data_readiness_check
 from chec_dashboard.services.startup_validation import find_missing_required_files
@@ -276,6 +280,62 @@ def _register_local_contract_routes(app: Dash, settings: Settings) -> None:
                 briefing_type=payload.get("briefing_type") or "reliability",
                 question_id=payload.get("question_id"),
                 conversation_id=payload.get("conversation_id"),
+            )
+            return jsonify(response_payload), 200
+        except Exception as exc:
+            return jsonify({"detail": str(exc), "error_type": "dash_local_contract_error"}), 400
+
+    @app.server.route("/chatbot/conversations", methods=["POST"])
+    def chatbot_create_conversation_route():
+        try:
+            payload = request.get_json(force=True) or {}
+            response_payload = create_chatbot_conversation(
+                settings=settings,
+                selected_context=payload.get("selected_context") or {},
+                briefing_type=payload.get("briefing_type") or "reliability",
+                mode=payload.get("mode") or "guided",
+            )
+            return jsonify(response_payload), 200
+        except Exception as exc:
+            return jsonify({"detail": str(exc), "error_type": "dash_local_contract_error"}), 400
+
+    @app.server.route("/chatbot/conversations/<conversation_id>", methods=["GET"])
+    def chatbot_get_conversation_route(conversation_id: str):
+        response_payload = get_chatbot_conversation(settings, conversation_id)
+        if response_payload is None:
+            return jsonify({"detail": "Conversación no encontrada.", "error_type": "not_found"}), 404
+        return jsonify(response_payload), 200
+
+    @app.server.route("/chatbot/conversations/<conversation_id>/messages", methods=["POST"])
+    def chatbot_send_message_route(conversation_id: str):
+        try:
+            payload = request.get_json(force=True) or {}
+            message = str(payload.get("message") or "").strip()
+            if not message:
+                return jsonify({"detail": "message es obligatorio.", "error_type": "validation_error"}), 400
+            response_payload = send_chatbot_message(
+                settings=settings,
+                conversation_id=conversation_id,
+                message=message,
+                briefing_type=payload.get("briefing_type"),
+                selected_context=payload.get("selected_context"),
+            )
+            if response_payload is None:
+                return jsonify({"detail": "Conversación no encontrada.", "error_type": "not_found"}), 404
+            return jsonify(response_payload), 200
+        except Exception as exc:
+            return jsonify({"detail": str(exc), "error_type": "dash_local_contract_error"}), 400
+
+    @app.server.route("/chatbot/feedback", methods=["POST"])
+    def chatbot_feedback_route():
+        try:
+            payload = request.get_json(force=True) or {}
+            response_payload = submit_chatbot_feedback(
+                settings=settings,
+                conversation_id=payload.get("conversation_id") or "",
+                turn_id=payload.get("turn_id") or "",
+                rating=payload.get("rating") or "",
+                comment=payload.get("comment"),
             )
             return jsonify(response_payload), 200
         except Exception as exc:

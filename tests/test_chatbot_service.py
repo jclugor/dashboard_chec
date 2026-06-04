@@ -11,10 +11,22 @@ from chec_dashboard.core.config import settings as base_settings
 from chec_dashboard.services.chatbot_service import (
     assess_chatbot_context,
     build_chatbot_context_package,
+    create_chatbot_conversation,
     get_chatbot_context_options,
+    get_chatbot_conversation,
     get_skill_status,
     get_chatbot_status,
     retrieve_chatbot_chunks,
+    send_chatbot_message,
+    submit_chatbot_feedback,
+)
+from chec_dashboard.services.conversation_service import (
+    ConversationFeedback,
+    ConversationMessage,
+    ConversationRecord,
+    DatabricksSQLConversationStore,
+    recent_conversation_messages,
+    reset_memory_conversation_store,
 )
 from chec_dashboard.services.prompt_service import build_prompt
 from chec_dashboard.services.skill_service import resolve_skill
@@ -260,6 +272,10 @@ def test_default_repo_skills_load_and_validate(tmp_path: Path) -> None:
     assert status["skills_available"] is True
     assert status["skills_count"] == 6
     assert status["skill_errors_count"] == 0
+    assert ".yml" in status["supported_file_types"]
+    assert ".yaml" in status["supported_file_types"]
+    assert ".md" in status["supported_file_types"]
+    assert status["lifecycle_directories"]["active"]["exists"] is True
     assert skill.skill_id == "cumplimiento"
     assert skill.skill_version == "1.0"
     assert skill.skill_hash
@@ -321,6 +337,172 @@ def test_configured_skill_overrides_default_and_shapes_prompt(tmp_path: Path) ->
     assert "Seccion personalizada" in prompt
     assert "Prioriza cuadrillas de campo" in prompt
     assert "cierre definitivo" in prompt
+
+
+def test_configured_markdown_skill_uses_front_matter_and_body_instructions(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    skill_dir = tmp_path / "skills"
+    data_dir.mkdir()
+    _write_skill(
+        skill_dir,
+        "mantenimiento.md",
+        """
+        ---
+        skill_id: mantenimiento
+        version: "2.1"
+        status: active
+        role: Asistente de mantenimiento en Markdown.
+        language: es
+        tone: Operativo.
+        allowed_tools:
+          - get_dashboard_context
+          - search_technical_documents
+        instructions:
+          - Mantener foco en continuidad del servicio.
+        output:
+          sections:
+            - Diagnostico
+            - Revision en campo
+        constraints:
+          must_cite_regulatory_claims: true
+          cannot_make_legal_conclusions: true
+          forbidden_phrases: []
+        missing_evidence_behavior: Pedir medicion de campo.
+        retrieval:
+          backend: local_jsonl
+          top_k: 2
+        ---
+
+        ## Guia operativa
+
+        Prioriza activos con recurrencia y registra datos faltantes antes de recomendar acciones.
+        """,
+    )
+    settings = _settings(tmp_path, data_dir, corpus_dir, chatbot_skills_dir=skill_dir)
+
+    skill = resolve_skill("maintenance", settings)
+    prompt = build_prompt(
+        context_package={"nombre_analisis": "Mantenimiento", "selected_context": {"CODE": "TR-1"}},
+        question="prioridad",
+        briefing_type="maintenance",
+        chunks=[],
+        skill_resolution=skill,
+    )
+
+    assert skill.skill_version == "2.1"
+    assert skill.skill.source_type == "configured"
+    assert "Mantener foco en continuidad del servicio" in prompt
+    assert "Prioriza activos con recurrencia" in prompt
+
+
+def test_markdown_skill_without_front_matter_falls_back_and_reports_error(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    skill_dir = tmp_path / "skills"
+    data_dir.mkdir()
+    _write_skill(
+        skill_dir,
+        "cumplimiento.md",
+        """
+        # Cumplimiento
+
+        Instrucciones sin front matter.
+        """,
+    )
+    settings = _settings(tmp_path, data_dir, corpus_dir, chatbot_skills_dir=skill_dir)
+
+    status = get_skill_status(settings)
+    skill = resolve_skill("compliance", settings)
+
+    assert status["skill_errors_count"] == 1
+    assert "front matter" in " ".join(status["validation_errors"][0]["errors"])
+    assert skill.skill_version == "1.0"
+    assert skill.skill.source_type == "default"
+
+
+def test_duplicate_configured_skill_files_fall_back_and_report_error(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    skill_dir = tmp_path / "skills"
+    data_dir.mkdir()
+    skill_text = """
+        skill_id: confiabilidad
+        version: "2.0"
+        status: active
+        role: Skill duplicado.
+        language: es
+        tone: Tecnico.
+        allowed_tools:
+          - get_dashboard_context
+        instructions:
+          - No debe activarse por duplicado.
+        output:
+          sections:
+            - Estado observado
+        constraints:
+          must_cite_regulatory_claims: true
+          cannot_make_legal_conclusions: true
+          forbidden_phrases: []
+        retrieval:
+          backend: local_jsonl
+    """
+    _write_skill(skill_dir, "confiabilidad.yml", skill_text)
+    _write_skill(skill_dir, "confiabilidad.yaml", skill_text)
+    settings = _settings(tmp_path, data_dir, corpus_dir, chatbot_skills_dir=skill_dir)
+
+    status = get_skill_status(settings)
+    skill = resolve_skill("reliability", settings)
+
+    assert status["skill_errors_count"] == 1
+    assert "Multiples archivos configurados" in " ".join(status["validation_errors"][0]["errors"])
+    assert skill.skill_version == "1.0"
+    assert skill.skill.source_type == "default"
+
+
+def test_blocked_markdown_skill_body_falls_back_and_reports_error(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    skill_dir = tmp_path / "skills"
+    data_dir.mkdir()
+    _write_skill(
+        skill_dir,
+        "cumplimiento.md",
+        """
+        ---
+        skill_id: cumplimiento
+        version: "2.0"
+        status: active
+        role: Asistente de cumplimiento.
+        language: es
+        tone: Prudente.
+        allowed_tools:
+          - get_dashboard_context
+        instructions:
+          - Validar controles.
+        output:
+          sections:
+            - Estado observado
+        constraints:
+          must_cite_regulatory_claims: true
+          cannot_make_legal_conclusions: true
+          forbidden_phrases: []
+        retrieval:
+          backend: local_jsonl
+        ---
+
+        select * from secret_table
+        """,
+    )
+    settings = _settings(tmp_path, data_dir, corpus_dir, chatbot_skills_dir=skill_dir)
+
+    status = get_skill_status(settings)
+    skill = resolve_skill("compliance", settings)
+
+    assert status["skill_errors_count"] == 1
+    assert "texto bloqueado" in " ".join(status["validation_errors"][0]["errors"])
+    assert skill.skill_version == "1.0"
+    assert skill.skill.source_type == "default"
 
 
 def test_invalid_configured_skill_falls_back_and_reports_error(tmp_path: Path) -> None:
@@ -462,6 +644,211 @@ def test_assessment_reuses_conversation_id(tmp_path: Path) -> None:
 
     assert payload["conversation_id"] == "conv-existing"
     assert payload["turn_id"].startswith("turn-")
+
+
+def test_missing_context_assessment_persists_skill_metadata(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    data_dir.mkdir()
+    _write_corpus(corpus_dir)
+    settings = _settings(tmp_path, data_dir, corpus_dir, chatbot_enabled=True)
+
+    payload = assess_chatbot_context(
+        settings,
+        selected_context={},
+        question="estado",
+        briefing_type="compliance",
+    )
+    detail = get_chatbot_conversation(settings, payload["conversation_id"])
+
+    assert payload["ready"] is False
+    assert payload["skill_id"] == "cumplimiento"
+    assert detail is not None
+    assert detail["skill_id"] == payload["skill_id"]
+    assert detail["skill_version"] == payload["skill_version"]
+    assert detail["skill_hash"] == payload["skill_hash"]
+    assert detail["messages"][-1]["skill_id"] == payload["skill_id"]
+
+
+def test_followup_message_reuses_context_and_recent_history(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reset_memory_conversation_store()
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    data_dir.mkdir()
+    _write_corpus(corpus_dir)
+    settings = _settings(tmp_path, data_dir, corpus_dir, chatbot_enabled=True, gemini_api_key=None)
+
+    first = assess_chatbot_context(
+        settings,
+        selected_context={"causa": "VIENTO", "cto_equi_ope": "CKT-1"},
+        question="explica el indicador",
+    )
+    captured_history: dict[str, list[dict[str, object]]] = {}
+
+    def fake_build_prompt(**kwargs):
+        captured_history["messages"] = kwargs.get("conversation_history") or []
+        return "prompt con historial"
+
+    monkeypatch.setattr("chec_dashboard.services.agent_orchestrator.build_prompt", fake_build_prompt)
+
+    followup = send_chatbot_message(
+        settings,
+        conversation_id=first["conversation_id"],
+        message="Que debo revisar en campo?",
+    )
+    detail = get_chatbot_conversation(settings, first["conversation_id"])
+
+    assert followup is not None
+    assert followup["ready"] is True
+    assert followup["conversation_id"] == first["conversation_id"]
+    assert captured_history["messages"][0]["role"] == "user"
+    assert captured_history["messages"][1]["role"] == "assistant"
+    assert "explica el indicador" in captured_history["messages"][0]["content"]
+    assert detail is not None
+    assert detail["context_snapshot"]["selected_context"]["cto_equi_ope"] == "CKT-1"
+    assert len(detail["messages"]) == 4
+    assert detail["messages"][-1]["llm_provider"] == "mock"
+    assert detail["messages"][-1]["model_endpoint_name"] == "mock"
+
+
+def test_followup_without_saved_context_persists_clear_response(tmp_path: Path) -> None:
+    reset_memory_conversation_store()
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    data_dir.mkdir()
+    _write_corpus(corpus_dir)
+    settings = _settings(tmp_path, data_dir, corpus_dir, chatbot_enabled=True)
+    conversation = create_chatbot_conversation(settings, selected_context={}, mode="free_form")
+
+    payload = send_chatbot_message(
+        settings,
+        conversation_id=conversation["conversation_id"],
+        message="Que sigue?",
+    )
+    detail = get_chatbot_conversation(settings, conversation["conversation_id"])
+
+    assert payload is not None
+    assert payload["ready"] is False
+    assert payload["skill_id"] == "confiabilidad"
+    assert payload["llm_provider"] == "mock"
+    assert detail is not None
+    assert detail["messages"][-1]["skill_hash"] == payload["skill_hash"]
+    assert "No hay contexto guardado" in detail["messages"][-1]["content"]
+
+
+def test_conversation_feedback_validates_rating_and_returns_traceable_payload(tmp_path: Path) -> None:
+    reset_memory_conversation_store()
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    data_dir.mkdir()
+    _write_corpus(corpus_dir)
+    settings = _settings(tmp_path, data_dir, corpus_dir, chatbot_enabled=True)
+    assessment = assess_chatbot_context(
+        settings,
+        selected_context={"causa": "VIENTO", "cto_equi_ope": "CKT-1"},
+        question="estado",
+    )
+
+    feedback = submit_chatbot_feedback(
+        settings,
+        conversation_id=assessment["conversation_id"],
+        turn_id=assessment["turn_id"],
+        rating="helpful",
+    )
+
+    assert feedback["feedback_id"].startswith("feedback-")
+    assert feedback["conversation_id"] == assessment["conversation_id"]
+    assert feedback["turn_id"] == assessment["turn_id"]
+    assert feedback["rating"] == "helpful"
+    with pytest.raises(ValueError, match="rating"):
+        submit_chatbot_feedback(
+            settings,
+            conversation_id=assessment["conversation_id"],
+            turn_id=assessment["turn_id"],
+            rating="bad",
+        )
+
+
+def test_recent_conversation_messages_uses_deterministic_bounded_memory(tmp_path: Path) -> None:
+    reset_memory_conversation_store()
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    data_dir.mkdir()
+    _write_corpus(corpus_dir)
+    settings = _settings(
+        tmp_path,
+        data_dir,
+        corpus_dir,
+        chatbot_enabled=True,
+        chatbot_memory_max_turns=1,
+    )
+    first = assess_chatbot_context(
+        settings,
+        selected_context={"causa": "VIENTO", "cto_equi_ope": "CKT-1"},
+        question="primer tema",
+    )
+    send_chatbot_message(settings, conversation_id=first["conversation_id"], message="segundo tema")
+    send_chatbot_message(settings, conversation_id=first["conversation_id"], message="tercer tema")
+
+    history_a = recent_conversation_messages(settings, first["conversation_id"])
+    history_b = recent_conversation_messages(settings, first["conversation_id"])
+
+    assert len(history_a) == 3
+    assert history_a[0]["turn_id"] == history_b[0]["turn_id"]
+    assert history_a[0]["content"].startswith("Memoria compacta deterministica")
+    assert "primer tema" in history_a[0]["content"]
+    assert history_a[-2]["content"] == "tercer tema"
+
+
+def test_databricks_conversation_store_targets_agent_schema(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    data_dir.mkdir()
+    settings = _settings(
+        tmp_path,
+        data_dir,
+        corpus_dir,
+        databricks_catalog_name="chec_dbx_demo",
+        chatbot_conversation_schema="agent",
+    )
+
+    class FakeClient:
+        def __init__(self) -> None:
+            self.statements: list[str] = []
+
+        def fetch_dataframe(self, statement: str):
+            self.statements.append(statement)
+            return pd.DataFrame()
+
+    client = FakeClient()
+    store = DatabricksSQLConversationStore(settings, client=client)  # type: ignore[arg-type]
+    store.upsert_conversation(ConversationRecord(conversation_id="conv-1", llm_provider="mock"))
+    store.append_messages(
+        [
+            ConversationMessage(
+                conversation_id="conv-1",
+                turn_id="turn-1",
+                role="assistant",
+                content="respuesta",
+                llm_provider="mock",
+                model_endpoint_name="mock",
+            )
+        ]
+    )
+    store.add_feedback(ConversationFeedback("feedback-1", "conv-1", "turn-1", "helpful"))
+
+    assert store.conversations_table == "`chec_dbx_demo`.`agent`.`agent_conversations`"
+    assert store.messages_table == "`chec_dbx_demo`.`agent`.`agent_messages`"
+    assert store.feedback_table == "`chec_dbx_demo`.`agent`.`agent_feedback`"
+    statements = "\n".join(client.statements)
+    assert "`chec_dbx_demo`.`agent`.`agent_conversations`" in statements
+    assert "`chec_dbx_demo`.`agent`.`agent_messages`" in statements
+    assert "`chec_dbx_demo`.`agent`.`agent_feedback`" in statements
+    assert "llm_provider" in statements
+    assert "model_endpoint_name" in statements
 
 
 def test_context_options_from_local_map_files(tmp_path: Path) -> None:

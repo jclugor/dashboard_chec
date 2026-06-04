@@ -27,6 +27,9 @@ EXPECTED_SKILL_FILES = {
     "retrieval_policy": "retrieval_policy.yml",
 }
 
+SUPPORTED_SKILL_SUFFIXES = (".yml", ".yaml", ".md")
+SKILL_LIFECYCLE_DIRS = ("active", "draft", "archive")
+
 ALLOWED_TOOLS = {
     "get_dashboard_context",
     "search_technical_documents",
@@ -299,35 +302,90 @@ def _optional_positive_int(value: Any, field_name: str, errors: list[str]) -> in
     return number
 
 
-def _load_skill_file(path: Path, *, file_name: str, source_type: str) -> tuple[SkillDefinition | None, SkillStatusItem | None]:
-    text = _read_skill_text(path)
+def _parse_markdown_skill_payload(text: str) -> tuple[dict[str, Any] | None, tuple[str, ...]]:
+    lines = text.splitlines()
+    if not lines or lines[0].strip() != "---":
+        return None, ("Markdown skill debe iniciar con YAML front matter delimitado por ---.",)
+
+    end_index = None
+    for index, line in enumerate(lines[1:], start=1):
+        if line.strip() == "---":
+            end_index = index
+            break
+    if end_index is None:
+        return None, ("Markdown skill debe cerrar el YAML front matter con ---.",)
+
+    front_matter = "\n".join(lines[1:end_index])
+    body = "\n".join(lines[end_index + 1 :]).strip()
+    try:
+        payload = yaml.safe_load(front_matter) or {}
+    except yaml.YAMLError as exc:
+        return None, (f"YAML front matter invalido: {exc}",)
+    if not isinstance(payload, dict):
+        return None, ("El YAML front matter debe contener un objeto.",)
+
+    errors: list[str] = []
+    if body:
+        _validate_blocked_controls(body, "markdown.body", errors)
+        existing_instructions = payload.get("instructions")
+        if existing_instructions is None:
+            payload["instructions"] = [body]
+        elif isinstance(existing_instructions, list):
+            payload["instructions"] = [*existing_instructions, body]
+    return payload, tuple(errors)
+
+
+def _load_skill_file(
+    path: Path,
+    *,
+    file_name: str,
+    source_type: str,
+    text: str | None = None,
+) -> tuple[SkillDefinition | None, SkillStatusItem | None]:
+    if text is None:
+        text = _read_skill_text(path)
     if text is None:
         return None, None
     skill_hash = _skill_hash(text)
-    try:
-        payload = yaml.safe_load(text) or {}
-    except yaml.YAMLError as exc:
-        return None, SkillStatusItem(
-            file_name=file_name,
-            skill_id=None,
-            version=None,
-            status=None,
-            source_type=source_type,
-            source_path=str(path),
-            skill_hash=skill_hash,
-            errors=(f"YAML invalido: {exc}",),
-        )
-    if not isinstance(payload, dict):
-        return None, SkillStatusItem(
-            file_name=file_name,
-            skill_id=None,
-            version=None,
-            status=None,
-            source_type=source_type,
-            source_path=str(path),
-            skill_hash=skill_hash,
-            errors=("El archivo debe contener un objeto YAML.",),
-        )
+    parse_errors: tuple[str, ...] = ()
+    if path.suffix.lower() == ".md":
+        payload, parse_errors = _parse_markdown_skill_payload(text)
+        if payload is None:
+            return None, SkillStatusItem(
+                file_name=file_name,
+                skill_id=None,
+                version=None,
+                status=None,
+                source_type=source_type,
+                source_path=str(path),
+                skill_hash=skill_hash,
+                errors=parse_errors,
+            )
+    else:
+        try:
+            payload = yaml.safe_load(text) or {}
+        except yaml.YAMLError as exc:
+            return None, SkillStatusItem(
+                file_name=file_name,
+                skill_id=None,
+                version=None,
+                status=None,
+                source_type=source_type,
+                source_path=str(path),
+                skill_hash=skill_hash,
+                errors=(f"YAML invalido: {exc}",),
+            )
+        if not isinstance(payload, dict):
+            return None, SkillStatusItem(
+                file_name=file_name,
+                skill_id=None,
+                version=None,
+                status=None,
+                source_type=source_type,
+                source_path=str(path),
+                skill_hash=skill_hash,
+                errors=("El archivo debe contener un objeto YAML.",),
+            )
 
     validated = _validate_skill_payload(
         payload,
@@ -336,6 +394,17 @@ def _load_skill_file(path: Path, *, file_name: str, source_type: str) -> tuple[S
         skill_hash=skill_hash,
     )
     if isinstance(validated, SkillDefinition):
+        if parse_errors:
+            return None, SkillStatusItem(
+                file_name=file_name,
+                skill_id=validated.skill_id,
+                version=validated.version,
+                status=validated.status,
+                source_type=source_type,
+                source_path=str(path),
+                skill_hash=validated.skill_hash,
+                errors=parse_errors,
+            )
         return validated, SkillStatusItem(
             file_name=file_name,
             skill_id=validated.skill_id,
@@ -354,7 +423,7 @@ def _load_skill_file(path: Path, *, file_name: str, source_type: str) -> tuple[S
         source_type=source_type,
         source_path=str(path),
         skill_hash=skill_hash,
-        errors=errors,
+        errors=(*parse_errors, *errors),
     )
 
 
@@ -401,15 +470,35 @@ def load_skill_registry(settings: Settings | None = None) -> SkillRegistry:
     for skill_id, file_name in EXPECTED_SKILL_FILES.items():
         selected_skill: SkillDefinition | None = None
         if configured_dir is not None:
-            configured_skill, configured_status = _load_skill_file(
-                configured_dir / file_name,
-                file_name=file_name,
-                source_type="configured",
-            )
-            if configured_status is not None:
-                status_items.append(configured_status)
-            if configured_skill is not None and configured_skill.status == "active":
-                selected_skill = configured_skill
+            configured_candidates = _configured_skill_candidates(configured_dir, skill_id)
+            if len(configured_candidates) > 1:
+                status_items.append(
+                    SkillStatusItem(
+                        file_name=", ".join(candidate[1] for candidate in configured_candidates),
+                        skill_id=skill_id,
+                        version=None,
+                        status=None,
+                        source_type="configured",
+                        source_path=str(configured_dir),
+                        skill_hash=None,
+                        errors=(
+                            "Multiples archivos configurados para el mismo skill; "
+                            "deja solo uno de .yml, .yaml o .md.",
+                        ),
+                    )
+                )
+            elif configured_candidates:
+                path, candidate_file_name, candidate_text = configured_candidates[0]
+                configured_skill, configured_status = _load_skill_file(
+                    path,
+                    file_name=candidate_file_name,
+                    source_type="configured",
+                    text=candidate_text,
+                )
+                if configured_status is not None:
+                    status_items.append(configured_status)
+                if configured_skill is not None and configured_skill.status == "active":
+                    selected_skill = configured_skill
 
         if selected_skill is None:
             default_skill, default_status = _load_skill_file(
@@ -438,6 +527,17 @@ def load_skill_registry(settings: Settings | None = None) -> SkillRegistry:
         skills[skill_id] = selected_skill
 
     return SkillRegistry(skills=skills, status_items=tuple(status_items))
+
+
+def _configured_skill_candidates(configured_dir: Path, skill_id: str) -> list[tuple[Path, str, str]]:
+    candidates: list[tuple[Path, str, str]] = []
+    for suffix in SUPPORTED_SKILL_SUFFIXES:
+        file_name = f"{skill_id}{suffix}"
+        path = configured_dir / file_name
+        text = _read_skill_text(path)
+        if text is not None:
+            candidates.append((path, file_name, text))
+    return candidates
 
 
 def resolve_skill(briefing_type: str, settings: Settings | None = None) -> SkillResolution:
@@ -478,6 +578,20 @@ def get_skill_status(settings: Settings) -> dict[str, Any]:
         "skills_available": bool(registry.skills),
         "skills_count": len(registry.skills),
         "skill_errors_count": errors_count,
+        "supported_file_types": list(SUPPORTED_SKILL_SUFFIXES),
+        "lifecycle_directories": _skill_lifecycle_directories(settings),
         "skills": resolved_items,
         "validation_errors": validation_items,
+    }
+
+
+def _skill_lifecycle_directories(settings: Settings) -> dict[str, dict[str, Any]]:
+    active_dir = settings.chatbot_skills_dir or _default_skills_dir()
+    root_dir = active_dir.parent if active_dir.name in SKILL_LIFECYCLE_DIRS else active_dir
+    return {
+        lifecycle: {
+            "path": str(root_dir / lifecycle),
+            "exists": (root_dir / lifecycle).exists(),
+        }
+        for lifecycle in SKILL_LIFECYCLE_DIRS
     }

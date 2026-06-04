@@ -21,9 +21,13 @@ from chec_dashboard.services.data_service import (
 )
 from chec_dashboard.services.chatbot_service import (
     assess_chatbot_context,
+    create_chatbot_conversation,
     get_chatbot_context_options,
+    get_chatbot_conversation,
     get_skill_status,
     get_chatbot_status,
+    send_chatbot_message,
+    submit_chatbot_feedback,
 )
 
 
@@ -481,5 +485,88 @@ def fetch_chatbot_assessment(
             "briefing_type": briefing_type,
             "question_id": question_id,
             "conversation_id": conversation_id,
+        },
+    )
+
+
+def fetch_chatbot_create_conversation(
+    *,
+    selected_context: dict[str, Any] | None = None,
+    briefing_type: str = "reliability",
+    mode: str = "guided",
+) -> dict[str, Any]:
+    if _use_inproc_transport():
+        return create_chatbot_conversation(
+            settings=settings,
+            selected_context=selected_context or {},
+            briefing_type=briefing_type,
+            mode=mode,
+        )
+    return _request_json(
+        "POST",
+        "/chatbot/conversations",
+        json_body={
+            "selected_context": selected_context or {},
+            "briefing_type": briefing_type,
+            "mode": mode,
+        },
+    )
+
+
+def fetch_chatbot_conversation(conversation_id: str) -> dict[str, Any]:
+    if _use_inproc_transport():
+        return get_chatbot_conversation(settings, conversation_id) or {}
+    return _request_json("GET", f"/chatbot/conversations/{conversation_id}")
+
+
+def fetch_chatbot_message(
+    *,
+    conversation_id: str,
+    message: str,
+    briefing_type: str | None = None,
+    selected_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if _use_inproc_transport():
+        return send_chatbot_message(
+            settings=settings,
+            conversation_id=conversation_id,
+            message=message,
+            briefing_type=briefing_type,
+            selected_context=selected_context,
+        ) or {}
+    return _request_json(
+        "POST",
+        f"/chatbot/conversations/{conversation_id}/messages",
+        json_body={
+            "message": message,
+            "briefing_type": briefing_type,
+            "selected_context": selected_context,
+        },
+    )
+
+
+def fetch_chatbot_feedback(
+    *,
+    conversation_id: str,
+    turn_id: str,
+    rating: str,
+    comment: str | None = None,
+) -> dict[str, Any]:
+    if _use_inproc_transport():
+        return submit_chatbot_feedback(
+            settings=settings,
+            conversation_id=conversation_id,
+            turn_id=turn_id,
+            rating=rating,
+            comment=comment,
+        )
+    return _request_json(
+        "POST",
+        "/chatbot/feedback",
+        json_body={
+            "conversation_id": conversation_id,
+            "turn_id": turn_id,
+            "rating": rating,
+            "comment": comment,
         },
     )

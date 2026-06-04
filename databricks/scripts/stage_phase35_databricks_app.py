@@ -46,6 +46,9 @@ def _render_app_yaml(template_text: str) -> str:
         "__CHATBOT_SKILLS_SUBDIR__": os.getenv("APP_CHATBOT_SKILLS_SUBDIR", "active"),
         "__CHATBOT_RETRIEVAL_TOP_K__": os.getenv("APP_CHATBOT_RETRIEVAL_TOP_K", "5"),
         "__CHATBOT_MAX_CONTEXT_CHARS__": os.getenv("APP_CHATBOT_MAX_CONTEXT_CHARS", "12000"),
+        "__CHATBOT_CONVERSATION_BACKEND__": os.getenv("APP_CHATBOT_CONVERSATION_BACKEND", "memory"),
+        "__CHATBOT_CONVERSATION_SCHEMA__": os.getenv("APP_CHATBOT_CONVERSATION_SCHEMA", "agent"),
+        "__CHATBOT_MEMORY_MAX_TURNS__": os.getenv("APP_CHATBOT_MEMORY_MAX_TURNS", "8"),
         "__GEMINI_MODEL__": os.getenv("APP_GEMINI_MODEL", "gemini-2.5-flash"),
         "__GEMINI_API_KEY_ENV__": gemini_api_key_env,
     }

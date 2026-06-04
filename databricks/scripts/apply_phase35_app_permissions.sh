@@ -6,6 +6,8 @@ REVIEWER_PRINCIPAL="${REVIEWER_PRINCIPAL:-users}"
 EDITOR_PRINCIPAL="${EDITOR_PRINCIPAL:-$(databricks current-user me -o json | jq -r '.userName')}"
 CATALOG_NAME="${CATALOG_NAME:-chec_dbx_demo}"
 APP_DATA_SCHEMAS="${APP_DATA_SCHEMAS:-gold,silver}"
+APP_CONVERSATION_SCHEMA="${APP_CONVERSATION_SCHEMA:-agent}"
+GRANT_CHATBOT_CONVERSATION_ACCESS="${GRANT_CHATBOT_CONVERSATION_ACCESS:-true}"
 
 resolve_permission_level() {
   local desired_csv="$1"
@@ -105,5 +107,21 @@ for schema_name in "${schema_names[@]}"; do
   databricks grants update schema "${CATALOG_NAME}.${schema_name}" --json "@${SCHEMA_GRANTS_FILE}"
   rm -f "${SCHEMA_GRANTS_FILE}"
 done
+
+if [[ "${GRANT_CHATBOT_CONVERSATION_ACCESS}" == "true" ]]; then
+  CONVERSATION_SCHEMA_GRANTS_FILE="$(mktemp)"
+  jq -n \
+    --arg principal "${APP_UC_PRINCIPAL}" \
+    '{
+      changes: [
+        {
+          principal: $principal,
+          add: ["USE_SCHEMA", "SELECT", "MODIFY"]
+        }
+      ]
+    }' >"${CONVERSATION_SCHEMA_GRANTS_FILE}"
+  databricks grants update schema "${CATALOG_NAME}.${APP_CONVERSATION_SCHEMA}" --json "@${CONVERSATION_SCHEMA_GRANTS_FILE}"
+  rm -f "${CONVERSATION_SCHEMA_GRANTS_FILE}"
+fi
 
 echo "Applied app permissions for ${APP_NAME} and data grants for ${APP_SERVICE_PRINCIPAL_NAME:-$APP_UC_PRINCIPAL} (${APP_UC_PRINCIPAL})"

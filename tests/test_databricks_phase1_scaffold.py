@@ -266,9 +266,17 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     deploy_app_script = _read(DATABRICKS_DIR / "scripts" / "deploy_phase35_databricks_app.sh")
     assert "databricks apps create" in deploy_app_script
     assert "databricks apps update" in deploy_app_script
+    assert 'APP_CHATBOT_CONVERSATION_BACKEND="${APP_CHATBOT_CONVERSATION_BACKEND:-databricks_sql}"' in deploy_app_script
+    assert 'APP_CHATBOT_CONVERSATION_SCHEMA="${APP_CHATBOT_CONVERSATION_SCHEMA:-agent}"' in deploy_app_script
+    assert "APP_CHATBOT_MEMORY_MAX_TURNS" in deploy_app_script
+    assert "setup_chatbot_conversation_tables()" in deploy_app_script
+    assert "setup_phase3_conversation_tables.py" in deploy_app_script
     assert "APP_CHATBOT_CORPUS_VOLUME_RESOURCE_KEY" in deploy_app_script
     assert "APP_CHATBOT_SKILLS_VOLUME_RESOURCE_KEY" in deploy_app_script
     assert "agent_config.skills" in deploy_app_script
+    assert "APP_CHATBOT_SKILLS_VOLUME_PATH" in deploy_app_script
+    assert "ensure_chatbot_skill_lifecycle_dirs()" in deploy_app_script
+    assert "active draft archive" in deploy_app_script
     assert "APP_GEMINI_SECRET_RESOURCE_KEY" in deploy_app_script
     assert "APP_GEMINI_SECRET_SCOPE" in deploy_app_script
     assert "APP_GEMINI_SECRET_KEY" in deploy_app_script
@@ -289,6 +297,9 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "APP_UC_PRINCIPAL" in app_permissions_script
     assert "databricks grants update catalog" in app_permissions_script
     assert "databricks grants update schema" in app_permissions_script
+    assert "APP_CONVERSATION_SCHEMA" in app_permissions_script
+    assert "GRANT_CHATBOT_CONVERSATION_ACCESS" in app_permissions_script
+    assert "MODIFY" in app_permissions_script
     assert "USE_CATALOG" in app_permissions_script
     assert "USE_SCHEMA" in app_permissions_script
     assert "SELECT" in app_permissions_script
@@ -301,6 +312,9 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "DATABRICKS_SQL_WAREHOUSE_ID" in app_template
     assert "CHATBOT_CORPUS_DIR" in app_template
     assert "CHATBOT_CORPUS_VOLUME_DIR" in app_template
+    assert "CHATBOT_CONVERSATION_BACKEND" in app_template
+    assert "CHATBOT_CONVERSATION_SCHEMA" in app_template
+    assert "CHATBOT_MEMORY_MAX_TURNS" in app_template
     assert "valueFrom: \"__CHATBOT_CORPUS_VOLUME_RESOURCE_KEY__\"" in app_template
     assert "gunicorn" in app_template
     assert "- sh" in app_template
@@ -368,6 +382,27 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "GRANT_REVIEWER_DATA_ACCESS=true" in readme_text
     assert "workspace `users` group" in readme_text
 
+    upload_chatbot_assets_script = _read(DATABRICKS_DIR / "scripts" / "upload_chatbot_assets.sh")
+    assert "validate_chatbot_skills.py" in upload_chatbot_assets_script
+    assert "VALIDATE_CHATBOT_SKILLS" in upload_chatbot_assets_script
+    assert "SKILLS_VOLUME_ROOT" in upload_chatbot_assets_script
+    assert '"active"' in upload_chatbot_assets_script
+    assert '"draft"' in upload_chatbot_assets_script
+    assert '"archive"' in upload_chatbot_assets_script
+
+    validate_chatbot_skills_script = _read(DATABRICKS_DIR / "scripts" / "validate_chatbot_skills.py")
+    assert "get_skill_status" in validate_chatbot_skills_script
+    assert "Skill validation failed" in validate_chatbot_skills_script
+
+    setup_conversation_script = _read(DATABRICKS_DIR / "scripts" / "setup_phase3_conversation_tables.py")
+    assert "CREATE SCHEMA IF NOT EXISTS" in setup_conversation_script
+    assert "agent_conversations" in setup_conversation_script
+    assert "agent_messages" in setup_conversation_script
+    assert "agent_feedback" in setup_conversation_script
+    assert "CHATBOT_CONVERSATION_SCHEMA" in setup_conversation_script
+    assert "llm_provider" in setup_conversation_script
+    assert "model_endpoint_name" in setup_conversation_script
+
 
 def test_phase35_app_staging_uses_chatbot_volume_resource() -> None:
     env = os.environ.copy()
@@ -402,6 +437,34 @@ def test_phase35_app_staging_uses_chatbot_volume_resource() -> None:
     assert "CHATBOT_SKILLS_SUBDIR" in app_yaml
     assert "value: \"active\"" in app_yaml
     assert not (build_root / "data" / "chatbot_corpus").exists()
+
+
+def test_phase35_app_staging_renders_conversation_memory_env() -> None:
+    env = os.environ.copy()
+    env.update(
+        {
+            "APP_CHATBOT_CONVERSATION_BACKEND": "databricks_sql",
+            "APP_CHATBOT_CONVERSATION_SCHEMA": "agent",
+            "APP_CHATBOT_MEMORY_MAX_TURNS": "3",
+        }
+    )
+    subprocess.run(
+        [sys.executable, "databricks/scripts/stage_phase35_databricks_app.py"],
+        cwd=ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    app_yaml = _read(DATABRICKS_DIR / "build" / "chec_dash_parity" / "app.yaml")
+
+    assert "CHATBOT_CONVERSATION_BACKEND" in app_yaml
+    assert "value: \"databricks_sql\"" in app_yaml
+    assert "CHATBOT_CONVERSATION_SCHEMA" in app_yaml
+    assert "value: \"agent\"" in app_yaml
+    assert "CHATBOT_MEMORY_MAX_TURNS" in app_yaml
+    assert "value: \"3\"" in app_yaml
 
 
 def test_phase35_app_staging_can_bind_gemini_secret_resource() -> None:

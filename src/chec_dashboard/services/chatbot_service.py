@@ -16,7 +16,11 @@ from chec_dashboard.services.agent_context_service import (
 )
 from chec_dashboard.services.agent_orchestrator import (
     assess_chatbot_context,
+    create_chatbot_conversation,
+    get_chatbot_conversation,
     get_chatbot_status,
+    send_chatbot_message,
+    submit_chatbot_feedback,
 )
 from chec_dashboard.services.citation_service import _citation_payload, citation_payload
 from chec_dashboard.services.llm_service import _generate_gemini_answer
@@ -47,10 +51,14 @@ __all__ = [
     "assess_chatbot_context",
     "build_chatbot_context_package",
     "citation_payload",
+    "create_chatbot_conversation",
     "get_chatbot_context_options",
+    "get_chatbot_conversation",
     "get_chatbot_status",
     "get_skill_status",
     "load_chatbot_corpus",
     "resolve_skill",
     "retrieve_chatbot_chunks",
+    "send_chatbot_message",
+    "submit_chatbot_feedback",
 ]

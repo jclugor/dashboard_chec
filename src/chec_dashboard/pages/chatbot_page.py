@@ -8,7 +8,11 @@ from dash import ctx, exceptions
 from chec_dashboard.config import Settings
 from chec_dashboard.dash_app.api_client import (
     fetch_chatbot_assessment,
+    fetch_chatbot_conversation,
+    fetch_chatbot_create_conversation,
     fetch_chatbot_context_options,
+    fetch_chatbot_feedback,
+    fetch_chatbot_message,
     fetch_chatbot_status,
     fetch_map_circuit_options,
     fetch_map_options,
@@ -111,6 +115,44 @@ def _citations_component(citations: list[dict[str, Any]] | None):
     )
 
 
+def _conversation_messages_component(messages: list[dict[str, Any]] | None):
+    if not messages:
+        return html.Div("Sin seguimiento todavía.", className="chatbot-empty-state")
+    return html.Div(
+        [
+            html.Div(
+                [
+                    html.Div(
+                        "Usuario" if message.get("role") == "user" else "Asistente",
+                        className="chatbot-message-role",
+                    ),
+                    dcc.Markdown(str(message.get("content") or ""), className="chatbot-message-text")
+                    if message.get("role") == "assistant"
+                    else html.Div(str(message.get("content") or ""), className="chatbot-message-text"),
+                ],
+                className=f"chatbot-message chatbot-message-{message.get('role') or 'assistant'}",
+            )
+            for message in messages
+            if str(message.get("content") or "").strip()
+        ],
+        className="chatbot-conversation-thread",
+    )
+
+
+def _last_assistant_turn(messages: list[dict[str, Any]] | None) -> dict[str, Any]:
+    for message in reversed(messages or []):
+        if message.get("role") == "assistant" and message.get("turn_id"):
+            return {
+                "conversation_id": message.get("conversation_id"),
+                "turn_id": message.get("turn_id"),
+                "skill_id": message.get("skill_id"),
+                "skill_version": message.get("skill_version"),
+                "skill_hash": message.get("skill_hash"),
+                "trace_id": message.get("trace_id"),
+            }
+    return {}
+
+
 def _guided_question_options(briefing_type: str | None) -> list[dict[str, str]]:
     questions = GUIDED_QUESTIONS.get(briefing_type or "reliability", GUIDED_QUESTIONS["reliability"])
     return [{"label": question["question"], "value": question["id"]} for question in questions]
@@ -123,6 +165,9 @@ def get_layout(settings: Settings) -> html.Div:
             dcc.Interval(id="chatbot-load-interval", interval=300, n_intervals=0, max_intervals=1),
             dcc.Store(id="chatbot-context-items-store", data=[]),
             dcc.Store(id="chatbot-selected-context-store", data={}),
+            dcc.Store(id="chatbot-conversation-id-store", data=None),
+            dcc.Store(id="chatbot-conversation-store", data={}),
+            dcc.Store(id="chatbot-last-turn-store", data={}),
             html.Div(
                 [
                     html.Div(
@@ -256,6 +301,38 @@ def get_layout(settings: Settings) -> html.Div:
                                             html.Div(id="chatbot-answer", className="chatbot-answer"),
                                             html.H3("Citas", className="chatbot-panel-title"),
                                             html.Div(id="chatbot-citations", className="chatbot-citations"),
+                                            html.H3("Seguimiento", className="chatbot-panel-title"),
+                                            html.Div(id="chatbot-conversation-thread", className="chatbot-conversation-thread-shell"),
+                                            dcc.Textarea(
+                                                id="chatbot-followup-input",
+                                                placeholder="Pregunta de seguimiento...",
+                                                className="chatbot-question-input chatbot-followup-input",
+                                            ),
+                                            html.Div(
+                                                [
+                                                    html.Button(
+                                                        "ENVIAR",
+                                                        id="chatbot-followup-button",
+                                                        n_clicks=0,
+                                                        className="chatbot-primary-button",
+                                                    ),
+                                                    html.Button(
+                                                        "ÚTIL",
+                                                        id="chatbot-feedback-helpful",
+                                                        n_clicks=0,
+                                                        className="chatbot-secondary-button",
+                                                    ),
+                                                    html.Button(
+                                                        "NO ÚTIL",
+                                                        id="chatbot-feedback-not-helpful",
+                                                        n_clicks=0,
+                                                        className="chatbot-secondary-button",
+                                                    ),
+                                                ],
+                                                className="chatbot-followup-actions",
+                                            ),
+                                            html.Div(id="chatbot-followup-status", className="chatbot-inline-status"),
+                                            html.Div(id="chatbot-feedback-status", className="chatbot-inline-status"),
                                         ],
                                         className="chatbot-answer-panel",
                                     ),
@@ -388,6 +465,11 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
         Output("chatbot-answer", "children"),
         Output("chatbot-citations", "children"),
         Output("chatbot-assessment-status", "children"),
+        Output("chatbot-conversation-id-store", "data"),
+        Output("chatbot-conversation-store", "data"),
+        Output("chatbot-conversation-thread", "children"),
+        Output("chatbot-last-turn-store", "data"),
+        Output("chatbot-followup-status", "children"),
         Input("chatbot-assess-button", "n_clicks"),
         State("chatbot-selected-context-store", "data"),
         State("chatbot-question", "value"),
@@ -409,6 +491,11 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
                 "Selecciona una vista, evento o elemento de red antes de analizar.",
                 _citations_component([]),
                 "Falta contexto seleccionado.",
+                None,
+                {},
+                _conversation_messages_component([]),
+                {},
+                "",
             )
         payload = fetch_chatbot_assessment(
             selected_context=selected_context,
@@ -419,4 +506,115 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
         answer = dcc.Markdown(payload.get("answer") or "Sin respuesta.", className="chatbot-answer-markdown")
         citations = _citations_component(payload.get("citations", []))
         status_text = payload.get("status_text", "")
-        return answer, citations, status_text
+        conversation_id = payload.get("conversation_id")
+        conversation = fetch_chatbot_conversation(conversation_id) if conversation_id else {}
+        messages = conversation.get("messages") or []
+        return (
+            answer,
+            citations,
+            status_text,
+            conversation_id,
+            conversation,
+            _conversation_messages_component(messages),
+            _last_assistant_turn(messages),
+            "",
+        )
+
+    @app.callback(
+        Output("chatbot-conversation-store", "data", allow_duplicate=True),
+        Output("chatbot-conversation-thread", "children", allow_duplicate=True),
+        Output("chatbot-followup-status", "children", allow_duplicate=True),
+        Output("chatbot-followup-input", "value"),
+        Output("chatbot-last-turn-store", "data", allow_duplicate=True),
+        Output("chatbot-conversation-id-store", "data", allow_duplicate=True),
+        Input("chatbot-followup-button", "n_clicks"),
+        State("chatbot-conversation-id-store", "data"),
+        State("chatbot-conversation-store", "data"),
+        State("chatbot-selected-context-store", "data"),
+        State("chatbot-followup-input", "value"),
+        State("chatbot-analysis-type", "value"),
+        prevent_initial_call=True,
+    )
+    def send_followup(
+        n_clicks: int | None,
+        conversation_id: str | None,
+        conversation: dict[str, Any] | None,
+        selected_context: dict[str, Any] | None,
+        message: str | None,
+        briefing_type: str | None,
+    ):
+        if not n_clicks:
+            raise exceptions.PreventUpdate
+        message = " ".join((message or "").split())
+        if not message:
+            return (
+                conversation or {},
+                _conversation_messages_component((conversation or {}).get("messages")),
+                "Escribe una pregunta de seguimiento.",
+                "",
+                _last_assistant_turn((conversation or {}).get("messages")),
+                conversation_id,
+            )
+        if not conversation_id:
+            if not selected_context:
+                return (
+                    conversation or {},
+                    _conversation_messages_component((conversation or {}).get("messages")),
+                    "Selecciona un contexto o genera un análisis primero.",
+                    message,
+                    _last_assistant_turn((conversation or {}).get("messages")),
+                    conversation_id,
+                )
+            created = fetch_chatbot_create_conversation(
+                selected_context=selected_context,
+                briefing_type=briefing_type or "reliability",
+                mode="free_form",
+            )
+            conversation_id = created.get("conversation_id")
+        if not conversation_id:
+            raise exceptions.PreventUpdate
+        payload = fetch_chatbot_message(
+            conversation_id=conversation_id,
+            message=message,
+            briefing_type=briefing_type or "reliability",
+            selected_context=selected_context or None,
+        )
+        conversation = fetch_chatbot_conversation(conversation_id)
+        messages = conversation.get("messages") or []
+        return (
+            conversation,
+            _conversation_messages_component(messages),
+            payload.get("status_text", "Respuesta de seguimiento registrada."),
+            "",
+            _last_assistant_turn(messages),
+            conversation_id,
+        )
+
+    @app.callback(
+        Output("chatbot-feedback-status", "children"),
+        Input("chatbot-feedback-helpful", "n_clicks"),
+        Input("chatbot-feedback-not-helpful", "n_clicks"),
+        State("chatbot-conversation-id-store", "data"),
+        State("chatbot-last-turn-store", "data"),
+        prevent_initial_call=True,
+    )
+    def submit_feedback(
+        helpful_clicks: int | None,
+        not_helpful_clicks: int | None,
+        conversation_id: str | None,
+        last_turn: dict[str, Any] | None,
+    ):
+        _ = helpful_clicks, not_helpful_clicks
+        if ctx.triggered_id not in {"chatbot-feedback-helpful", "chatbot-feedback-not-helpful"}:
+            raise exceptions.PreventUpdate
+        turn_id = (last_turn or {}).get("turn_id")
+        conversation_id = conversation_id or (last_turn or {}).get("conversation_id")
+        if not conversation_id or not turn_id:
+            return "No hay una respuesta reciente para calificar."
+        rating = "helpful" if ctx.triggered_id == "chatbot-feedback-helpful" else "not_helpful"
+        payload = fetch_chatbot_feedback(
+            conversation_id=conversation_id,
+            turn_id=turn_id,
+            rating=rating,
+        )
+        return payload.get("status_text", "Retroalimentación registrada.")

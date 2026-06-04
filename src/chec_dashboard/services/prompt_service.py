@@ -36,6 +36,7 @@ def build_prompt(
     briefing_type: str,
     chunks: list[dict[str, Any]],
     skill_resolution: SkillResolution | None = None,
+    conversation_history: list[dict[str, Any]] | None = None,
 ) -> str:
     context_json = json.dumps(context_package, ensure_ascii=False, indent=2, default=str)
     snippets = []
@@ -44,6 +45,7 @@ def build_prompt(
         snippets.append(f"[{index}] {title}\n{chunk.get('snippet') or chunk.get('text')}")
     docs_text = "\n\n".join(snippets)
     skill_text = _skill_prompt_text(skill_resolution)
+    history_text = _conversation_history_text(conversation_history or [])
     return f"""
 Eres un asistente técnico para CHEC. Responde siempre en español.
 
@@ -74,9 +76,24 @@ Paquete de contexto estructurado:
 Pregunta guía y/o pregunta adicional del usuario:
 {question or "Sin pregunta adicional."}
 
+Historial reciente de la conversación:
+{history_text or "Sin historial previo."}
+
 Documentos recuperados:
 {docs_text or "No se recuperaron documentos."}
 """.strip()
+
+
+def _conversation_history_text(messages: list[dict[str, Any]]) -> str:
+    rows: list[str] = []
+    for message in messages:
+        role = str(message.get("role") or "").strip().lower()
+        content = str(message.get("content") or "").strip()
+        if not content:
+            continue
+        label = "Usuario" if role == "user" else "Asistente"
+        rows.append(f"- {label}: {content[:900]}")
+    return "\n".join(rows)
 
 
 def _skill_prompt_text(skill_resolution: SkillResolution | None) -> str:
