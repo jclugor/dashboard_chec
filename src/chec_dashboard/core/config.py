@@ -20,6 +20,15 @@ def _to_int(value: str | None, default: int) -> int:
         return default
 
 
+def _to_float(value: str | None, default: float) -> float:
+    if value is None:
+        return default
+    try:
+        return float(value)
+    except ValueError:
+        return default
+
+
 def _env_value(name: str) -> str | None:
     value = os.getenv(name)
     if value is None:
@@ -70,6 +79,8 @@ class Settings:
     inference_retry_backoff_ms: int
     llm_provider: str
     llm_endpoint_name: str | None
+    llm_max_tokens: int
+    llm_temperature: float
     chatbot_enabled: bool
     gemini_api_key: str | None
     gemini_model: str
@@ -161,6 +172,8 @@ def load_settings() -> Settings:
         inference_retry_backoff_ms=max(_to_int(os.getenv("INFERENCE_RETRY_BACKOFF_MS"), 250), 0),
         llm_provider=os.getenv("LLM_PROVIDER", "mock").strip().lower(),
         llm_endpoint_name=_env_value("LLM_ENDPOINT_NAME"),
+        llm_max_tokens=max(_to_int(os.getenv("LLM_MAX_TOKENS"), 1200), 1),
+        llm_temperature=max(0.0, min(_to_float(os.getenv("LLM_TEMPERATURE"), 0.2), 2.0)),
         chatbot_enabled=_to_bool(os.getenv("CHATBOT_ENABLED"), False),
         gemini_api_key=os.getenv("GEMINI_API_KEY") or None,
         gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),

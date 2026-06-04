@@ -13,6 +13,10 @@ class ChatbotStatusResponse(ChatbotAPIModel):
     enabled: bool
     llm_provider: str = "mock"
     llm_configured: bool = False
+    llm_endpoint_configured: bool = True
+    model_endpoint_name: str | None = None
+    llm_max_tokens: int | None = None
+    llm_temperature: float | None = None
     gemini_configured: bool
     corpus_available: bool
     ready: bool

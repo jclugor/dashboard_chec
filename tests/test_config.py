@@ -19,6 +19,8 @@ def _base_env(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.delenv("CHATBOT_SKILLS_SUBDIR", raising=False)
     monkeypatch.delenv("LLM_PROVIDER", raising=False)
     monkeypatch.delenv("LLM_ENDPOINT_NAME", raising=False)
+    monkeypatch.delenv("LLM_MAX_TOKENS", raising=False)
+    monkeypatch.delenv("LLM_TEMPERATURE", raising=False)
     monkeypatch.delenv("RETRIEVER_BACKEND", raising=False)
     monkeypatch.delenv("AI_SEARCH_ENDPOINT_NAME", raising=False)
     monkeypatch.delenv("AI_SEARCH_INDEX_NAME", raising=False)
@@ -132,11 +134,15 @@ def test_llm_provider_env_overrides(monkeypatch, tmp_path: Path) -> None:
     _base_env(monkeypatch, tmp_path)
     monkeypatch.setenv("LLM_PROVIDER", "databricks_model_serving")
     monkeypatch.setenv("LLM_ENDPOINT_NAME", "chec-agent-demo")
+    monkeypatch.setenv("LLM_MAX_TOKENS", "900")
+    monkeypatch.setenv("LLM_TEMPERATURE", "0.35")
 
     settings = load_settings()
 
     assert settings.llm_provider == "databricks_model_serving"
     assert settings.llm_endpoint_name == "chec-agent-demo"
+    assert settings.llm_max_tokens == 900
+    assert settings.llm_temperature == 0.35
 
 
 def test_phase5_retriever_env_defaults_and_overrides(monkeypatch, tmp_path: Path) -> None:

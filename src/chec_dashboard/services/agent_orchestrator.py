@@ -22,6 +22,8 @@ from chec_dashboard.services.llm_service import (
     generate_llm_answer,
     llm_configuration_message,
     llm_configured,
+    llm_endpoint_configured,
+    llm_endpoint_name,
     llm_provider,
 )
 from chec_dashboard.services.prompt_service import build_prompt
@@ -52,6 +54,7 @@ def get_chatbot_status(settings: Settings) -> dict[str, Any]:
     enabled = settings.chatbot_enabled
     provider = llm_provider(settings)
     configured = llm_configured(settings)
+    endpoint_configured = llm_endpoint_configured(settings)
     gemini_configured = bool(settings.gemini_api_key)
     ready = enabled and configured and corpus_available
 
@@ -72,6 +75,10 @@ def get_chatbot_status(settings: Settings) -> dict[str, Any]:
         "enabled": enabled,
         "llm_provider": provider,
         "llm_configured": configured,
+        "llm_endpoint_configured": endpoint_configured,
+        "model_endpoint_name": _model_endpoint_name(settings),
+        "llm_max_tokens": settings.llm_max_tokens,
+        "llm_temperature": settings.llm_temperature,
         "gemini_configured": gemini_configured,
         "corpus_available": corpus_available,
         "ready": ready,
@@ -114,10 +121,9 @@ def _response_metadata(
 
 
 def _model_endpoint_name(settings: Settings) -> str | None:
-    if settings.llm_endpoint_name:
-        return settings.llm_endpoint_name
-    if settings.databricks_model_endpoint:
-        return settings.databricks_model_endpoint
+    endpoint_name = llm_endpoint_name(settings)
+    if endpoint_name:
+        return endpoint_name
     if settings.llm_provider == "gemini":
         return settings.gemini_model
     if settings.llm_provider == "mock":
@@ -367,6 +373,7 @@ def assess_chatbot_context(
             question=resolved_question,
             citations=citations,
             skill_resolution=skill_resolution,
+            trace_id=metadata.get("trace_id"),
         )
     except Exception as exc:
         answer = f"No fue posible generar el análisis con el proveedor LLM '{status['llm_provider']}': {exc}"
@@ -568,6 +575,7 @@ def send_chatbot_message(
                 question=message,
                 citations=citations,
                 skill_resolution=skill_resolution,
+                trace_id=metadata.get("trace_id"),
             )
             status_text = "Respuesta de seguimiento generada con memoria de conversación."
             ready = True

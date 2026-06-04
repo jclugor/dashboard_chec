@@ -32,7 +32,9 @@ def _render_app_yaml(template_text: str) -> str:
         "__GOLD_SCHEMA__": os.getenv("APP_GOLD_SCHEMA", "gold"),
         "__SILVER_SCHEMA__": os.getenv("APP_SILVER_SCHEMA", "silver"),
         "__LLM_PROVIDER__": os.getenv("APP_LLM_PROVIDER", "mock"),
-        "__LLM_ENDPOINT_NAME__": os.getenv("APP_LLM_ENDPOINT_NAME", ""),
+        "__LLM_ENDPOINT_RESOURCE_KEY__": os.getenv("APP_LLM_ENDPOINT_RESOURCE_KEY", "chatbot_llm_endpoint"),
+        "__LLM_MAX_TOKENS__": os.getenv("APP_LLM_MAX_TOKENS", "1200"),
+        "__LLM_TEMPERATURE__": os.getenv("APP_LLM_TEMPERATURE", "0.2"),
         "__CHATBOT_ENABLED__": os.getenv("APP_CHATBOT_ENABLED", "false"),
         "__CHATBOT_CORPUS_VOLUME_RESOURCE_KEY__": os.getenv(
             "APP_CHATBOT_CORPUS_VOLUME_RESOURCE_KEY",

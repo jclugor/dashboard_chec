@@ -22,6 +22,12 @@ APP_CHATBOT_CONVERSATION_BACKEND="${APP_CHATBOT_CONVERSATION_BACKEND:-databricks
 APP_CHATBOT_CONVERSATION_SCHEMA="${APP_CHATBOT_CONVERSATION_SCHEMA:-agent}"
 APP_CHATBOT_CONTEXT_TOOLS_SCHEMA="${APP_CHATBOT_CONTEXT_TOOLS_SCHEMA:-agent_tools}"
 APP_CHATBOT_MEMORY_MAX_TURNS="${APP_CHATBOT_MEMORY_MAX_TURNS:-8}"
+APP_LLM_PROVIDER="${APP_LLM_PROVIDER:-databricks_model_serving}"
+APP_LLM_ENDPOINT_NAME="${APP_LLM_ENDPOINT_NAME:-databricks-qwen3-next-80b-a3b-instruct}"
+APP_LLM_ENDPOINT_RESOURCE_KEY="${APP_LLM_ENDPOINT_RESOURCE_KEY:-chatbot_llm_endpoint}"
+APP_LLM_ENDPOINT_DESCRIPTION="${APP_LLM_ENDPOINT_DESCRIPTION:-CHEC chatbot Databricks Model Serving endpoint}"
+APP_LLM_MAX_TOKENS="${APP_LLM_MAX_TOKENS:-1200}"
+APP_LLM_TEMPERATURE="${APP_LLM_TEMPERATURE:-0.2}"
 APP_RETRIEVER_BACKEND="${APP_RETRIEVER_BACKEND:-databricks_ai_search}"
 APP_AI_SEARCH_ENDPOINT_NAME="${APP_AI_SEARCH_ENDPOINT_NAME:-chec-agent-search}"
 APP_AI_SEARCH_INDEX_FULL_NAME="${APP_AI_SEARCH_INDEX_FULL_NAME:-${APP_CATALOG_NAME:-chec_dbx_demo}.gold.technical_doc_chunks_current_index}"
@@ -37,6 +43,10 @@ APP_GEMINI_SECRET_KEY="${APP_GEMINI_SECRET_KEY:-gemini_api_key}"
 APP_GEMINI_SECRET_DESCRIPTION="${APP_GEMINI_SECRET_DESCRIPTION:-Gemini API key for the CHEC technical chatbot}"
 
 export APP_GEMINI_SECRET_RESOURCE_KEY
+export APP_LLM_PROVIDER
+export APP_LLM_ENDPOINT_RESOURCE_KEY
+export APP_LLM_MAX_TOKENS
+export APP_LLM_TEMPERATURE
 export APP_CHATBOT_CONVERSATION_BACKEND
 export APP_CHATBOT_CONVERSATION_SCHEMA
 export APP_CHATBOT_CONTEXT_TOOLS_SCHEMA
@@ -110,6 +120,9 @@ APP_RESOURCE_UPDATE_JSON="$(jq -c \
   --arg skills_resource_key "${APP_CHATBOT_SKILLS_VOLUME_RESOURCE_KEY}" \
   --arg skills_resource_description "${APP_CHATBOT_SKILLS_VOLUME_DESCRIPTION}" \
   --arg skills_volume_full_name "${APP_CHATBOT_SKILLS_VOLUME_FULL_NAME}" \
+  --arg llm_endpoint_resource_key "${APP_LLM_ENDPOINT_RESOURCE_KEY}" \
+  --arg llm_endpoint_resource_description "${APP_LLM_ENDPOINT_DESCRIPTION}" \
+  --arg llm_endpoint_name "${APP_LLM_ENDPOINT_NAME}" \
   --arg ai_search_resource_key "${APP_AI_SEARCH_INDEX_RESOURCE_KEY}" \
   --arg ai_search_resource_description "${APP_AI_SEARCH_INDEX_DESCRIPTION}" \
   --arg ai_search_index_full_name "${APP_AI_SEARCH_INDEX_FULL_NAME}" \
@@ -123,6 +136,7 @@ APP_RESOURCE_UPDATE_JSON="$(jq -c \
       ((.resources // []) | map(select(
         .name != $resource_key
         and .name != $skills_resource_key
+        and .name != $llm_endpoint_resource_key
         and .name != $ai_search_resource_key
         and .name != $gemini_resource_key
       )))
@@ -144,6 +158,14 @@ APP_RESOURCE_UPDATE_JSON="$(jq -c \
           permission: "READ_VOLUME"
         }
       }]
+      + (if ($llm_endpoint_resource_key != "" and $llm_endpoint_name != "") then [{
+        name: $llm_endpoint_resource_key,
+        description: $llm_endpoint_resource_description,
+        serving_endpoint: {
+          name: $llm_endpoint_name,
+          permission: "CAN_QUERY"
+        }
+      }] else [] end)
       + [{
         name: $ai_search_resource_key,
         description: $ai_search_resource_description,

@@ -1,8 +1,14 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+import time
 from typing import Any
 
+import httpx
+
 from chec_dashboard.core.config import Settings
+from chec_dashboard.core.logging import get_logger
+from chec_dashboard.services.retrieval_service import databricks_api_auth_headers, databricks_host
 
 
 SUPPORTED_LLM_PROVIDERS = {
@@ -14,11 +20,45 @@ SUPPORTED_LLM_PROVIDERS = {
 }
 
 
+@dataclass(frozen=True)
+class DatabricksModelServingResult:
+    text: str
+    usage: dict[str, Any]
+    raw_response: dict[str, Any]
+
+
+class DatabricksModelServingError(RuntimeError):
+    pass
+
+
+class DatabricksModelServingConfigurationError(DatabricksModelServingError):
+    pass
+
+
+class DatabricksModelServingRequestError(DatabricksModelServingError):
+    pass
+
+
+class DatabricksModelServingResponseError(DatabricksModelServingError):
+    pass
+
+
 def llm_provider(settings: Settings) -> str:
     provider = (settings.llm_provider or "mock").strip().lower()
     if provider not in SUPPORTED_LLM_PROVIDERS:
         return provider
     return provider
+
+
+def llm_endpoint_name(settings: Settings) -> str | None:
+    return settings.llm_endpoint_name or settings.databricks_model_endpoint
+
+
+def llm_endpoint_configured(settings: Settings) -> bool:
+    provider = llm_provider(settings)
+    if provider == "databricks_model_serving":
+        return bool(llm_endpoint_name(settings))
+    return True
 
 
 def llm_configured(settings: Settings) -> bool:
@@ -28,7 +68,7 @@ def llm_configured(settings: Settings) -> bool:
     if provider == "gemini":
         return bool(settings.gemini_api_key)
     if provider == "databricks_model_serving":
-        return False
+        return bool(llm_endpoint_name(settings))
     return False
 
 
@@ -38,8 +78,10 @@ def llm_configuration_message(settings: Settings) -> str:
         return "Proveedor LLM mock listo para respuestas determinísticas de desarrollo."
     if provider == "gemini" and not settings.gemini_api_key:
         return "El proveedor LLM 'gemini' no está configurado. Define GEMINI_API_KEY o usa LLM_PROVIDER=mock."
+    if provider == "databricks_model_serving" and not llm_endpoint_name(settings):
+        return "Databricks Model Serving no está configurado. Define LLM_ENDPOINT_NAME."
     if provider == "databricks_model_serving":
-        return "Databricks Model Serving está reservado para Phase 6; usa LLM_PROVIDER=mock en Phase 1."
+        return "Databricks Model Serving listo para generar respuestas gobernadas."
     if provider in {"azure_openai", "openai"}:
         return f"El proveedor LLM '{provider}' está reservado para una integración posterior."
     return f"Proveedor LLM no soportado: {provider}."
@@ -122,6 +164,239 @@ def _generate_gemini_answer(settings: Settings, prompt: str) -> str:
     raise RuntimeError("Gemini no devolvió texto utilizable.")
 
 
+def _databricks_chat_payload(settings: Settings, prompt: str) -> dict[str, Any]:
+    return {
+        "messages": [
+            {
+                "role": "system",
+                "content": (
+                    "Eres un asistente técnico para análisis de confiabilidad eléctrica de CHEC. "
+                    "Responde en español, usa las citas disponibles y evita conclusiones legales definitivas."
+                ),
+            },
+            {"role": "user", "content": prompt},
+        ],
+        "max_tokens": settings.llm_max_tokens,
+        "temperature": settings.llm_temperature,
+    }
+
+
+def _databricks_model_serving_url(settings: Settings) -> str:
+    endpoint = llm_endpoint_name(settings)
+    if not endpoint:
+        raise DatabricksModelServingConfigurationError(
+            "Databricks Model Serving no está configurado. Define LLM_ENDPOINT_NAME."
+        )
+    endpoint = endpoint.strip()
+    if endpoint.startswith(("http://", "https://")):
+        return endpoint
+
+    host = databricks_host()
+    if not host and settings.databricks_host:
+        host = settings.databricks_host.strip().rstrip("/")
+        if host and not host.startswith(("http://", "https://")):
+            host = f"https://{host}"
+    if not host:
+        raise DatabricksModelServingConfigurationError(
+            "DATABRICKS_HOST no está configurado para consultar Databricks Model Serving."
+        )
+
+    if endpoint.startswith("/serving-endpoints/"):
+        return f"{host}{endpoint}"
+    return f"{host}/serving-endpoints/{endpoint}/invocations"
+
+
+def _databricks_model_serving_headers(settings: Settings, trace_id: str | None) -> dict[str, str]:
+    headers = databricks_api_auth_headers()
+    if not headers and settings.databricks_token:
+        headers = {"Authorization": f"Bearer {settings.databricks_token}"}
+    if not headers:
+        raise DatabricksModelServingConfigurationError(
+            "No hay credenciales Databricks para consultar Model Serving."
+        )
+    headers = {**headers, "Content-Type": "application/json"}
+    if trace_id:
+        headers["X-Request-ID"] = trace_id
+    return headers
+
+
+def _field(value: Any, name: str, default: Any = None) -> Any:
+    if isinstance(value, dict):
+        return value.get(name, default)
+    if hasattr(value, "as_dict"):
+        try:
+            return value.as_dict().get(name, default)
+        except Exception:
+            pass
+    return getattr(value, name, default)
+
+
+def _as_response_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if hasattr(value, "as_dict"):
+        data = value.as_dict()
+        if isinstance(data, dict):
+            return data
+    if hasattr(value, "to_dict"):
+        data = value.to_dict()
+        if isinstance(data, dict):
+            return data
+    raise DatabricksModelServingResponseError("Databricks Model Serving devolvió una respuesta no JSON.")
+
+
+def _content_text(content: Any) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts = []
+        for item in content:
+            text = _field(item, "text")
+            if text is None:
+                text = _field(item, "content")
+            if text is not None:
+                parts.append(str(text))
+        return "\n".join(parts).strip()
+    if content is None:
+        return ""
+    return str(content).strip()
+
+
+def _parse_databricks_model_serving_response(response: Any) -> DatabricksModelServingResult:
+    data = _as_response_dict(response)
+    choices = _field(data, "choices") or []
+    text = ""
+    if choices:
+        first_choice = choices[0]
+        message = _field(first_choice, "message") or {}
+        text = _content_text(_field(message, "content"))
+        if not text:
+            text = _content_text(_field(first_choice, "text"))
+    if not text:
+        prediction = _field(data, "prediction") or _field(data, "predictions")
+        if isinstance(prediction, list) and prediction:
+            prediction = prediction[0]
+        text = _content_text(_field(prediction, "content") if isinstance(prediction, dict) else prediction)
+    if not text:
+        raise DatabricksModelServingResponseError("Databricks Model Serving no devolvió texto utilizable.")
+    usage = _field(data, "usage") or {}
+    if not isinstance(usage, dict):
+        usage = _as_response_dict(usage)
+    return DatabricksModelServingResult(text=text, usage=usage, raw_response=data)
+
+
+def _default_databricks_post_json(
+    *,
+    url: str,
+    payload: dict[str, Any],
+    headers: dict[str, str],
+    timeout: int,
+) -> dict[str, Any]:
+    with httpx.Client(timeout=timeout) as client:
+        response = client.post(url, json=payload, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+    if not isinstance(data, dict):
+        raise DatabricksModelServingResponseError("Databricks Model Serving devolvió una respuesta no JSON.")
+    return data
+
+
+class DatabricksModelServingLLMClient:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        post_json: Any | None = None,
+        sleep: Any = time.sleep,
+    ) -> None:
+        self.settings = settings
+        self._post_json = post_json or _default_databricks_post_json
+        self._sleep = sleep
+        self._logger = get_logger(__name__, settings.log_level)
+
+    def generate(self, prompt: str, *, trace_id: str | None = None) -> DatabricksModelServingResult:
+        url = _databricks_model_serving_url(self.settings)
+        headers = _databricks_model_serving_headers(self.settings, trace_id)
+        payload = _databricks_chat_payload(self.settings, prompt)
+        retries = max(self.settings.inference_http_retries, 0)
+        timeout = max(self.settings.request_timeout_seconds, 1)
+        backoff = max(self.settings.inference_retry_backoff_ms, 0) / 1000.0
+        endpoint = llm_endpoint_name(self.settings)
+
+        last_error: Exception | None = None
+        for attempt in range(retries + 1):
+            start = time.perf_counter()
+            try:
+                response = self._post_json(url=url, payload=payload, headers=headers, timeout=timeout)
+                result = _parse_databricks_model_serving_response(response)
+                latency_ms = (time.perf_counter() - start) * 1000.0
+                self._logger.info(
+                    "Databricks Model Serving call succeeded",
+                    extra={
+                        "trace_id": trace_id,
+                        "llm_provider": "databricks_model_serving",
+                        "model_endpoint_name": endpoint,
+                        "attempt": attempt + 1,
+                        "latency_ms": round(latency_ms, 2),
+                        "prompt_tokens": result.usage.get("prompt_tokens"),
+                        "completion_tokens": result.usage.get("completion_tokens"),
+                        "total_tokens": result.usage.get("total_tokens"),
+                    },
+                )
+                return result
+            except DatabricksModelServingResponseError:
+                raise
+            except httpx.TimeoutException as exc:
+                last_error = exc
+                self._log_model_serving_warning("Databricks Model Serving timeout", trace_id, endpoint, attempt, start)
+            except httpx.HTTPStatusError as exc:
+                last_error = exc
+                self._log_model_serving_warning("Databricks Model Serving HTTP error", trace_id, endpoint, attempt, start)
+            except httpx.HTTPError as exc:
+                last_error = exc
+                self._log_model_serving_warning("Databricks Model Serving request error", trace_id, endpoint, attempt, start)
+            if attempt < retries and backoff:
+                self._sleep(backoff)
+
+        if isinstance(last_error, httpx.TimeoutException):
+            raise DatabricksModelServingRequestError(
+                "Databricks Model Serving no respondió antes del tiempo límite."
+            ) from last_error
+        raise DatabricksModelServingRequestError(
+            "No fue posible consultar Databricks Model Serving."
+        ) from last_error
+
+    def _log_model_serving_warning(
+        self,
+        message: str,
+        trace_id: str | None,
+        endpoint: str | None,
+        attempt: int,
+        start: float,
+    ) -> None:
+        latency_ms = (time.perf_counter() - start) * 1000.0
+        self._logger.warning(
+            message,
+            extra={
+                "trace_id": trace_id,
+                "llm_provider": "databricks_model_serving",
+                "model_endpoint_name": endpoint,
+                "attempt": attempt + 1,
+                "latency_ms": round(latency_ms, 2),
+            },
+        )
+
+
+def _generate_databricks_model_serving_answer(
+    settings: Settings,
+    prompt: str,
+    *,
+    trace_id: str | None = None,
+) -> str:
+    client = DatabricksModelServingLLMClient(settings)
+    return client.generate(prompt, trace_id=trace_id).text
+
+
 def generate_llm_answer(
     settings: Settings,
     *,
@@ -130,6 +405,7 @@ def generate_llm_answer(
     question: str | None,
     citations: list[dict[str, Any]],
     skill_resolution: Any | None = None,
+    trace_id: str | None = None,
 ) -> str:
     provider = llm_provider(settings)
     if provider == "mock":
@@ -141,4 +417,6 @@ def generate_llm_answer(
         )
     if provider == "gemini":
         return _generate_gemini_answer(settings, prompt)
+    if provider == "databricks_model_serving":
+        return _generate_databricks_model_serving_answer(settings, prompt, trace_id=trace_id)
     raise RuntimeError(llm_configuration_message(settings))

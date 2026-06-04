@@ -21,7 +21,11 @@ env:
   - name: LLM_PROVIDER
     value: "__LLM_PROVIDER__"
   - name: LLM_ENDPOINT_NAME
-    value: "__LLM_ENDPOINT_NAME__"
+    valueFrom: "__LLM_ENDPOINT_RESOURCE_KEY__"
+  - name: LLM_MAX_TOKENS
+    value: "__LLM_MAX_TOKENS__"
+  - name: LLM_TEMPERATURE
+    value: "__LLM_TEMPERATURE__"
   - name: CHATBOT_ENABLED
     value: "__CHATBOT_ENABLED__"
   - name: CHATBOT_CORPUS_DIR

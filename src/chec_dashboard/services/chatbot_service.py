@@ -31,7 +31,14 @@ from chec_dashboard.services.agent_orchestrator import (
     submit_chatbot_feedback,
 )
 from chec_dashboard.services.citation_service import _citation_payload, citation_payload
-from chec_dashboard.services.llm_service import _generate_gemini_answer
+from chec_dashboard.services.llm_service import (
+    DatabricksModelServingLLMClient,
+    _databricks_chat_payload,
+    _generate_gemini_answer,
+    _parse_databricks_model_serving_response,
+    llm_endpoint_configured,
+    llm_endpoint_name,
+)
 from chec_dashboard.services.prompt_service import _briefing_instruction, _build_prompt
 from chec_dashboard.services.retrieval_service import (
     Corpus,
@@ -63,6 +70,9 @@ __all__ = [
     "_parse_ai_search_response",
     "Corpus",
     "DatabricksAISearchRetriever",
+    "DatabricksModelServingLLMClient",
+    "_databricks_chat_payload",
+    "_parse_databricks_model_serving_response",
     "assess_chatbot_context",
     "ai_search_configured",
     "build_chatbot_context_package",
@@ -81,6 +91,8 @@ __all__ = [
     "get_skill_status",
     "get_reliability_summary_tool",
     "load_chatbot_corpus",
+    "llm_endpoint_configured",
+    "llm_endpoint_name",
     "retriever_runtime_diagnostics",
     "resolve_skill",
     "retrieve_chatbot_chunks",

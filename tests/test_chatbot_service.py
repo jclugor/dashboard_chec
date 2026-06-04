@@ -5,13 +5,17 @@ import json
 from pathlib import Path
 import textwrap
 
+import httpx
 import pandas as pd
 import pytest
 
 from chec_dashboard.core.config import settings as base_settings
 from chec_dashboard.services.chatbot_service import (
     DatabricksAISearchRetriever,
+    DatabricksModelServingLLMClient,
+    _databricks_chat_payload,
     _parse_ai_search_response,
+    _parse_databricks_model_serving_response,
     assess_chatbot_context,
     build_chatbot_context_package,
     build_context_tool_payload,
@@ -197,6 +201,56 @@ def test_chatbot_status_reports_unconfigured_selected_gemini_provider(tmp_path: 
     assert "gemini" in status["message"]
 
 
+def test_chatbot_status_reports_databricks_model_serving_readiness(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    data_dir.mkdir()
+    _write_corpus(corpus_dir)
+    settings = _settings(
+        tmp_path,
+        data_dir,
+        corpus_dir,
+        chatbot_enabled=True,
+        llm_provider="databricks_model_serving",
+        llm_endpoint_name="databricks-qwen3-next-80b-a3b-instruct",
+        llm_max_tokens=900,
+        llm_temperature=0.15,
+    )
+
+    status = get_chatbot_status(settings)
+
+    assert status["ready"] is True
+    assert status["llm_provider"] == "databricks_model_serving"
+    assert status["llm_configured"] is True
+    assert status["llm_endpoint_configured"] is True
+    assert status["model_endpoint_name"] == "databricks-qwen3-next-80b-a3b-instruct"
+    assert status["llm_max_tokens"] == 900
+    assert status["llm_temperature"] == 0.15
+
+
+def test_chatbot_status_reports_unconfigured_databricks_model_serving(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    data_dir.mkdir()
+    _write_corpus(corpus_dir)
+    settings = _settings(
+        tmp_path,
+        data_dir,
+        corpus_dir,
+        chatbot_enabled=True,
+        llm_provider="databricks_model_serving",
+        llm_endpoint_name=None,
+        databricks_model_endpoint=None,
+    )
+
+    status = get_chatbot_status(settings)
+
+    assert status["ready"] is False
+    assert status["llm_configured"] is False
+    assert status["llm_endpoint_configured"] is False
+    assert "LLM_ENDPOINT_NAME" in status["message"]
+
+
 def test_chatbot_status_reports_missing_corpus(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     corpus_dir = tmp_path / "missing-corpus"
@@ -376,6 +430,104 @@ def test_ai_search_retriever_builds_bounded_hybrid_query(tmp_path: Path) -> None
     assert chunks[1]["snippet"].startswith("SAIFI")
 
 
+def test_databricks_model_serving_payload_is_bounded(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    data_dir.mkdir()
+    settings = _settings(
+        tmp_path,
+        data_dir,
+        corpus_dir,
+        llm_provider="databricks_model_serving",
+        llm_endpoint_name="databricks-qwen3-next-80b-a3b-instruct",
+        llm_max_tokens=321,
+        llm_temperature=0.4,
+    )
+
+    payload = _databricks_chat_payload(settings, "Prompt técnico con citas [1].")
+
+    assert payload["max_tokens"] == 321
+    assert payload["temperature"] == 0.4
+    assert payload["messages"][0]["role"] == "system"
+    assert "español" in payload["messages"][0]["content"]
+    assert payload["messages"][1] == {"role": "user", "content": "Prompt técnico con citas [1]."}
+
+
+def test_databricks_model_serving_response_parser_reads_text_and_usage() -> None:
+    result = _parse_databricks_model_serving_response(
+        {
+            "choices": [{"message": {"content": "Respuesta técnica con citas [1]."}}],
+            "usage": {"prompt_tokens": 100, "completion_tokens": 20, "total_tokens": 120},
+        }
+    )
+
+    assert result.text == "Respuesta técnica con citas [1]."
+    assert result.usage["total_tokens"] == 120
+
+
+def test_databricks_model_serving_client_sends_trace_headers_and_parses_response(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    data_dir.mkdir()
+    settings = _settings(
+        tmp_path,
+        data_dir,
+        corpus_dir,
+        llm_provider="databricks_model_serving",
+        llm_endpoint_name="databricks-qwen3-next-80b-a3b-instruct",
+        databricks_host="https://adb-test.azuredatabricks.net",
+        databricks_token="local-token",
+        request_timeout_seconds=12,
+        inference_http_retries=0,
+    )
+    calls: list[dict[str, object]] = []
+
+    def fake_post_json(**kwargs):
+        calls.append(kwargs)
+        return {
+            "choices": [{"message": {"content": "Análisis gobernado desde Databricks."}}],
+            "usage": {"prompt_tokens": 8, "completion_tokens": 6, "total_tokens": 14},
+        }
+
+    client = DatabricksModelServingLLMClient(settings, post_json=fake_post_json)
+    result = client.generate("Genera análisis.", trace_id="trace-123")
+
+    assert result.text == "Análisis gobernado desde Databricks."
+    assert calls[0]["url"] == (
+        "https://adb-test.azuredatabricks.net/serving-endpoints/"
+        "databricks-qwen3-next-80b-a3b-instruct/invocations"
+    )
+    assert calls[0]["headers"]["Authorization"] == "Bearer local-token"
+    assert calls[0]["headers"]["X-Request-ID"] == "trace-123"
+    assert calls[0]["payload"]["messages"][1]["content"] == "Genera análisis."
+    assert calls[0]["timeout"] == 12
+
+
+def test_databricks_model_serving_timeout_is_spanish_error(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    data_dir.mkdir()
+    settings = _settings(
+        tmp_path,
+        data_dir,
+        corpus_dir,
+        llm_provider="databricks_model_serving",
+        llm_endpoint_name="databricks-qwen3-next-80b-a3b-instruct",
+        databricks_host="https://adb-test.azuredatabricks.net",
+        databricks_token="local-token",
+        request_timeout_seconds=1,
+        inference_http_retries=0,
+    )
+
+    def fake_post_json(**kwargs):
+        raise httpx.TimeoutException("timed out")
+
+    client = DatabricksModelServingLLMClient(settings, post_json=fake_post_json)
+
+    with pytest.raises(RuntimeError, match="tiempo límite"):
+        client.generate("Genera análisis.", trace_id="trace-timeout")
+
+
 def test_chatbot_status_reports_ai_search_ready_without_jsonl(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     corpus_dir = tmp_path / "missing-corpus"
@@ -429,6 +581,51 @@ def test_missing_ai_search_config_returns_traceable_early_answer(tmp_path: Path)
     assert result["skill_version"]
     assert result["skill_hash"]
     assert detail["messages"][-1]["skill_id"] == result["skill_id"]
+
+
+def test_databricks_model_serving_failure_preserves_citations_and_metadata(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    reset_memory_conversation_store()
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    data_dir.mkdir()
+    _write_corpus(corpus_dir)
+    settings = _settings(
+        tmp_path,
+        data_dir,
+        corpus_dir,
+        chatbot_enabled=True,
+        llm_provider="databricks_model_serving",
+        llm_endpoint_name="databricks-qwen3-next-80b-a3b-instruct",
+    )
+
+    def fake_generate(settings, prompt, *, trace_id=None):
+        raise RuntimeError("Databricks Model Serving no respondió antes del tiempo límite.")
+
+    monkeypatch.setattr(
+        "chec_dashboard.services.llm_service._generate_databricks_model_serving_answer",
+        fake_generate,
+    )
+
+    result = assess_chatbot_context(
+        settings,
+        selected_context={"CODE": "TR-1", "causa": "VIENTO"},
+        question="condiciones de viento",
+        briefing_type="reliability",
+    )
+    detail = get_chatbot_conversation(settings, result["conversation_id"])
+
+    assert result["ready"] is False
+    assert result["citations"]
+    assert result["llm_provider"] == "databricks_model_serving"
+    assert result["model_endpoint_name"] == "databricks-qwen3-next-80b-a3b-instruct"
+    assert result["trace_id"]
+    assert "No fue posible generar el análisis" in result["answer"]
+    assert detail["messages"][-1]["trace_id"] == result["trace_id"]
+    assert detail["messages"][-1]["llm_provider"] == "databricks_model_serving"
+    assert detail["messages"][-1]["model_endpoint_name"] == result["model_endpoint_name"]
 
 
 def test_default_repo_skills_load_and_validate(tmp_path: Path) -> None:

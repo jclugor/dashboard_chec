@@ -282,6 +282,13 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "setup_chatbot_ai_search()" in deploy_app_script
     assert "setup_phase5_ai_search.py" in deploy_app_script
     assert "chatbot_ai_search_index" in deploy_app_script
+    assert 'APP_LLM_PROVIDER="${APP_LLM_PROVIDER:-databricks_model_serving}"' in deploy_app_script
+    assert "APP_LLM_ENDPOINT_NAME" in deploy_app_script
+    assert "databricks-qwen3-next-80b-a3b-instruct" in deploy_app_script
+    assert "chatbot_llm_endpoint" in deploy_app_script
+    assert "serving_endpoint" in deploy_app_script
+    assert "CAN_QUERY" in deploy_app_script
+    assert "CAN_MANAGE" not in deploy_app_script
     assert "APP_CHATBOT_CORPUS_VOLUME_RESOURCE_KEY" in deploy_app_script
     assert "APP_CHATBOT_SKILLS_VOLUME_RESOURCE_KEY" in deploy_app_script
     assert "agent_config.skills" in deploy_app_script
@@ -316,6 +323,9 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "APP_CONTEXT_TOOL_VIEWS" in app_permissions_script
     assert "APP_AI_SEARCH_INDEX_FULL_NAME" in app_permissions_script
     assert "GRANT_CHATBOT_AI_SEARCH_ACCESS" in app_permissions_script
+    assert "APP_LLM_ENDPOINT_NAME" in app_permissions_script
+    assert "GRANT_CHATBOT_LLM_ENDPOINT_ACCESS" in app_permissions_script
+    assert "databricks serving-endpoints update-permissions" in app_permissions_script
     assert "databricks grants update function" in app_permissions_script
     assert "databricks grants update table" in app_permissions_script
     assert 'add: ["USE_SCHEMA", "EXECUTE"]' in app_permissions_script
@@ -345,6 +355,10 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "AI_SEARCH_EMBEDDING_ENDPOINT_NAME" in app_template
     assert "AI_SEARCH_ENDPOINT_TYPE" in app_template
     assert "valueFrom: \"__AI_SEARCH_INDEX_RESOURCE_KEY__\"" in app_template
+    assert "LLM_ENDPOINT_NAME" in app_template
+    assert "valueFrom: \"__LLM_ENDPOINT_RESOURCE_KEY__\"" in app_template
+    assert "LLM_MAX_TOKENS" in app_template
+    assert "LLM_TEMPERATURE" in app_template
     assert "valueFrom: \"__CHATBOT_CORPUS_VOLUME_RESOURCE_KEY__\"" in app_template
     assert "gunicorn" in app_template
     assert "- sh" in app_template
@@ -565,6 +579,37 @@ def test_phase35_app_staging_renders_ai_search_env() -> None:
     assert "value: \"hybrid\"" in app_yaml
     assert "databricks-qwen3-embedding-0-6b" in app_yaml
     assert "value: \"STANDARD\"" in app_yaml
+
+
+def test_phase35_app_staging_renders_model_serving_env() -> None:
+    env = os.environ.copy()
+    env.update(
+        {
+            "APP_LLM_PROVIDER": "databricks_model_serving",
+            "APP_LLM_ENDPOINT_RESOURCE_KEY": "chatbot_llm_endpoint",
+            "APP_LLM_MAX_TOKENS": "1200",
+            "APP_LLM_TEMPERATURE": "0.2",
+        }
+    )
+    subprocess.run(
+        [sys.executable, "databricks/scripts/stage_phase35_databricks_app.py"],
+        cwd=ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    app_yaml = _read(DATABRICKS_DIR / "build" / "chec_dash_parity" / "app.yaml")
+
+    assert "LLM_PROVIDER" in app_yaml
+    assert "value: \"databricks_model_serving\"" in app_yaml
+    assert "LLM_ENDPOINT_NAME" in app_yaml
+    assert "valueFrom: \"chatbot_llm_endpoint\"" in app_yaml
+    assert "LLM_MAX_TOKENS" in app_yaml
+    assert "value: \"1200\"" in app_yaml
+    assert "LLM_TEMPERATURE" in app_yaml
+    assert "value: \"0.2\"" in app_yaml
 
 
 def test_phase35_app_staging_can_bind_gemini_secret_resource() -> None:
