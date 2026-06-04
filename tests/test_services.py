@@ -11,6 +11,7 @@ from chec_dashboard.services.data_service import (
     get_map_payload,
     get_probability_filter_options_metadata,
     get_probability_payload,
+    get_summary_interpretability_payload,
     get_summary_payload,
 )
 from chec_dashboard.services.inference_service import (
@@ -190,6 +191,43 @@ def test_data_service_summary_payload(tmp_path) -> None:
     assert payload["saidi_total"] == pytest.approx(3.0)
     assert payload["saifi_total"] == pytest.approx(0.5)
     assert len(payload["daily_data"]) == 2
+
+
+def test_data_service_summary_interpretability_payload_uses_local_events(tmp_path) -> None:
+    data_dir = tmp_path / "data"
+    data_dir.mkdir(parents=True, exist_ok=True)
+
+    frame = pd.DataFrame(
+        {
+            "inicio": pd.date_range("2024-01-01", periods=10, freq="D").astype(str),
+            "fin": pd.date_range("2024-01-01 01:00:00", periods=10, freq="D").astype(str),
+            "cto_equi_ope": ["CIR-1"] * 10,
+            "SAIDI": [0.2, 0.2, 0.2, 8.0, 0.2, 0.2, 0.2, 0.2, 0.2, 0.2],
+            "SAIFI": [0.1] * 10,
+            "causa": ["VIENTO"] * 10,
+            "equipo_ope": ["EQ-1"] * 10,
+            "duracion_h": [1.0] * 10,
+            "cnt_usus": [10] * 10,
+        }
+    )
+    frame.to_pickle(data_dir / SUMMARY_FILE)
+
+    settings = _test_settings(tmp_path, data_dir)
+    payload = get_summary_interpretability_payload(
+        settings=settings,
+        start_date_raw="2024-01-01",
+        end_date_raw="2024-01-10",
+        circuito="CIR-1",
+        metric_mode="BOTH",
+        max_points=5,
+        include_agent_text=False,
+    )
+
+    assert payload["critical_points"]
+    assert payload["critical_points"][0]["fecha_dia"] == "2024-01-04"
+    assert payload["critical_points"][0]["top_causes"][0]["label"] == "VIENTO"
+    assert payload["corpus_citations"] == []
+    assert payload["insight_text"]
 
 
 

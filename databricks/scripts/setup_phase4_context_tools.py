@@ -19,6 +19,9 @@ AGENT_CONTEXT_VIEWS = (
     "gold_agent_event_context",
     "gold_agent_asset_context",
     "gold_agent_circuit_history",
+    "gold_timeseries_event_details",
+    "gold_timeseries_daily_attribution",
+    "gold_timeseries_environment_daily",
 )
 
 AGENT_CONTEXT_FUNCTIONS = (
@@ -28,6 +31,7 @@ AGENT_CONTEXT_FUNCTIONS = (
     "get_event_context",
     "get_asset_context",
     "get_circuit_history",
+    "get_timeseries_interpretability_context",
 )
 
 DEFAULT_CONTEXT_TOOLS_SCHEMA = "agent_tools"
@@ -378,6 +382,101 @@ CROSS JOIN records_agg
 """.strip()
 
 
+def _timeseries_interpretability_context_function_sql(
+    *,
+    catalog: str,
+    tools_schema: str,
+    gold_schema: str,
+) -> str:
+    function_name = "get_timeseries_interpretability_context"
+    function_ref = sql_table_name(catalog, tools_schema, function_name)
+    attribution_ref = sql_table_name(catalog, gold_schema, "gold_timeseries_daily_attribution")
+    source_function = f"{catalog}.{tools_schema}.{function_name}"
+    source_view = f"{catalog}.{gold_schema}.gold_timeseries_daily_attribution"
+    return f"""
+CREATE OR REPLACE FUNCTION {function_ref}(circuit_arg STRING, start_date_arg STRING, end_date_arg STRING, dates_arg STRING)
+RETURNS STRING
+LANGUAGE SQL
+RETURN
+WITH filtered AS (
+  SELECT *
+  FROM {attribution_ref}
+  WHERE fecha_dia BETWEEN CAST(start_date_arg AS DATE) AND CAST(end_date_arg AS DATE)
+    AND (
+      circuit_arg IS NULL
+      OR circuit_arg = ''
+      OR lower(circuit_arg) = 'todos'
+      OR circuito = circuit_arg
+    )
+    AND (
+      dates_arg IS NULL
+      OR dates_arg = ''
+      OR array_contains(split(regexp_replace(dates_arg, '\\\\s+', ''), ','), CAST(fecha_dia AS STRING))
+    )
+),
+limited_records AS (
+  SELECT *
+  FROM filtered
+  ORDER BY fecha_dia, saidi_total + saifi_total DESC, event_count DESC, duration_total_h DESC
+  LIMIT 75
+),
+records_agg AS (
+  SELECT collect_list(named_struct(
+    'fecha_dia', CAST(fecha_dia AS STRING),
+    'circuito', circuito,
+    'municipio', municipio,
+    'causa', causa,
+    'event_family', event_family,
+    'equipo_ope', equipo_ope,
+    'tipo_equi_ope', tipo_equi_ope,
+    'event_count', event_count,
+    'saidi_total', saidi_total,
+    'saifi_total', saifi_total,
+    'duration_total_h', duration_total_h,
+    'users_affected_total', users_affected_total
+  )) AS records
+  FROM limited_records
+),
+metrics AS (
+  SELECT
+    coalesce(count(DISTINCT fecha_dia), 0) AS critical_date_count,
+    coalesce(sum(event_count), 0) AS event_count,
+    coalesce(round(sum(saidi_total), 4), 0.0D) AS saidi_total,
+    coalesce(round(sum(saifi_total), 4), 0.0D) AS saifi_total,
+    coalesce(round(sum(duration_total_h), 2), 0.0D) AS duration_total_h,
+    coalesce(sum(users_affected_total), 0.0D) AS users_affected_total
+  FROM filtered
+),
+payload AS (
+  SELECT substr(sha2(concat_ws('|', {sql_literal(function_name)}, coalesce(circuit_arg, ''), coalesce(start_date_arg, ''), coalesce(end_date_arg, ''), coalesce(dates_arg, ''), cast(event_count AS STRING)), 256), 1, 16) AS context_hash, *
+  FROM metrics
+)
+SELECT to_json(named_struct(
+  'kind', 'timeseries_criticality',
+  'tool_name', {sql_literal(function_name)},
+  'source_function', {sql_literal(source_function)},
+  'source_view', {sql_literal(source_view)},
+  'parameters', named_struct('circuit', circuit_arg, 'start_date', start_date_arg, 'end_date', end_date_arg, 'dates', dates_arg),
+  'context_hash', context_hash,
+  'context_id', concat('timeseries-criticality-', context_hash),
+  'summary', named_struct('text', concat('Contexto de interpretabilidad SAIDI/SAIFI entre ', start_date_arg, ' y ', end_date_arg, '. Eventos: ', cast(event_count AS STRING), '.')),
+  'records', coalesce(records_agg.records, array()),
+  'metrics', named_struct(
+    'critical_date_count', critical_date_count,
+    'event_count', event_count,
+    'saidi_total', saidi_total,
+    'saifi_total', saifi_total,
+    'duration_total_h', duration_total_h,
+    'users_affected_total', users_affected_total
+  ),
+  'traceability', named_struct('source_view', {sql_literal(source_view)}, 'claim_scope', 'timeseries_interpretability', 'read_only', true),
+  'circuito', circuit_arg
+))
+FROM payload
+CROSS JOIN records_agg
+""".strip()
+
+
 def main() -> int:
     settings = _settings_with_app_defaults()
     client = DatabricksSQLWarehouseClient(settings)
@@ -527,6 +626,13 @@ GROUP BY CAST(fecha_dia AS DATE), municipio, circuito
     client.fetch_dataframe(_event_context_function_sql(catalog=catalog, tools_schema=tools_schema, gold_schema=gold_schema))
     client.fetch_dataframe(_asset_context_function_sql(catalog=catalog, tools_schema=tools_schema, gold_schema=gold_schema))
     client.fetch_dataframe(_circuit_history_function_sql(catalog=catalog, tools_schema=tools_schema, gold_schema=gold_schema))
+    client.fetch_dataframe(
+        _timeseries_interpretability_context_function_sql(
+            catalog=catalog,
+            tools_schema=tools_schema,
+            gold_schema=gold_schema,
+        )
+    )
 
     print(
         "Phase 4 context tools are ready: "

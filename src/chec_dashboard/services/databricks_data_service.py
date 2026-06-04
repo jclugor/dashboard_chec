@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import base64
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -29,6 +29,13 @@ from chec_dashboard.services.map_service import (
 from chec_dashboard.services.probability_service import (
     criteria_options,
     generate_probability_graph,
+)
+from chec_dashboard.services.time_series_interpretability_agent import (
+    attach_interpretability_agent_text,
+)
+from chec_dashboard.services.time_series_interpretability_service import (
+    CriticalityThresholds,
+    build_summary_interpretability_payload,
 )
 
 
@@ -64,6 +71,10 @@ def _warehouse_client(settings: Settings) -> DatabricksSQLWarehouseClient:
 
 def _gold_table(settings: Settings, table_name: str) -> str:
     return sql_table_name(settings.databricks_catalog_name, settings.databricks_gold_schema, table_name)
+
+
+def _silver_table(settings: Settings, table_name: str) -> str:
+    return sql_table_name(settings.databricks_catalog_name, settings.databricks_silver_schema, table_name)
 
 
 def _normalize_period(selected_period: str) -> str:
@@ -407,6 +418,176 @@ def get_summary_payload(
         "status_text": status_text,
     }
     _cache_set(settings, cache_key, payload, SUMMARY_CACHE_SECONDS)
+    return payload
+
+
+def _summary_interpretability_thresholds(settings: Settings) -> CriticalityThresholds:
+    return CriticalityThresholds(
+        high_robust_z=settings.summary_interpretability_high_robust_z,
+        low_robust_z=settings.summary_interpretability_low_robust_z,
+        delta_robust_z=settings.summary_interpretability_delta_robust_z,
+        top_contributor_pct=settings.summary_interpretability_top_contributor_pct,
+        sustained_min_days=settings.summary_interpretability_sustained_min_days,
+        max_points=settings.summary_interpretability_max_points,
+    )
+
+
+def _candidate_date_clause(candidate_dates: list[str]) -> str:
+    if not candidate_dates:
+        return "1 = 0"
+    literals = ", ".join(sql_literal(value) for value in candidate_dates)
+    return f"CAST(fecha_dia AS DATE) IN ({literals})"
+
+
+def _safe_fetch_dataframe(client: DatabricksSQLWarehouseClient, statement: str) -> pd.DataFrame:
+    try:
+        return client.fetch_dataframe(statement)
+    except Exception:
+        return pd.DataFrame()
+
+
+def get_summary_interpretability_payload(
+    settings: Settings,
+    start_date_raw: str | None,
+    end_date_raw: str | None,
+    circuito: str | None,
+    metric_mode: str | None,
+    *,
+    max_points: int = 5,
+    include_agent_text: bool = True,
+    selected_date: str | None = None,
+) -> dict[str, Any]:
+    min_date, max_date = _summary_bounds(settings)
+    start_date, end_date = _coerce_window_from_bounds(
+        min_date,
+        max_date,
+        start_date_raw,
+        end_date_raw,
+        days=180,
+    )
+    metric_mode = metric_mode or "BOTH"
+    safe_max_points = max(1, min(int(max_points), 12))
+    circuit_label = circuito or "TODOS"
+    cache_key = build_cache_key(
+        "dbx",
+        "summary_interpretability",
+        circuit_label,
+        metric_mode,
+        start_date.isoformat(),
+        end_date.isoformat(),
+        str(safe_max_points),
+        str(settings.summary_interpretability_high_robust_z),
+        str(settings.summary_interpretability_low_robust_z),
+        str(settings.summary_interpretability_delta_robust_z),
+        str(settings.summary_interpretability_top_contributor_pct),
+        str(settings.summary_interpretability_sustained_min_days),
+        str(include_agent_text),
+        selected_date or "",
+    )
+    cached = _cache_get(settings, cache_key)
+    if cached is not None:
+        return cached
+
+    where_clauses = [
+        f"CAST(fecha_dia AS DATE) BETWEEN {sql_literal(start_date.isoformat())} AND {sql_literal(end_date.isoformat())}"
+    ]
+    if circuito:
+        where_clauses.append(f"{sql_identifier('circuito')} = {sql_literal(circuito)}")
+    where_clause = " AND ".join(where_clauses)
+    daily_table = _gold_table(settings, "gold_saidi_saifi_daily")
+    client = _warehouse_client(settings)
+
+    daily_frame = client.fetch_dataframe(
+        f"""
+        SELECT
+          CAST(fecha_dia AS DATE) AS fecha_dia,
+          COALESCE(SUM(COALESCE(saidi_total, 0.0)), 0.0) AS SAIDI,
+          COALESCE(SUM(COALESCE(saifi_total, 0.0)), 0.0) AS SAIFI,
+          COALESCE(SUM(COALESCE(event_count, 0)), 0) AS event_count,
+          COALESCE(SUM(COALESCE(duration_total_h, 0.0)), 0.0) AS duration_total_h,
+          COALESCE(SUM(COALESCE(users_affected_total, 0.0)), 0.0) AS users_affected_total
+        FROM {daily_table}
+        WHERE {where_clause}
+        GROUP BY CAST(fecha_dia AS DATE)
+        ORDER BY CAST(fecha_dia AS DATE)
+        """
+    )
+
+    preliminary = build_summary_interpretability_payload(
+        daily_frame=daily_frame,
+        start_date=start_date.isoformat(),
+        end_date=end_date.isoformat(),
+        circuit_label=circuit_label,
+        metric_mode=metric_mode,
+        generated_at=datetime.now(timezone.utc).isoformat(),
+        max_points=safe_max_points,
+        thresholds=_summary_interpretability_thresholds(settings),
+    )
+    candidate_dates = [str(point["fecha_dia"]) for point in preliminary.get("critical_points", [])]
+    if selected_date:
+        candidate_dates = [selected_date]
+    candidate_dates = sorted(set(candidate_dates))
+    date_clause = _candidate_date_clause(candidate_dates)
+    circuit_clause = f"AND {sql_identifier('circuito')} = {sql_literal(circuito)}" if circuito else ""
+
+    attribution_frame = _safe_fetch_dataframe(
+        client,
+        f"""
+        SELECT *
+        FROM {_gold_table(settings, "gold_timeseries_daily_attribution")}
+        WHERE {date_clause}
+        {circuit_clause}
+        ORDER BY fecha_dia, COALESCE(saidi_total, 0.0) + COALESCE(saifi_total, 0.0) DESC
+        """,
+    )
+    event_frame = _safe_fetch_dataframe(
+        client,
+        f"""
+        SELECT *
+        FROM {_gold_table(settings, "gold_timeseries_event_details")}
+        WHERE {date_clause}
+        {circuit_clause}
+        ORDER BY
+          fecha_dia,
+          COALESCE(severity_saidi, 0.0) + COALESCE(severity_saifi, 0.0) DESC,
+          COALESCE(duration_hours, 0.0) DESC,
+          COALESCE(cnt_usus, 0.0) DESC
+        LIMIT {safe_max_points * 25}
+        """,
+    )
+    environment_frame = _safe_fetch_dataframe(
+        client,
+        f"""
+        SELECT *
+        FROM {_gold_table(settings, "gold_timeseries_environment_daily")}
+        WHERE {date_clause}
+        ORDER BY fecha_dia
+        """,
+    )
+
+    payload = build_summary_interpretability_payload(
+        daily_frame=daily_frame,
+        start_date=start_date.isoformat(),
+        end_date=end_date.isoformat(),
+        circuit_label=circuit_label,
+        metric_mode=metric_mode,
+        generated_at=datetime.now(timezone.utc).isoformat(),
+        max_points=safe_max_points,
+        thresholds=_summary_interpretability_thresholds(settings),
+        attribution_frame=attribution_frame,
+        event_frame=event_frame,
+        environment_frame=environment_frame,
+    )
+    if selected_date:
+        payload["critical_points"] = [
+            point for point in payload.get("critical_points", []) if point.get("fecha_dia") == selected_date
+        ]
+    payload = attach_interpretability_agent_text(
+        settings,
+        payload,
+        include_agent_text=bool(include_agent_text and settings.summary_interpretability_enabled),
+    )
+    _cache_set(settings, cache_key, payload, settings.summary_interpretability_cache_seconds)
     return payload
 
 
@@ -844,6 +1025,9 @@ def databricks_data_readiness_check(settings: Settings) -> tuple[bool, str]:
     required_tables = [
         "gold_saidi_saifi_daily",
         "gold_saidi_saifi_circuit_summary",
+        "gold_timeseries_event_details",
+        "gold_timeseries_daily_attribution",
+        "gold_timeseries_environment_daily",
         "gold_probability_inputs",
         "gold_map_points",
         "gold_map_line_segments",

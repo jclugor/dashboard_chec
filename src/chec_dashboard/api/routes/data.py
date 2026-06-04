@@ -22,6 +22,7 @@ from chec_dashboard.services.data_service import (
     get_probability_filter_options_metadata,
     get_probability_metadata,
     get_probability_payload,
+    get_summary_interpretability_payload,
     get_summary_metadata,
     get_summary_payload,
 )
@@ -111,6 +112,23 @@ def post_data(request: DataRequest) -> DataResponse:
             metric_mode=request.summary.metric_mode,
         )
         return DataResponse(mode="summary", summary=payload)
+
+    if request.mode == "summary_interpretability":
+        if request.summary_interpretability is None:
+            raise ValueError(
+                "summary_interpretability payload is required when mode='summary_interpretability'"
+            )
+        payload = get_summary_interpretability_payload(
+            settings=settings,
+            start_date_raw=request.summary_interpretability.start_date,
+            end_date_raw=request.summary_interpretability.end_date,
+            circuito=request.summary_interpretability.circuito,
+            metric_mode=request.summary_interpretability.metric_mode,
+            max_points=request.summary_interpretability.max_points,
+            include_agent_text=request.summary_interpretability.include_agent_text,
+            selected_date=request.summary_interpretability.selected_date,
+        )
+        return DataResponse(mode="summary_interpretability", summary_interpretability=payload)
 
     if request.mode == "probability":
         if request.probability is None:

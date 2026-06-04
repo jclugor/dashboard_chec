@@ -134,6 +134,9 @@ bash scripts/apply_phase35_app_permissions.sh
 ## Data Tables Used By Parity Runtime
 - `chec_dbx_demo.gold.gold_saidi_saifi_daily`
 - `chec_dbx_demo.gold.gold_saidi_saifi_circuit_summary`
+- `chec_dbx_demo.gold.gold_timeseries_event_details`
+- `chec_dbx_demo.gold.gold_timeseries_daily_attribution`
+- `chec_dbx_demo.gold.gold_timeseries_environment_daily`
 - `chec_dbx_demo.gold.gold_probability_inputs`
 - `chec_dbx_demo.gold.gold_map_points`
 - `chec_dbx_demo.gold.gold_map_line_segments`
@@ -146,6 +149,9 @@ bash scripts/apply_phase35_app_permissions.sh
 - KPI totals match the existing Dash summary payload
 - daily trend stays daily, not monthly
 - metric modes `SAIDI`, `SAIFI`, `BOTH` all work
+- `Analizar evolución` stays in the Summary tab and overlays bounded critical-date markers on the existing time chart
+- interpretability failure renders a panel error without breaking the normal SAIDI/SAIFI chart
+- critical-date attribution uses the time-series event detail source, not only geocoded map events
 
 ### Probability
 - criteria selector loads the three event families

@@ -46,6 +46,36 @@ def test_fetch_summary_data_inproc_uses_local_provider(
     assert payload["status_text"] == "ok"
 
 
+def test_fetch_summary_interpretability_inproc_uses_local_provider(monkeypatch) -> None:
+    monkeypatch.setattr(api_client, "_use_inproc_transport", lambda: True)
+    monkeypatch.setattr(
+        api_client,
+        "get_summary_interpretability_payload",
+        lambda **_: {
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-31",
+            "circuit_label": "CIR-1",
+            "metric_mode": "BOTH",
+            "generated_at": "2026-06-04T00:00:00Z",
+            "critical_points": [],
+            "critical_periods": [],
+            "insight_text": "ok",
+            "corpus_citations": [],
+            "status_text": "ok",
+        },
+    )
+
+    payload = api_client.fetch_summary_interpretability(
+        "2024-01-01",
+        "2024-01-31",
+        "CIR-1",
+        "BOTH",
+        include_agent_text=False,
+    )
+
+    assert payload["insight_text"] == "ok"
+
+
 def test_check_api_ready_inproc_uses_dashboard_metadata(monkeypatch) -> None:
     monkeypatch.setattr(api_client, "_use_inproc_transport", lambda: True)
     monkeypatch.setattr(

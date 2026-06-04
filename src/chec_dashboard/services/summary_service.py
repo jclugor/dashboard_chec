@@ -1,9 +1,15 @@
 from dataclasses import dataclass
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from functools import lru_cache
+from typing import Any
 from pathlib import Path
 
 import pandas as pd
+
+from chec_dashboard.services.time_series_interpretability_service import (
+    CriticalityThresholds,
+    build_summary_interpretability_payload,
+)
 
 
 SUMMARY_FILE = "SuperEventos_Criticidad_AguasAbajo_CODEs.pkl"
@@ -131,3 +137,83 @@ def compute_kpis(filtered: pd.DataFrame) -> dict[str, float | int]:
         "saifi_total": float(filtered["SAIFI"].sum()) if not filtered.empty else 0.0,
         "event_count": int(len(filtered)),
     }
+
+
+def _event_detail_frame(filtered: pd.DataFrame) -> pd.DataFrame:
+    if filtered.empty:
+        return pd.DataFrame()
+    frame = filtered.copy()
+    rename_map = {
+        "inicio": "inicio_ts",
+        "fin": "fin_ts",
+        "MUN": "municipio",
+        "cto_equi_ope": "circuito",
+        "SAIDI": "severity_saidi",
+        "SAIFI": "severity_saifi",
+        "duracion_h": "duration_hours",
+    }
+    for source, target in rename_map.items():
+        if source in frame.columns and target not in frame.columns:
+            frame[target] = frame[source]
+    if "event_count" not in frame.columns:
+        frame["event_count"] = 1
+    if "fecha_dia" not in frame.columns:
+        frame["fecha_dia"] = pd.to_datetime(frame["inicio_ts"], errors="coerce").dt.floor("D")
+    for column in ("severity_saidi", "severity_saifi", "duration_hours", "cnt_usus"):
+        if column not in frame.columns:
+            frame[column] = 0.0
+    return frame
+
+
+def _daily_attribution_frame(event_frame: pd.DataFrame) -> pd.DataFrame:
+    if event_frame.empty:
+        return pd.DataFrame()
+    frame = event_frame.copy()
+    for column in ("causa", "event_family", "tipo_equi_ope", "equipo_ope", "circuito", "municipio"):
+        if column not in frame.columns:
+            frame[column] = "Sin dato"
+    grouped = (
+        frame.groupby(
+            ["fecha_dia", "circuito", "municipio", "causa", "event_family", "tipo_equi_ope", "equipo_ope"],
+            dropna=False,
+        )
+        .agg(
+            event_count=("event_count", "sum"),
+            saidi_total=("severity_saidi", "sum"),
+            saifi_total=("severity_saifi", "sum"),
+            duration_total_h=("duration_hours", "sum"),
+            users_affected_total=("cnt_usus", "sum") if "cnt_usus" in frame.columns else ("event_count", "sum"),
+        )
+        .reset_index()
+    )
+    return grouped
+
+
+def get_summary_interpretability_payload(
+    dataset: SummaryDataset,
+    start_date_raw: str | None,
+    end_date_raw: str | None,
+    circuito: str | None,
+    metric_mode: str | None,
+    *,
+    max_points: int = 5,
+    thresholds: CriticalityThresholds | None = None,
+) -> dict[str, Any]:
+    start_date, end_date = coerce_window(dataset, start_date_raw, end_date_raw)
+    filtered = filter_summary_data(dataset, circuito, start_date, end_date)
+    daily_data = aggregate_daily(filtered, start_date, end_date)
+    event_frame = _event_detail_frame(filtered)
+    attribution_frame = _daily_attribution_frame(event_frame)
+    return build_summary_interpretability_payload(
+        daily_frame=daily_data,
+        start_date=start_date.isoformat(),
+        end_date=end_date.isoformat(),
+        circuit_label=circuito or "TODOS",
+        metric_mode=metric_mode or "BOTH",
+        generated_at=datetime.now(timezone.utc).isoformat(),
+        max_points=max_points,
+        thresholds=thresholds,
+        attribution_frame=attribution_frame,
+        event_frame=event_frame,
+        environment_frame=None,
+    )

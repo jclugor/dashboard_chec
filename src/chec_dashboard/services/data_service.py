@@ -35,8 +35,13 @@ from chec_dashboard.services.summary_service import (
     filter_summary_data,
     get_circuit_options,
     get_default_window,
+    get_summary_interpretability_payload as get_local_summary_interpretability_payload,
     load_summary_dataset,
 )
+from chec_dashboard.services.time_series_interpretability_agent import (
+    attach_interpretability_agent_text,
+)
+from chec_dashboard.services.time_series_interpretability_service import CriticalityThresholds
 
 
 # Cache policy intentionally targets only shared-safe computations (no user-specific secrets).
@@ -484,6 +489,100 @@ def get_summary_payload(
         "status_text": status_text,
     }
     _cache_set(settings, cache_key, payload, SUMMARY_CACHE_SECONDS)
+    return payload
+
+
+def _summary_interpretability_thresholds(settings: Settings) -> CriticalityThresholds:
+    return CriticalityThresholds(
+        high_robust_z=settings.summary_interpretability_high_robust_z,
+        low_robust_z=settings.summary_interpretability_low_robust_z,
+        delta_robust_z=settings.summary_interpretability_delta_robust_z,
+        top_contributor_pct=settings.summary_interpretability_top_contributor_pct,
+        sustained_min_days=settings.summary_interpretability_sustained_min_days,
+        max_points=settings.summary_interpretability_max_points,
+    )
+
+
+def get_summary_interpretability_payload(
+    settings: Settings,
+    start_date_raw: str | None,
+    end_date_raw: str | None,
+    circuito: str | None,
+    metric_mode: str | None,
+    *,
+    max_points: int | None = None,
+    include_agent_text: bool | None = None,
+    selected_date: str | None = None,
+) -> dict[str, Any]:
+    if _use_databricks_backend(settings):
+        return databricks_data_service.get_summary_interpretability_payload(
+            settings=settings,
+            start_date_raw=start_date_raw,
+            end_date_raw=end_date_raw,
+            circuito=circuito,
+            metric_mode=metric_mode,
+            max_points=max_points or settings.summary_interpretability_max_points,
+            include_agent_text=(
+                settings.summary_interpretability_include_agent_text_default
+                if include_agent_text is None
+                else include_agent_text
+            ),
+            selected_date=selected_date,
+        )
+
+    dataset = load_summary_dataset(str(settings.data_dir))
+    start_date, end_date = coerce_window(dataset, start_date_raw, end_date_raw)
+    metric_mode = metric_mode or "BOTH"
+    safe_max_points = max(1, min(int(max_points or settings.summary_interpretability_max_points), 12))
+    should_include_agent = (
+        settings.summary_interpretability_include_agent_text_default
+        if include_agent_text is None
+        else include_agent_text
+    )
+
+    cache_key = build_cache_key(
+        "summary_interpretability",
+        circuito or "TODOS",
+        metric_mode,
+        start_date.isoformat(),
+        end_date.isoformat(),
+        str(safe_max_points),
+        str(settings.summary_interpretability_high_robust_z),
+        str(settings.summary_interpretability_low_robust_z),
+        str(settings.summary_interpretability_delta_robust_z),
+        str(settings.summary_interpretability_top_contributor_pct),
+        str(settings.summary_interpretability_sustained_min_days),
+        str(should_include_agent),
+        selected_date or "",
+    )
+    cached = _cache_get(settings, cache_key)
+    if cached is not None:
+        return cached
+
+    payload = get_local_summary_interpretability_payload(
+        dataset=dataset,
+        start_date_raw=start_date.isoformat(),
+        end_date_raw=end_date.isoformat(),
+        circuito=circuito,
+        metric_mode=metric_mode,
+        max_points=safe_max_points,
+        thresholds=_summary_interpretability_thresholds(settings),
+    )
+    if selected_date:
+        payload["critical_points"] = [
+            point for point in payload.get("critical_points", []) if point.get("fecha_dia") == selected_date
+        ]
+    payload = attach_interpretability_agent_text(
+        settings,
+        payload,
+        include_agent_text=bool(should_include_agent and settings.summary_interpretability_enabled),
+    )
+    _cache_set(
+        settings,
+        cache_key,
+        payload,
+        settings.summary_interpretability_cache_seconds,
+    )
     return payload
 
 

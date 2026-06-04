@@ -31,6 +31,16 @@ class SummaryDataPayload(APIRequestModel):
     metric_mode: Literal["SAIDI", "SAIFI", "BOTH"] = "BOTH"
 
 
+class SummaryInterpretabilityPayload(APIRequestModel):
+    start_date: str | None = None
+    end_date: str | None = None
+    circuito: str | None = None
+    metric_mode: Literal["SAIDI", "SAIFI", "BOTH"] = "BOTH"
+    max_points: int = Field(default=5, ge=1, le=12)
+    include_agent_text: bool | None = None
+    selected_date: str | None = None
+
+
 class ProbabilityDataPayload(APIRequestModel):
     criteria: str
     target_column: str
@@ -45,10 +55,18 @@ class ProbabilityMetadataPayload(APIRequestModel):
 
 
 class DataRequest(APIRequestModel):
-    mode: Literal["map", "map_metadata", "summary", "probability", "probability_metadata"]
+    mode: Literal[
+        "map",
+        "map_metadata",
+        "summary",
+        "summary_interpretability",
+        "probability",
+        "probability_metadata",
+    ]
     map: MapDataPayload | None = None
     map_metadata: MapMetadataPayload | None = None
     summary: SummaryDataPayload | None = None
+    summary_interpretability: SummaryInterpretabilityPayload | None = None
     probability: ProbabilityDataPayload | None = None
     probability_metadata: ProbabilityMetadataPayload | None = None
 

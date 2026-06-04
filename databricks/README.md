@@ -130,6 +130,11 @@ What the Databricks App / RAG flow adds:
   - `gold_map_line_segments`
   - `gold_map_filter_index`
   - `gold_map_event_days`
+- New gold presentation tables for same-tab SAIDI/SAIFI time-series
+  interpretability:
+  - `gold_timeseries_event_details`
+  - `gold_timeseries_daily_attribution`
+  - `gold_timeseries_environment_daily`
 - Delta conversation memory in `agent`.
 - Governed active/draft/archive skill files in `agent_config.skills`.
 - Read-only dashboard context functions in `agent_tools`.

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pandas as pd
 import pytest
 from dash import dcc
 
@@ -80,6 +81,37 @@ def test_summary_layout_does_not_call_api_metadata(monkeypatch: pytest.MonkeyPat
     assert _find_by_id(layout, "summary-initial-load-interval") is not None
     assert _find_by_id(layout, "summary-circuit").options == []
     assert _find_by_id(layout, "summary-date-window").start_date is None
+    assert _find_by_id(layout, "summary-interpretability-store") is not None
+    assert _find_by_id(layout, "summary-interpretability-button") is not None
+    assert _find_by_id(layout, "summary-interpretability-panel") is not None
+
+
+def test_summary_interpretability_markers_are_added_to_existing_chart() -> None:
+    daily = pd.DataFrame(
+        {
+            "fecha_dia": pd.to_datetime(["2024-01-01", "2024-01-02"]),
+            "SAIDI": [0.2, 5.0],
+            "SAIFI": [0.1, 0.2],
+        }
+    )
+    figure = summary_page._build_line_figure(daily, "BOTH")
+    payload = {
+        "critical_points": [
+            {
+                "fecha_dia": "2024-01-02",
+                "rank": 1,
+                "metrics": {"SAIDI": 5.0, "SAIFI": 0.2},
+                "criticality_types": ["saidi_high_outlier"],
+                "confidence": "high",
+            }
+        ]
+    }
+
+    marked = summary_page._apply_interpretability_markers(figure, payload, "BOTH")
+
+    assert len(marked.data) == 4
+    assert marked.data[2].name == "Puntos criticos SAIDI"
+    assert marked.data[3].name == "Puntos criticos SAIFI"
 
 
 def test_probability_layout_does_not_call_api_metadata(monkeypatch: pytest.MonkeyPatch) -> None:

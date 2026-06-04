@@ -161,6 +161,73 @@ def test_post_data_summary_route(client: TestClient, monkeypatch: pytest.MonkeyP
     )
 
 
+def test_post_data_summary_interpretability_route(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "chec_dashboard.api.routes.data.get_summary_interpretability_payload",
+        lambda **_: {
+            "start_date": "2024-01-01",
+            "end_date": "2024-01-31",
+            "circuit_label": "CIR-1",
+            "metric_mode": "BOTH",
+            "generated_at": "2026-06-04T00:00:00Z",
+            "critical_points": [
+                {
+                    "fecha_dia": "2024-01-03",
+                    "rank": 1,
+                    "criticality_score": 1.2,
+                    "criticality_types": ["saidi_high_outlier"],
+                    "metrics": {"SAIDI": 9.5, "SAIFI": 0.05},
+                    "reasons": [
+                        {
+                            "reason_type": "saidi_high_outlier",
+                            "metric": "SAIDI",
+                            "score": 1.0,
+                            "value": 9.5,
+                            "baseline": 0.2,
+                            "threshold": 3.0,
+                            "detail": "SAIDI alto.",
+                        }
+                    ],
+                    "daily_aggregates": {"event_count": 3},
+                    "top_causes": [],
+                    "top_event_families": [],
+                    "top_equipment": [],
+                    "top_circuits": [],
+                    "top_events": [],
+                    "external_signals": {},
+                    "data_quality_flags": [],
+                    "confidence": "medium",
+                }
+            ],
+            "critical_periods": [],
+            "insight_text": "Texto deterministico.",
+            "corpus_citations": [],
+            "status_text": "ok",
+        },
+    )
+
+    response = client.post(
+        "/data",
+        json={
+            "mode": "summary_interpretability",
+            "summary_interpretability": {
+                "start_date": "2024-01-01",
+                "end_date": "2024-01-31",
+                "circuito": "CIR-1",
+                "metric_mode": "BOTH",
+                "max_points": 5,
+                "include_agent_text": False,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mode"] == "summary_interpretability"
+    assert payload["summary_interpretability"]["critical_points"][0]["fecha_dia"] == "2024-01-03"
+    assert payload["summary_interpretability"]["insight_text"] == "Texto deterministico."
+
+
 
 def test_post_data_map_route(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, object] = {}

@@ -44,6 +44,9 @@ The project now supports two runtime patterns:
 - Map explorer for circuits, network elements, and event layers.
 - Probability distributions for interruption event families.
 - SAIDI/SAIFI summary by circuit and date window.
+- Same-tab SAIDI/SAIFI time-evolution interpretability: ranked critical dates,
+  chart markers, deterministic explanations, event attribution, and optional
+  corpus-grounded agent text.
 - Asistente técnico con recuperación documental. Esta pestaña funciona como una herramienta de análisis guiado en español, no como un chat general de respuesta abierta. La persona usuaria puede analizar una vista filtrada del tablero, un evento específico o un elemento de red desde confiabilidad, cumplimiento basado en evidencia y mantenimiento. El asistente recibe contexto estructurado como resúmenes de indicadores, metadatos de eventos o activos, circuito, municipio, ventana temporal y variables de condiciones externas. Recupera requisitos técnicos relevantes desde documentos indexados y explica el estado observado, banderas de evidencia, posibles factores externos u operativos y revisiones recomendadas.
 
 ## Project Structure
@@ -109,6 +112,15 @@ Databricks SQL parity runtime:
 
 Payload guardrails:
 - `MAX_SUMMARY_POINTS`
+- `SUMMARY_INTERPRETABILITY_ENABLED`
+- `SUMMARY_INTERPRETABILITY_MAX_POINTS`
+- `SUMMARY_INTERPRETABILITY_HIGH_ROBUST_Z`
+- `SUMMARY_INTERPRETABILITY_LOW_ROBUST_Z`
+- `SUMMARY_INTERPRETABILITY_DELTA_ROBUST_Z`
+- `SUMMARY_INTERPRETABILITY_TOP_CONTRIBUTOR_PCT`
+- `SUMMARY_INTERPRETABILITY_SUSTAINED_MIN_DAYS`
+- `SUMMARY_INTERPRETABILITY_INCLUDE_AGENT_TEXT_DEFAULT`
+- `SUMMARY_INTERPRETABILITY_CACHE_SECONDS`
 - `MAX_MAP_HTML_CHARS`
 
 ## API Contract
@@ -122,6 +134,7 @@ Payload guardrails:
 - `POST /data` modes:
   - `map`
   - `summary`
+  - `summary_interpretability`
   - `probability`
   - `probability_metadata` with actions:
     - `criteria`

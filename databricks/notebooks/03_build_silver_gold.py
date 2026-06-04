@@ -126,6 +126,9 @@ for entry in manifest.get("raw_sources", []):
     frame = add_coalesced_string(frame, "equipo_ope", ["equipo_ope", "CODE"])
     frame = add_coalesced_string(frame, "circuito", ["cto_equi_ope", "FPARENT"])
     frame = add_coalesced_string(frame, "municipio", ["MUN"])
+    frame = add_coalesced_string(frame, "causa", ["causa"])
+    frame = add_coalesced_string(frame, "tipo_equi_ope", ["tipo_equi_ope"])
+    frame = add_coalesced_string(frame, "tipo_elemento", ["tipo_elemento"])
     frame = add_timestamp_column(frame, "inicio_ts", ["inicio"])
     frame = add_timestamp_column(frame, "fin_ts", ["fin"])
     frame = frame.withColumn("fecha_dia", F.to_date(F.col("inicio_ts")))
@@ -233,6 +236,90 @@ circuit_summary_gold = (
     )
 )
 write_table(circuit_summary_gold, "gold", "gold_saidi_saifi_circuit_summary")
+
+timeseries_event_details_gold = (
+    events_silver.withColumn("fecha_dia", F.to_date(F.col("inicio_ts")))
+    .withColumn(
+        "event_id",
+        F.concat(
+            F.lit("timeseries-event-"),
+            F.substring(
+                F.sha2(
+                    F.concat_ws(
+                        "|",
+                        F.coalesce(F.col("source_logical_name").cast("string"), F.lit("")),
+                        F.coalesce(F.col("evento").cast("string"), F.lit("")),
+                        F.coalesce(F.col("circuito").cast("string"), F.lit("")),
+                        F.coalesce(F.col("equipo_ope").cast("string"), F.lit("")),
+                        F.coalesce(F.col("inicio_ts").cast("string"), F.lit("")),
+                        F.coalesce(F.col("severity_saidi").cast("string"), F.lit("")),
+                        F.coalesce(F.col("severity_saifi").cast("string"), F.lit("")),
+                    ),
+                    256,
+                ),
+                1,
+                16,
+            ),
+        ),
+    )
+    .select(
+        "event_id",
+        "fecha_dia",
+        "evento",
+        "inicio_ts",
+        "fin_ts",
+        "causa",
+        "event_family",
+        "circuito",
+        "municipio",
+        "equipo_ope",
+        "tipo_equi_ope",
+        "tipo_elemento",
+        "duration_hours",
+        "severity_saidi",
+        "severity_saifi",
+        "cnt_usus",
+        "latitude",
+        "longitude",
+        "source_logical_name",
+        "source_table",
+        "display_label",
+    )
+)
+write_table(timeseries_event_details_gold, "gold", "gold_timeseries_event_details")
+
+timeseries_daily_attribution_gold = (
+    timeseries_event_details_gold.withColumn("circuito", F.coalesce(F.col("circuito"), F.lit("Sin circuito")))
+    .withColumn("municipio", F.coalesce(F.col("municipio"), F.lit("Sin municipio")))
+    .withColumn("causa", F.coalesce(F.col("causa"), F.lit("Sin causa")))
+    .withColumn("event_family", F.coalesce(F.col("event_family"), F.lit("Sin criterio")))
+    .withColumn("equipo_ope", F.coalesce(F.col("equipo_ope"), F.lit("Sin equipo")))
+    .withColumn("tipo_equi_ope", F.coalesce(F.col("tipo_equi_ope"), F.lit("Sin tipo equipo")))
+    .groupBy("fecha_dia", "circuito", "municipio", "causa", "event_family", "equipo_ope", "tipo_equi_ope")
+    .agg(
+        F.count(F.lit(1)).alias("event_count"),
+        F.sum(F.coalesce(F.col("severity_saidi"), F.lit(0.0))).alias("saidi_total"),
+        F.sum(F.coalesce(F.col("severity_saifi"), F.lit(0.0))).alias("saifi_total"),
+        F.sum(F.coalesce(F.col("duration_hours"), F.lit(0.0))).alias("duration_total_h"),
+        F.sum(F.coalesce(F.col("cnt_usus"), F.lit(0.0))).alias("users_affected_total"),
+        F.min(F.col("inicio_ts")).alias("first_event_ts"),
+        F.max(F.col("fin_ts")).alias("last_event_ts"),
+    )
+)
+write_table(timeseries_daily_attribution_gold, "gold", "gold_timeseries_daily_attribution")
+
+timeseries_environment_daily_gold = (
+    environment_silver.withColumn("municipio", F.coalesce(F.col("municipio"), F.lit("Sin municipio")))
+    .withColumn("environment_family", F.coalesce(F.col("environment_family"), F.lit("Sin senal")))
+    .groupBy("fecha_dia", "municipio", "environment_family")
+    .agg(
+        F.count(F.lit(1)).alias("environment_event_count"),
+        F.min(F.col("fecha_evento_ts")).alias("first_environment_ts"),
+        F.max(F.col("fecha_evento_ts")).alias("last_environment_ts"),
+        F.count(F.when(F.col("latitude").isNotNull() & F.col("longitude").isNotNull(), F.lit(1))).alias("geocoded_event_count"),
+    )
+)
+write_table(timeseries_environment_daily_gold, "gold", "gold_timeseries_environment_daily")
 
 probability_inputs_gold = (
     events_silver.filter(F.col("event_family") != F.lit("SuperEventos"))

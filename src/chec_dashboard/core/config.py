@@ -109,6 +109,15 @@ class Settings:
     chatbot_retrieval_top_k: int
     chatbot_max_context_chars: int
     max_summary_points: int
+    summary_interpretability_enabled: bool
+    summary_interpretability_max_points: int
+    summary_interpretability_high_robust_z: float
+    summary_interpretability_low_robust_z: float
+    summary_interpretability_delta_robust_z: float
+    summary_interpretability_top_contributor_pct: float
+    summary_interpretability_sustained_min_days: int
+    summary_interpretability_include_agent_text_default: bool
+    summary_interpretability_cache_seconds: int
     max_map_html_chars: int
     api_startup_poll_seconds: int
     api_keepalive_seconds: int
@@ -222,6 +231,36 @@ def load_settings() -> Settings:
         chatbot_retrieval_top_k=max(_to_int(os.getenv("CHATBOT_RETRIEVAL_TOP_K"), 5), 1),
         chatbot_max_context_chars=max(_to_int(os.getenv("CHATBOT_MAX_CONTEXT_CHARS"), 12000), 1000),
         max_summary_points=max(_to_int(os.getenv("MAX_SUMMARY_POINTS"), 5000), 100),
+        summary_interpretability_enabled=_to_bool(os.getenv("SUMMARY_INTERPRETABILITY_ENABLED"), True),
+        summary_interpretability_max_points=max(_to_int(os.getenv("SUMMARY_INTERPRETABILITY_MAX_POINTS"), 5), 1),
+        summary_interpretability_high_robust_z=_to_float(
+            os.getenv("SUMMARY_INTERPRETABILITY_HIGH_ROBUST_Z"),
+            3.0,
+        ),
+        summary_interpretability_low_robust_z=_to_float(
+            os.getenv("SUMMARY_INTERPRETABILITY_LOW_ROBUST_Z"),
+            -2.5,
+        ),
+        summary_interpretability_delta_robust_z=_to_float(
+            os.getenv("SUMMARY_INTERPRETABILITY_DELTA_ROBUST_Z"),
+            3.0,
+        ),
+        summary_interpretability_top_contributor_pct=max(
+            _to_float(os.getenv("SUMMARY_INTERPRETABILITY_TOP_CONTRIBUTOR_PCT"), 0.10),
+            0.0,
+        ),
+        summary_interpretability_sustained_min_days=max(
+            _to_int(os.getenv("SUMMARY_INTERPRETABILITY_SUSTAINED_MIN_DAYS"), 3),
+            1,
+        ),
+        summary_interpretability_include_agent_text_default=_to_bool(
+            os.getenv("SUMMARY_INTERPRETABILITY_INCLUDE_AGENT_TEXT_DEFAULT"),
+            True,
+        ),
+        summary_interpretability_cache_seconds=max(
+            _to_int(os.getenv("SUMMARY_INTERPRETABILITY_CACHE_SECONDS"), 300),
+            0,
+        ),
         max_map_html_chars=max(_to_int(os.getenv("MAX_MAP_HTML_CHARS"), 8000000), 100000),
         api_startup_poll_seconds=max(_to_int(os.getenv("API_STARTUP_POLL_SECONDS"), 3), 1),
         api_keepalive_seconds=max(_to_int(os.getenv("API_KEEPALIVE_SECONDS"), 60), 10),

@@ -176,6 +176,18 @@
       "description": "Circuit-level summary for the summary page replacement."
     },
     {
+      "table_name": "gold_timeseries_event_details",
+      "description": "Complete event-detail source for SAIDI/SAIFI time-series interpretability, including non-geocoded events."
+    },
+    {
+      "table_name": "gold_timeseries_daily_attribution",
+      "description": "Daily attribution groups for critical SAIDI/SAIFI dates."
+    },
+    {
+      "table_name": "gold_timeseries_environment_daily",
+      "description": "Daily environmental context for time-series interpretability."
+    },
+    {
       "table_name": "gold_probability_inputs",
       "description": "Unified event input table for notebook-driven probability exploration."
     },

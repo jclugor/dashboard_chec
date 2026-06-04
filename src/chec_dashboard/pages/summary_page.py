@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
 
 from dash import Dash, Input, Output, ctx, dcc, html, no_update
 from dash.exceptions import PreventUpdate
@@ -8,7 +9,11 @@ import pandas as pd
 import plotly.graph_objects as go
 
 from chec_dashboard.config import Settings
-from chec_dashboard.dash_app.api_client import fetch_summary_data, fetch_summary_options
+from chec_dashboard.dash_app.api_client import (
+    fetch_summary_data,
+    fetch_summary_interpretability,
+    fetch_summary_options,
+)
 
 
 CHEC_GREEN = "#00782b"
@@ -17,6 +22,7 @@ SUMMARY_INITIAL_INTERVAL_MS = 250
 SUMMARY_PLACEHOLDER_TEXT = "Cargando resumen del circuito..."
 _OVERLAY_HIDDEN_STYLE = {"display": "none"}
 _OVERLAY_VISIBLE_STYLE = {"display": "flex"}
+INTERPRETABILITY_PLACEHOLDER = "Solicita el analisis para marcar y explicar puntos criticos."
 
 
 def _empty_figure(message: str) -> go.Figure:
@@ -84,6 +90,172 @@ def _build_line_figure(
     fig.update_xaxes(title_text="Fecha")
     fig.update_yaxes(title_text="Valor diario (suma)")
     return fig
+
+
+def _reason_label(reason_type: str) -> str:
+    labels = {
+        "saidi_high_outlier": "Pico SAIDI",
+        "saifi_high_outlier": "Pico SAIFI",
+        "saidi_low_outlier": "Bajo SAIDI",
+        "saifi_low_outlier": "Bajo SAIFI",
+        "sharp_saidi_increase": "Subida SAIDI",
+        "sharp_saifi_increase": "Subida SAIFI",
+        "sharp_saidi_decrease": "Bajada SAIDI",
+        "sharp_saifi_decrease": "Bajada SAIFI",
+        "top_saidi_contributor": "Alto aporte SAIDI",
+        "top_saifi_contributor": "Alto aporte SAIFI",
+        "local_saidi_peak": "Pico local SAIDI",
+        "local_saifi_peak": "Pico local SAIFI",
+        "saidi_saifi_divergence": "Divergencia",
+    }
+    return labels.get(reason_type, reason_type.replace("_", " "))
+
+
+def _format_number(value: Any, digits: int = 3) -> str:
+    try:
+        return f"{float(value):.{digits}f}"
+    except (TypeError, ValueError):
+        return "0.000"
+
+
+def _apply_interpretability_markers(
+    figure: go.Figure,
+    interpretability_payload: dict[str, Any] | None,
+    metric_mode: str,
+) -> go.Figure:
+    if not interpretability_payload:
+        return figure
+    points = interpretability_payload.get("critical_points") or []
+    if not points:
+        return figure
+    active_metrics = ("SAIDI", "SAIFI") if metric_mode == "BOTH" else (metric_mode,)
+    marker_styles = {
+        "SAIDI": {"color": "#d9471a", "symbol": "diamond"},
+        "SAIFI": {"color": "#2f5fb3", "symbol": "circle"},
+    }
+    for metric in active_metrics:
+        x_values: list[str] = []
+        y_values: list[float] = []
+        hover_values: list[str] = []
+        for point in points:
+            metrics = point.get("metrics") or {}
+            value = metrics.get(metric)
+            if value is None:
+                continue
+            x_values.append(str(point.get("fecha_dia")))
+            y_values.append(float(value))
+            reason_text = ", ".join(_reason_label(item) for item in point.get("criticality_types", [])[:4])
+            hover_values.append(
+                f"Rango {point.get('rank')}<br>{reason_text}<br>"
+                f"Confianza: {point.get('confidence', 'medium')}"
+            )
+        if not x_values:
+            continue
+        style = marker_styles.get(metric, marker_styles["SAIDI"])
+        figure.add_trace(
+            go.Scatter(
+                x=x_values,
+                y=y_values,
+                mode="markers",
+                name=f"Puntos criticos {metric}",
+                marker={
+                    "color": style["color"],
+                    "symbol": style["symbol"],
+                    "size": 11,
+                    "line": {"color": "white", "width": 1.5},
+                },
+                hovertemplate="%{x}<br>%{y:.4f}<br>%{text}<extra></extra>",
+                text=hover_values,
+            )
+        )
+    return figure
+
+
+def _interpretability_empty_panel(message: str = INTERPRETABILITY_PLACEHOLDER) -> html.Div:
+    return html.Div(
+        className="summary-interpretability-panel summary-interpretability-empty",
+        children=[
+            html.Div("Interpretabilidad de la evolucion", className="summary-interpretability-title"),
+            html.Div(message, className="summary-interpretability-text"),
+        ],
+    )
+
+
+def _interpretability_error_panel(message: str) -> html.Div:
+    return html.Div(
+        className="summary-interpretability-panel summary-interpretability-error",
+        children=[
+            html.Div("No fue posible analizar la evolucion", className="summary-interpretability-title"),
+            html.Div(message, className="summary-interpretability-text"),
+        ],
+    )
+
+
+def _attribution_line(point: dict[str, Any]) -> str:
+    for key in ("top_causes", "top_event_families", "top_equipment", "top_circuits"):
+        values = point.get(key) or []
+        if values:
+            first = values[0]
+            return f"{first.get('label')} | eventos: {first.get('event_count', 0)}"
+    return "Sin agrupacion dominante disponible"
+
+
+def _critical_point_card(point: dict[str, Any]) -> html.Div:
+    metrics = point.get("metrics") or {}
+    aggregates = point.get("daily_aggregates") or {}
+    reason_text = ", ".join(_reason_label(item) for item in point.get("criticality_types", [])[:4])
+    return html.Div(
+        className="summary-critical-point-card",
+        children=[
+            html.Div(
+                [
+                    html.Span(f"#{point.get('rank')}"),
+                    html.Span(str(point.get("fecha_dia"))),
+                    html.Span(str(point.get("confidence", "medium")).upper()),
+                ],
+                className="summary-critical-point-header",
+            ),
+            html.Div(
+                f"SAIDI {_format_number(metrics.get('SAIDI'))} | SAIFI {_format_number(metrics.get('SAIFI'))}",
+                className="summary-critical-point-metrics",
+            ),
+            html.Div(reason_text or "Punto critico", className="summary-critical-point-reasons"),
+            html.Div(
+                (
+                    f"Eventos {aggregates.get('event_count', 0)} | "
+                    f"Duracion {aggregates.get('duration_total_h', 0)} h | "
+                    f"Usuarios {aggregates.get('users_affected_total', 0)}"
+                ),
+                className="summary-critical-point-aggregates",
+            ),
+            html.Div(_attribution_line(point), className="summary-critical-point-attribution"),
+        ],
+    )
+
+
+def _interpretability_panel_from_payload(payload: dict[str, Any] | None) -> html.Div:
+    if not payload:
+        return _interpretability_empty_panel()
+    points = payload.get("critical_points") or []
+    if not points:
+        return _interpretability_empty_panel(str(payload.get("status_text") or "No se detectaron puntos criticos."))
+    return html.Div(
+        className="summary-interpretability-panel",
+        children=[
+            html.Div(
+                [
+                    html.Div("Interpretabilidad de la evolucion", className="summary-interpretability-title"),
+                    html.Div(str(payload.get("status_text") or ""), className="summary-interpretability-status"),
+                ],
+                className="summary-interpretability-header",
+            ),
+            html.Div(str(payload.get("insight_text") or ""), className="summary-interpretability-text"),
+            html.Div(
+                [_critical_point_card(point) for point in points],
+                className="summary-critical-point-grid",
+            ),
+        ],
+    )
 
 
 def _kpi_card(card_id: str, title: str, initial_value: str = "--") -> html.Div:
@@ -182,6 +354,7 @@ def get_layout(settings: Settings) -> html.Div:
                 max_intervals=1,
                 disabled=False,
             ),
+            dcc.Store(id="summary-interpretability-store"),
             html.Div(
                 className="summary-filter-panel",
                 style={
@@ -326,6 +499,23 @@ def get_layout(settings: Settings) -> html.Div:
                         },
                     ),
                     html.Div(
+                        className="summary-chart-actions",
+                        children=[
+                            html.Button(
+                                "Analizar evolución",
+                                id="summary-interpretability-button",
+                                n_clicks=0,
+                                className="summary-interpretability-button",
+                                style={
+                                    "backgroundColor": "white",
+                                    "color": CHEC_GREEN,
+                                    "fontFamily": "'DM Sans', sans-serif",
+                                    "fontWeight": "700",
+                                },
+                            )
+                        ],
+                    ),
+                    html.Div(
                         className="summary-chart-container",
                         style={
                             "backgroundColor": "white",
@@ -339,6 +529,10 @@ def get_layout(settings: Settings) -> html.Div:
                                 config={"displayModeBar": True, "responsive": True},
                             )
                         ],
+                    ),
+                    html.Div(
+                        id="summary-interpretability-panel",
+                        children=_interpretability_empty_panel(),
                     ),
                 ],
             ),
@@ -377,12 +571,15 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
         Output("summary-line-chart", "figure"),
         Output("summary-chart-title", "children"),
         Output("summary-status-text", "children"),
+        Output("summary-interpretability-store", "data"),
+        Output("summary-interpretability-panel", "children"),
         Output("summary-initial-load-interval", "disabled"),
         Input("summary-initial-load-interval", "n_intervals"),
         Input("summary-date-window", "start_date"),
         Input("summary-date-window", "end_date"),
         Input("summary-circuit", "value"),
         Input("summary-metric-mode", "value"),
+        Input("summary-interpretability-button", "n_clicks"),
         prevent_initial_call=True,
         running=[
             (Output("summary-panel-overlay", "style"), _OVERLAY_VISIBLE_STYLE, _OVERLAY_HIDDEN_STYLE),
@@ -394,6 +591,7 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
         end_date_raw: str | None,
         circuito: str | None,
         metric_mode: str | None,
+        interpretability_clicks: int | None,
     ):
         triggered_id = ctx.triggered_id
         metric_mode = metric_mode or "BOTH"
@@ -435,6 +633,8 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
                     figure,
                     title,
                     status,
+                    None,
+                    _interpretability_empty_panel(),
                     True,
                 )
             except Exception as exc:
@@ -454,6 +654,8 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
                     _empty_figure(message),
                     "Tendencia diaria del indicador seleccionado.",
                     message,
+                    None,
+                    _interpretability_error_panel(message),
                     True,
                 )
 
@@ -473,6 +675,8 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
                 _empty_figure("Selecciona una ventana de tiempo válida."),
                 "Tendencia diaria del indicador seleccionado.",
                 "Selecciona una ventana de tiempo válida.",
+                None,
+                _interpretability_empty_panel("Selecciona una ventana de tiempo valida."),
                 no_update,
             )
 
@@ -483,6 +687,26 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
                 fallback_metric_mode=metric_mode,
                 fallback_circuit=circuito or "TODOS",
             )
+            interpretability_payload = None
+            interpretability_panel = _interpretability_empty_panel()
+            if triggered_id == "summary-interpretability-button" and interpretability_clicks:
+                try:
+                    interpretability_payload = fetch_summary_interpretability(
+                        start_date_raw=start_date_raw,
+                        end_date_raw=end_date_raw,
+                        circuito=circuito,
+                        metric_mode=metric_mode,
+                        max_points=settings.summary_interpretability_max_points,
+                        include_agent_text=None,
+                    )
+                    figure = _apply_interpretability_markers(
+                        figure,
+                        interpretability_payload,
+                        str(interpretability_payload.get("metric_mode", metric_mode)),
+                    )
+                    interpretability_panel = _interpretability_panel_from_payload(interpretability_payload)
+                except Exception as exc:
+                    interpretability_panel = _interpretability_error_panel(str(exc))
             return (
                 no_update,
                 no_update,
@@ -498,6 +722,8 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
                 figure,
                 title,
                 status,
+                interpretability_payload,
+                interpretability_panel,
                 no_update,
             )
         except Exception as exc:
@@ -517,5 +743,7 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
                 _empty_figure(message),
                 "Tendencia diaria del indicador seleccionado.",
                 message,
+                None,
+                _interpretability_error_panel(message),
                 no_update,
             )

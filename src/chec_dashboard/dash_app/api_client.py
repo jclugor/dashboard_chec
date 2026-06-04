@@ -16,6 +16,7 @@ from chec_dashboard.services.data_service import (
     get_probability_filter_options_metadata,
     get_probability_metadata,
     get_probability_payload,
+    get_summary_interpretability_payload,
     get_summary_metadata,
     get_summary_payload,
 )
@@ -384,6 +385,46 @@ def fetch_summary_data(
         },
     )
     return payload.get("summary", {})
+
+
+def fetch_summary_interpretability(
+    start_date_raw: str | None,
+    end_date_raw: str | None,
+    circuito: str | None,
+    metric_mode: str | None,
+    *,
+    max_points: int = 5,
+    include_agent_text: bool | None = None,
+    selected_date: str | None = None,
+) -> dict[str, Any]:
+    if _use_inproc_transport():
+        return get_summary_interpretability_payload(
+            settings=settings,
+            start_date_raw=start_date_raw,
+            end_date_raw=end_date_raw,
+            circuito=circuito,
+            metric_mode=metric_mode or "BOTH",
+            max_points=max_points,
+            include_agent_text=include_agent_text,
+            selected_date=selected_date,
+        )
+    payload = _request_json(
+        "POST",
+        "/data",
+        json_body={
+            "mode": "summary_interpretability",
+            "summary_interpretability": {
+                "start_date": start_date_raw,
+                "end_date": end_date_raw,
+                "circuito": circuito,
+                "metric_mode": metric_mode or "BOTH",
+                "max_points": max_points,
+                "include_agent_text": include_agent_text,
+                "selected_date": selected_date,
+            },
+        },
+    )
+    return payload.get("summary_interpretability", {})
 
 
 

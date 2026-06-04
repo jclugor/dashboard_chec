@@ -318,6 +318,9 @@ Key gold tables expected by the app include:
 ```text
 gold_saidi_saifi_daily
 gold_saidi_saifi_circuit_summary
+gold_timeseries_event_details
+gold_timeseries_daily_attribution
+gold_timeseries_environment_daily
 gold_probability_inputs
 gold_map_points
 gold_map_line_segments

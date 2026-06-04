@@ -21,6 +21,15 @@ def _base_env(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.delenv("LLM_ENDPOINT_NAME", raising=False)
     monkeypatch.delenv("LLM_MAX_TOKENS", raising=False)
     monkeypatch.delenv("LLM_TEMPERATURE", raising=False)
+    monkeypatch.delenv("SUMMARY_INTERPRETABILITY_ENABLED", raising=False)
+    monkeypatch.delenv("SUMMARY_INTERPRETABILITY_MAX_POINTS", raising=False)
+    monkeypatch.delenv("SUMMARY_INTERPRETABILITY_HIGH_ROBUST_Z", raising=False)
+    monkeypatch.delenv("SUMMARY_INTERPRETABILITY_LOW_ROBUST_Z", raising=False)
+    monkeypatch.delenv("SUMMARY_INTERPRETABILITY_DELTA_ROBUST_Z", raising=False)
+    monkeypatch.delenv("SUMMARY_INTERPRETABILITY_TOP_CONTRIBUTOR_PCT", raising=False)
+    monkeypatch.delenv("SUMMARY_INTERPRETABILITY_SUSTAINED_MIN_DAYS", raising=False)
+    monkeypatch.delenv("SUMMARY_INTERPRETABILITY_INCLUDE_AGENT_TEXT_DEFAULT", raising=False)
+    monkeypatch.delenv("SUMMARY_INTERPRETABILITY_CACHE_SECONDS", raising=False)
     monkeypatch.delenv("RETRIEVER_BACKEND", raising=False)
     monkeypatch.delenv("AI_SEARCH_ENDPOINT_NAME", raising=False)
     monkeypatch.delenv("AI_SEARCH_INDEX_NAME", raising=False)
@@ -184,6 +193,44 @@ def test_phase5_retriever_env_defaults_and_overrides(monkeypatch, tmp_path: Path
     assert settings.ai_search_query_type == "ann"
     assert settings.ai_search_embedding_endpoint_name == "databricks-gte-large-en"
     assert settings.ai_search_endpoint_type == "STORAGE_OPTIMIZED"
+
+
+def test_summary_interpretability_env_defaults_and_overrides(monkeypatch, tmp_path: Path) -> None:
+    _base_env(monkeypatch, tmp_path)
+
+    settings = load_settings()
+
+    assert settings.summary_interpretability_enabled is True
+    assert settings.summary_interpretability_max_points == 5
+    assert settings.summary_interpretability_high_robust_z == 3.0
+    assert settings.summary_interpretability_low_robust_z == -2.5
+    assert settings.summary_interpretability_delta_robust_z == 3.0
+    assert settings.summary_interpretability_top_contributor_pct == 0.10
+    assert settings.summary_interpretability_sustained_min_days == 3
+    assert settings.summary_interpretability_include_agent_text_default is True
+    assert settings.summary_interpretability_cache_seconds == 300
+
+    monkeypatch.setenv("SUMMARY_INTERPRETABILITY_ENABLED", "false")
+    monkeypatch.setenv("SUMMARY_INTERPRETABILITY_MAX_POINTS", "8")
+    monkeypatch.setenv("SUMMARY_INTERPRETABILITY_HIGH_ROBUST_Z", "2.7")
+    monkeypatch.setenv("SUMMARY_INTERPRETABILITY_LOW_ROBUST_Z", "-2.1")
+    monkeypatch.setenv("SUMMARY_INTERPRETABILITY_DELTA_ROBUST_Z", "2.4")
+    monkeypatch.setenv("SUMMARY_INTERPRETABILITY_TOP_CONTRIBUTOR_PCT", "0.2")
+    monkeypatch.setenv("SUMMARY_INTERPRETABILITY_SUSTAINED_MIN_DAYS", "4")
+    monkeypatch.setenv("SUMMARY_INTERPRETABILITY_INCLUDE_AGENT_TEXT_DEFAULT", "false")
+    monkeypatch.setenv("SUMMARY_INTERPRETABILITY_CACHE_SECONDS", "60")
+
+    settings = load_settings()
+
+    assert settings.summary_interpretability_enabled is False
+    assert settings.summary_interpretability_max_points == 8
+    assert settings.summary_interpretability_high_robust_z == 2.7
+    assert settings.summary_interpretability_low_robust_z == -2.1
+    assert settings.summary_interpretability_delta_robust_z == 2.4
+    assert settings.summary_interpretability_top_contributor_pct == 0.2
+    assert settings.summary_interpretability_sustained_min_days == 4
+    assert settings.summary_interpretability_include_agent_text_default is False
+    assert settings.summary_interpretability_cache_seconds == 60
 
 
 def test_phase9_observability_env_defaults_and_overrides(monkeypatch, tmp_path: Path) -> None:

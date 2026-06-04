@@ -68,6 +68,9 @@ def test_phase1_manifest_contract() -> None:
     assert gold_tables == {
         "gold_saidi_saifi_daily",
         "gold_saidi_saifi_circuit_summary",
+        "gold_timeseries_event_details",
+        "gold_timeseries_daily_attribution",
+        "gold_timeseries_environment_daily",
         "gold_probability_inputs",
         "gold_map_points",
     }
@@ -165,6 +168,9 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "gold_map_line_segments" in build_gold_text
     assert "gold_map_filter_index" in build_gold_text
     assert "gold_map_event_days" in build_gold_text
+    assert "gold_timeseries_event_details" in build_gold_text
+    assert "gold_timeseries_daily_attribution" in build_gold_text
+    assert "gold_timeseries_environment_daily" in build_gold_text
     assert '.withColumn("map_period"' in build_gold_text
     assert '.withColumn("map_day"' in build_gold_text
 
@@ -495,12 +501,14 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "gold_agent_event_context" in setup_context_tools_script
     assert "gold_agent_asset_context" in setup_context_tools_script
     assert "gold_agent_circuit_history" in setup_context_tools_script
+    assert "gold_timeseries_daily_attribution" in setup_context_tools_script
     assert "get_dashboard_context" in setup_context_tools_script
     assert "get_reliability_summary" in setup_context_tools_script
     assert "get_compliance_context" in setup_context_tools_script
     assert "get_event_context" in setup_context_tools_script
     assert "get_asset_context" in setup_context_tools_script
     assert "get_circuit_history" in setup_context_tools_script
+    assert "get_timeseries_interpretability_context" in setup_context_tools_script
     assert "source_function" in setup_context_tools_script
     assert "source_view" in setup_context_tools_script
     assert "context_hash" in setup_context_tools_script
@@ -667,6 +675,43 @@ def test_phase35_app_staging_renders_conversation_memory_env() -> None:
     assert "value: \"agent_tools\"" in app_yaml
     assert "CHATBOT_MEMORY_MAX_TURNS" in app_yaml
     assert "value: \"3\"" in app_yaml
+
+
+def test_phase35_app_staging_renders_summary_interpretability_env() -> None:
+    env = os.environ.copy()
+    env.update(
+        {
+            "APP_SUMMARY_INTERPRETABILITY_ENABLED": "true",
+            "APP_SUMMARY_INTERPRETABILITY_MAX_POINTS": "7",
+            "APP_SUMMARY_INTERPRETABILITY_HIGH_ROBUST_Z": "2.8",
+            "APP_SUMMARY_INTERPRETABILITY_LOW_ROBUST_Z": "-2.2",
+            "APP_SUMMARY_INTERPRETABILITY_DELTA_ROBUST_Z": "2.5",
+            "APP_SUMMARY_INTERPRETABILITY_TOP_CONTRIBUTOR_PCT": "0.15",
+            "APP_SUMMARY_INTERPRETABILITY_SUSTAINED_MIN_DAYS": "4",
+            "APP_SUMMARY_INTERPRETABILITY_INCLUDE_AGENT_TEXT_DEFAULT": "false",
+            "APP_SUMMARY_INTERPRETABILITY_CACHE_SECONDS": "90",
+        }
+    )
+    subprocess.run(
+        [sys.executable, "databricks/scripts/stage_phase35_databricks_app.py"],
+        cwd=ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    app_yaml = _read(DATABRICKS_DIR / "build" / "chec_dash_parity" / "app.yaml")
+
+    assert "SUMMARY_INTERPRETABILITY_ENABLED" in app_yaml
+    assert "SUMMARY_INTERPRETABILITY_MAX_POINTS" in app_yaml
+    assert "value: \"7\"" in app_yaml
+    assert "SUMMARY_INTERPRETABILITY_TOP_CONTRIBUTOR_PCT" in app_yaml
+    assert "value: \"0.15\"" in app_yaml
+    assert "SUMMARY_INTERPRETABILITY_INCLUDE_AGENT_TEXT_DEFAULT" in app_yaml
+    assert "value: \"false\"" in app_yaml
+    assert "SUMMARY_INTERPRETABILITY_CACHE_SECONDS" in app_yaml
+    assert "value: \"90\"" in app_yaml
 
 
 def test_phase35_app_staging_renders_observability_env() -> None:
