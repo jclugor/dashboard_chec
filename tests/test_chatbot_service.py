@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import json
 from pathlib import Path
 import textwrap
 
@@ -11,7 +12,9 @@ from chec_dashboard.core.config import settings as base_settings
 from chec_dashboard.services.chatbot_service import (
     assess_chatbot_context,
     build_chatbot_context_package,
+    build_context_tool_payload,
     create_chatbot_conversation,
+    get_circuit_history_tool,
     get_chatbot_context_options,
     get_chatbot_conversation,
     get_skill_status,
@@ -893,10 +896,184 @@ def test_view_context_options_include_filtered_analysis_context(tmp_path: Path) 
     item = payload["items"][0]
     context = item["context"]
     assert item["kind"] == "view"
+    assert context["tool_name"] == "get_dashboard_context"
+    assert context["source_view"].endswith("gold_agent_view_context")
+    assert context["context_id"].startswith("view-")
+    assert context["context_hash"]
+    assert context["traceability"]["read_only"] is True
     assert context["kpi_summary"]["event_count"] == 1
     assert context["kpi_summary"]["saidi_total"] == 0.5
     assert context["top_circuits"][0]["label"] == "CKT-1"
     assert context["top_causes"][0]["label"] == "VIENTO"
+
+
+def test_context_tool_payload_is_bounded_json_safe_and_deterministic() -> None:
+    records = [{"idx": index, "when": pd.Timestamp("2024-01-01")} for index in range(75)]
+
+    payload_a = build_context_tool_payload(
+        kind="view",
+        tool_name="get_dashboard_context",
+        source_function="local.agent_tools.get_dashboard_context",
+        source_view="local.gold.gold_agent_view_context",
+        parameters={"period": "2024-01", "municipio": "Manizales"},
+        summary={"text": "Resumen"},
+        records=records,
+        metrics={"kpi_summary": {"event_count": 1}},
+        traceability={"read_only": True},
+    )
+    payload_b = build_context_tool_payload(
+        kind="view",
+        tool_name="get_dashboard_context",
+        source_function="local.agent_tools.get_dashboard_context",
+        source_view="local.gold.gold_agent_view_context",
+        parameters={"period": "2024-01", "municipio": "Manizales"},
+        summary={"text": "Resumen"},
+        records=records,
+        metrics={"kpi_summary": {"event_count": 1}},
+        traceability={"read_only": True},
+    )
+
+    assert len(payload_a["records"]) == 50
+    assert payload_a["records"][0]["when"] == "2024-01-01T00:00:00"
+    assert payload_a["context_hash"] == payload_b["context_hash"]
+    assert payload_a["context_id"] == payload_b["context_id"]
+    assert payload_a["traceability"]["read_only"] is True
+
+
+def test_local_event_and_asset_context_options_share_tool_schema(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    data_dir.mkdir()
+    _write_map_files(data_dir)
+    settings = _settings(tmp_path, data_dir, corpus_dir)
+
+    event_payload = get_chatbot_context_options(
+        settings,
+        context_kind="event",
+        selected_period="2024-01",
+        selected_municipio="Manizales",
+        selected_circuits=["CKT-1"],
+        search="viento",
+        limit=10,
+    )
+    asset_payload = get_chatbot_context_options(
+        settings,
+        context_kind="asset",
+        selected_period="2024-01",
+        selected_municipio="Manizales",
+        selected_circuits=["CKT-1"],
+        search="TR-1",
+        limit=10,
+    )
+
+    event_context = event_payload["items"][0]["context"]
+    asset_context = asset_payload["items"][0]["context"]
+    assert event_context["tool_name"] == "get_event_context"
+    assert event_context["source_view"].endswith("gold_agent_event_context")
+    assert event_context["cto_equi_ope"] == "CKT-1"
+    assert event_context["records"][0]["causa"] == "VIENTO"
+    assert asset_context["tool_name"] == "get_asset_context"
+    assert asset_context["source_view"].endswith("gold_agent_asset_context")
+    assert asset_context["CODE"] == "TR-1"
+    assert asset_context["traceability"]["read_only"] is True
+
+
+def test_databricks_context_options_use_governed_tools_and_views(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    data_dir.mkdir()
+    settings = replace(
+        _settings(
+            tmp_path,
+            data_dir,
+            corpus_dir,
+        ),
+        data_backend="databricks_sql",
+        databricks_sql_warehouse_id="warehouse",
+        databricks_catalog_name="chec_dbx_demo",
+        databricks_gold_schema="gold",
+        chatbot_context_tools_schema="agent_tools",
+    )
+
+    class FakeClient:
+        statements: list[str] = []
+
+        def __init__(self, settings):
+            self.settings = settings
+
+        def fetch_scalar(self, statement: str, default=None):
+            self.statements.append(statement)
+            return json.dumps(
+                {
+                    "kind": "view",
+                    "tool_name": "get_dashboard_context",
+                    "source_function": "chec_dbx_demo.agent_tools.get_dashboard_context",
+                    "source_view": "chec_dbx_demo.gold.gold_agent_view_context",
+                    "parameters": {"period": "2024-01", "municipio": "Manizales", "circuits": "CKT-1"},
+                    "context_hash": "hash-1",
+                    "context_id": "view-hash-1",
+                    "summary": {"text": "Vista gobernada"},
+                    "records": [],
+                    "metrics": {"kpi_summary": {"event_count": 1}},
+                    "traceability": {"read_only": True},
+                    "selected_period": "2024-01",
+                    "selected_municipio": "Manizales",
+                    "scope_label": "CKT-1",
+                    "kpi_summary": {"event_count": 1, "saidi_total": 0.5, "saifi_total": 0.3},
+                }
+            )
+
+        def fetch_dataframe(self, statement: str):
+            self.statements.append(statement)
+            return pd.DataFrame(
+                [
+                    {
+                        "event_id": "event-1",
+                        "kind": "event",
+                        "map_period": "2024-01",
+                        "municipio": "Manizales",
+                        "circuito": "CKT-1",
+                        "cto_equi_ope": "CKT-1",
+                        "equipo_ope": "EQ-1",
+                        "causa": "VIENTO",
+                        "SAIDI": 0.5,
+                        "SAIFI": 0.3,
+                    }
+                ]
+            )
+
+    monkeypatch.setattr(
+        "chec_dashboard.services.agent_context_service.DatabricksSQLWarehouseClient",
+        FakeClient,
+    )
+
+    view_payload = get_chatbot_context_options(
+        settings,
+        context_kind="view",
+        selected_period="2024-01",
+        selected_municipio="Manizales",
+        selected_circuits=["CKT-1"],
+        limit=10,
+    )
+    event_payload = get_chatbot_context_options(
+        settings,
+        context_kind="event",
+        selected_period="2024-01",
+        selected_municipio="Manizales",
+        selected_circuits=["CKT-1"],
+        limit=10,
+    )
+
+    statements = "\n".join(FakeClient.statements)
+    assert "`chec_dbx_demo`.`agent_tools`.`get_dashboard_context`" in statements
+    assert "`chec_dbx_demo`.`gold`.`gold_agent_event_context`" in statements
+    assert "gold_map_event_days" not in statements
+    assert "gold_saidi_saifi_daily" not in statements
+    assert view_payload["items"][0]["context"]["tool_name"] == "get_dashboard_context"
+    assert event_payload["items"][0]["context"]["source_function"] == "`chec_dbx_demo`.`agent_tools`.`get_event_context`"
 
 
 def test_context_package_preserves_compliance_guardrails() -> None:
@@ -909,6 +1086,52 @@ def test_context_package_preserves_compliance_guardrails() -> None:
     assert package["tipo_analisis"] == "compliance"
     assert package["selected_context"]["family"] == "Transformador"
     assert "aprobado/reprobado" in package["response_guardrails"]["compliance"]
+
+
+def test_context_package_includes_structured_tool_output(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    data_dir.mkdir()
+    _write_map_files(data_dir)
+    settings = _settings(tmp_path, data_dir, corpus_dir)
+    payload = get_chatbot_context_options(
+        settings,
+        context_kind="view",
+        selected_period="2024-01",
+        selected_municipio="Manizales",
+        selected_circuits=["CKT-1"],
+    )
+
+    package = build_chatbot_context_package(
+        selected_context=payload["items"][0]["context"],
+        briefing_type="reliability",
+        question_id="reliability_saidi_saifi",
+    )
+
+    tool = package["structured_context_tool"]
+    assert package["selected_context"]["tool_name"] == "get_dashboard_context"
+    assert tool["source_view"].endswith("gold_agent_view_context")
+    assert tool["context_hash"] == payload["items"][0]["context"]["context_hash"]
+    assert tool["traceability"]["read_only"] is True
+
+
+def test_local_circuit_history_tool_uses_phase4_schema(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    data_dir.mkdir()
+    settings = _settings(tmp_path, data_dir, corpus_dir)
+
+    payload = get_circuit_history_tool(
+        settings,
+        circuit="CKT-1",
+        start_date="2024-01-01",
+        end_date="2024-01-31",
+    )
+
+    assert payload["tool_name"] == "get_circuit_history"
+    assert payload["source_view"].endswith("gold_agent_circuit_history")
+    assert payload["parameters"]["circuit"] == "CKT-1"
+    assert payload["traceability"]["read_only"] is True
 
 
 @pytest.mark.parametrize(

@@ -271,6 +271,9 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "APP_CHATBOT_MEMORY_MAX_TURNS" in deploy_app_script
     assert "setup_chatbot_conversation_tables()" in deploy_app_script
     assert "setup_phase3_conversation_tables.py" in deploy_app_script
+    assert "APP_CHATBOT_CONTEXT_TOOLS_SCHEMA" in deploy_app_script
+    assert "setup_chatbot_context_tools()" in deploy_app_script
+    assert "setup_phase4_context_tools.py" in deploy_app_script
     assert "APP_CHATBOT_CORPUS_VOLUME_RESOURCE_KEY" in deploy_app_script
     assert "APP_CHATBOT_SKILLS_VOLUME_RESOURCE_KEY" in deploy_app_script
     assert "agent_config.skills" in deploy_app_script
@@ -299,6 +302,14 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "databricks grants update schema" in app_permissions_script
     assert "APP_CONVERSATION_SCHEMA" in app_permissions_script
     assert "GRANT_CHATBOT_CONVERSATION_ACCESS" in app_permissions_script
+    assert "APP_CONTEXT_TOOLS_SCHEMA" in app_permissions_script
+    assert "GRANT_CHATBOT_CONTEXT_TOOL_ACCESS" in app_permissions_script
+    assert "APP_CONTEXT_TOOL_FUNCTIONS" in app_permissions_script
+    assert "APP_CONTEXT_TOOL_VIEWS" in app_permissions_script
+    assert "databricks grants update function" in app_permissions_script
+    assert "databricks grants update table" in app_permissions_script
+    assert 'add: ["USE_SCHEMA", "EXECUTE"]' in app_permissions_script
+    assert "EXECUTE" in app_permissions_script
     assert "MODIFY" in app_permissions_script
     assert "USE_CATALOG" in app_permissions_script
     assert "USE_SCHEMA" in app_permissions_script
@@ -314,6 +325,7 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "CHATBOT_CORPUS_VOLUME_DIR" in app_template
     assert "CHATBOT_CONVERSATION_BACKEND" in app_template
     assert "CHATBOT_CONVERSATION_SCHEMA" in app_template
+    assert "CHATBOT_CONTEXT_TOOLS_SCHEMA" in app_template
     assert "CHATBOT_MEMORY_MAX_TURNS" in app_template
     assert "valueFrom: \"__CHATBOT_CORPUS_VOLUME_RESOURCE_KEY__\"" in app_template
     assert "gunicorn" in app_template
@@ -403,6 +415,23 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "llm_provider" in setup_conversation_script
     assert "model_endpoint_name" in setup_conversation_script
 
+    setup_context_tools_script = _read(DATABRICKS_DIR / "scripts" / "setup_phase4_context_tools.py")
+    assert "CREATE SCHEMA IF NOT EXISTS" in setup_context_tools_script
+    assert "agent_tools" in setup_context_tools_script
+    assert "gold_agent_view_context" in setup_context_tools_script
+    assert "gold_agent_event_context" in setup_context_tools_script
+    assert "gold_agent_asset_context" in setup_context_tools_script
+    assert "gold_agent_circuit_history" in setup_context_tools_script
+    assert "get_dashboard_context" in setup_context_tools_script
+    assert "get_reliability_summary" in setup_context_tools_script
+    assert "get_compliance_context" in setup_context_tools_script
+    assert "get_event_context" in setup_context_tools_script
+    assert "get_asset_context" in setup_context_tools_script
+    assert "get_circuit_history" in setup_context_tools_script
+    assert "source_function" in setup_context_tools_script
+    assert "source_view" in setup_context_tools_script
+    assert "context_hash" in setup_context_tools_script
+
 
 def test_phase35_app_staging_uses_chatbot_volume_resource() -> None:
     env = os.environ.copy()
@@ -445,6 +474,7 @@ def test_phase35_app_staging_renders_conversation_memory_env() -> None:
         {
             "APP_CHATBOT_CONVERSATION_BACKEND": "databricks_sql",
             "APP_CHATBOT_CONVERSATION_SCHEMA": "agent",
+            "APP_CHATBOT_CONTEXT_TOOLS_SCHEMA": "agent_tools",
             "APP_CHATBOT_MEMORY_MAX_TURNS": "3",
         }
     )
@@ -463,6 +493,8 @@ def test_phase35_app_staging_renders_conversation_memory_env() -> None:
     assert "value: \"databricks_sql\"" in app_yaml
     assert "CHATBOT_CONVERSATION_SCHEMA" in app_yaml
     assert "value: \"agent\"" in app_yaml
+    assert "CHATBOT_CONTEXT_TOOLS_SCHEMA" in app_yaml
+    assert "value: \"agent_tools\"" in app_yaml
     assert "CHATBOT_MEMORY_MAX_TURNS" in app_yaml
     assert "value: \"3\"" in app_yaml
 

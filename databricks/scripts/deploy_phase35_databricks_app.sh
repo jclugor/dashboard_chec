@@ -20,6 +20,7 @@ DEFAULT_APP_CHATBOT_SKILLS_VOLUME_PATH="dbfs:/Volumes/${APP_CHATBOT_SKILLS_VOLUM
 APP_CHATBOT_SKILLS_VOLUME_PATH="${APP_CHATBOT_SKILLS_VOLUME_PATH:-${DEFAULT_APP_CHATBOT_SKILLS_VOLUME_PATH}}"
 APP_CHATBOT_CONVERSATION_BACKEND="${APP_CHATBOT_CONVERSATION_BACKEND:-databricks_sql}"
 APP_CHATBOT_CONVERSATION_SCHEMA="${APP_CHATBOT_CONVERSATION_SCHEMA:-agent}"
+APP_CHATBOT_CONTEXT_TOOLS_SCHEMA="${APP_CHATBOT_CONTEXT_TOOLS_SCHEMA:-agent_tools}"
 APP_CHATBOT_MEMORY_MAX_TURNS="${APP_CHATBOT_MEMORY_MAX_TURNS:-8}"
 APP_GEMINI_SECRET_RESOURCE_KEY="${APP_GEMINI_SECRET_RESOURCE_KEY:-gemini_api_key}"
 APP_GEMINI_SECRET_SCOPE="${APP_GEMINI_SECRET_SCOPE:-chec_dash_parity}"
@@ -29,6 +30,7 @@ APP_GEMINI_SECRET_DESCRIPTION="${APP_GEMINI_SECRET_DESCRIPTION:-Gemini API key f
 export APP_GEMINI_SECRET_RESOURCE_KEY
 export APP_CHATBOT_CONVERSATION_BACKEND
 export APP_CHATBOT_CONVERSATION_SCHEMA
+export APP_CHATBOT_CONTEXT_TOOLS_SCHEMA
 export APP_CHATBOT_MEMORY_MAX_TURNS
 
 ensure_chatbot_skill_lifecycle_dirs() {
@@ -48,10 +50,18 @@ setup_chatbot_conversation_tables() {
     ./.venv/bin/python databricks/scripts/setup_phase3_conversation_tables.py
 }
 
+setup_chatbot_context_tools() {
+  APP_WAREHOUSE_ID="${APP_WAREHOUSE_ID:-4437a6195e05c59c}" \
+  APP_CATALOG_NAME="${APP_CATALOG_NAME:-chec_dbx_demo}" \
+  APP_CHATBOT_CONTEXT_TOOLS_SCHEMA="${APP_CHATBOT_CONTEXT_TOOLS_SCHEMA}" \
+    ./.venv/bin/python databricks/scripts/setup_phase4_context_tools.py
+}
+
 cd "${REPO_ROOT}"
 ./.venv/bin/python databricks/scripts/stage_phase35_databricks_app.py
 ensure_chatbot_skill_lifecycle_dirs
 setup_chatbot_conversation_tables
+setup_chatbot_context_tools
 
 if ! databricks apps get "${APP_NAME}" -o json >/dev/null 2>&1; then
   databricks apps create "${APP_NAME}" \

@@ -9,8 +9,7 @@ from typing import Any
 import pandas as pd
 
 from chec_dashboard.core.config import Settings
-from chec_dashboard.services import databricks_data_service
-from chec_dashboard.services.databricks_sql import DatabricksSQLWarehouseClient, sql_literal
+from chec_dashboard.services.databricks_sql import DatabricksSQLWarehouseClient, sql_literal, sql_table_name
 from chec_dashboard.services.map_service import (
     FilteredMapDataset,
     filter_map_dataset,
@@ -122,6 +121,24 @@ BRIEFING_LABELS = {
     "maintenance": "Mantenimiento",
 }
 
+AGENT_CONTEXT_VIEWS = {
+    "view": "gold_agent_view_context",
+    "event": "gold_agent_event_context",
+    "asset": "gold_agent_asset_context",
+    "circuit_history": "gold_agent_circuit_history",
+}
+
+AGENT_CONTEXT_FUNCTIONS = {
+    "dashboard": "get_dashboard_context",
+    "reliability": "get_reliability_summary",
+    "compliance": "get_compliance_context",
+    "event": "get_event_context",
+    "asset": "get_asset_context",
+    "circuit_history": "get_circuit_history",
+}
+
+MAX_CONTEXT_TOOL_RECORDS = 50
+
 
 def normalize_text(value: Any) -> str:
     text = "" if value is None else str(value)
@@ -158,6 +175,32 @@ def json_safe(value: Any) -> Any:
     return str(value)
 
 
+def json_clean(value: Any) -> Any:
+    if isinstance(value, dict):
+        cleaned_dict = {}
+        for key, item in value.items():
+            cleaned = json_clean(item)
+            if has_clean_value(cleaned):
+                cleaned_dict[str(key)] = cleaned
+        return cleaned_dict
+    if isinstance(value, (list, tuple, set)):
+        cleaned_items = []
+        for item in value:
+            cleaned = json_clean(item)
+            if has_clean_value(cleaned):
+                cleaned_items.append(cleaned)
+        return cleaned_items
+    return json_safe(value)
+
+
+def has_clean_value(value: Any) -> bool:
+    if value is None or value == "":
+        return False
+    if isinstance(value, (list, tuple, set, dict)):
+        return bool(value)
+    return True
+
+
 def row_context(row: pd.Series, *, kind: str, family: str | None = None) -> dict[str, Any]:
     context = {
         str(column): json_safe(value)
@@ -174,6 +217,95 @@ def context_id(kind: str, context: dict[str, Any]) -> str:
     payload = json.dumps(context, ensure_ascii=False, sort_keys=True, default=str)
     digest = hashlib.sha1(payload.encode("utf-8")).hexdigest()[:16]
     return f"{kind}-{digest}"
+
+
+def context_tools_schema(settings: Settings) -> str:
+    return settings.chatbot_context_tools_schema
+
+
+def context_tool_function_name(settings: Settings, function_name: str) -> str:
+    return sql_table_name(settings.databricks_catalog_name, context_tools_schema(settings), function_name)
+
+
+def context_tool_view_name(settings: Settings, view_name: str) -> str:
+    return sql_table_name(settings.databricks_catalog_name, settings.databricks_gold_schema, view_name)
+
+
+def selected_circuits_argument(selected_circuits: list[str] | None) -> str:
+    if selected_circuits is None:
+        return "Todos"
+    return ",".join(str(circuit).strip() for circuit in selected_circuits if str(circuit).strip())
+
+
+def build_context_tool_payload(
+    *,
+    kind: str,
+    tool_name: str,
+    source_function: str,
+    source_view: str,
+    parameters: dict[str, Any],
+    summary: dict[str, Any],
+    records: list[dict[str, Any]] | None = None,
+    metrics: dict[str, Any] | None = None,
+    traceability: dict[str, Any] | None = None,
+    compatibility_fields: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    bounded_records = [json_clean(record) for record in (records or [])[:MAX_CONTEXT_TOOL_RECORDS]]
+    payload = {
+        "kind": kind,
+        "tool_name": tool_name,
+        "source_function": source_function,
+        "source_view": source_view,
+        "parameters": json_clean(parameters),
+        "summary": json_clean(summary),
+        "records": bounded_records,
+        "metrics": json_clean(metrics or {}),
+        "traceability": json_clean(traceability or {}),
+    }
+    digest = hashlib.sha256(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True, default=str).encode("utf-8")
+    ).hexdigest()
+    payload["context_hash"] = digest[:16]
+    payload["context_id"] = f"{kind}-{digest[:16]}"
+    for key, value in (compatibility_fields or {}).items():
+        cleaned = json_clean(value)
+        if has_clean_value(cleaned):
+            payload[key] = cleaned
+    return payload
+
+
+def _local_source_function(function_name: str) -> str:
+    return f"local.agent_tools.{function_name}"
+
+
+def _local_source_view(view_name: str) -> str:
+    return f"local.gold.{view_name}"
+
+
+def _tool_payload_from_json(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if not value:
+        return {}
+    try:
+        payload = json.loads(str(value))
+    except (TypeError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
+def fetch_databricks_context_tool(
+    settings: Settings,
+    function_name: str,
+    *arguments: Any,
+) -> dict[str, Any]:
+    if function_name not in set(AGENT_CONTEXT_FUNCTIONS.values()):
+        raise ValueError(f"Unsupported governed context function: {function_name}")
+    client = DatabricksSQLWarehouseClient(settings)
+    function_ref = context_tool_function_name(settings, function_name)
+    argument_sql = ", ".join(sql_literal(argument) for argument in arguments)
+    payload = client.fetch_scalar(f"SELECT {function_ref}({argument_sql}) AS payload", default="{}")
+    return _tool_payload_from_json(payload)
 
 
 def sanitize_briefing_type(briefing_type: str | None) -> str:
@@ -393,8 +525,72 @@ def view_item_from_context(context: dict[str, Any]) -> dict[str, Any]:
         "label": f"Vista filtrada | {municipio} | {selected_period} | {scope}"[:180],
         "kind": "view",
         "summary": summary,
-        "context": context,
+        "context": dashboard_context_tool_payload(context),
     }
+
+
+def dashboard_context_tool_payload(
+    context: dict[str, Any],
+    *,
+    source_function: str | None = None,
+    source_view: str | None = None,
+    tool_name: str = "get_dashboard_context",
+) -> dict[str, Any]:
+    selected_period = context.get("selected_period") or "Sin periodo"
+    municipio = context.get("selected_municipio") or "Sin municipio"
+    scope = context.get("scope_label") or "todos los circuitos"
+    kpis = context.get("kpi_summary") or {}
+    summary_text = (
+        f"Vista {municipio} / {selected_period} / {scope}. "
+        f"Eventos: {kpis.get('event_count', 0)}, "
+        f"SAIDI: {kpis.get('saidi_total', 0)}, "
+        f"SAIFI: {kpis.get('saifi_total', 0)}."
+    )
+    records: list[dict[str, Any]] = []
+    for record_type in ("top_circuits", "top_event_families", "top_causes"):
+        for record in context.get(record_type) or []:
+            if isinstance(record, dict):
+                records.append({"record_type": record_type, **record})
+    return build_context_tool_payload(
+        kind="view",
+        tool_name=tool_name,
+        source_function=source_function or _local_source_function(tool_name),
+        source_view=source_view or _local_source_view(AGENT_CONTEXT_VIEWS["view"]),
+        parameters={
+            "period": selected_period,
+            "municipio": municipio,
+            "circuits": selected_circuits_argument(context.get("selected_circuits")),
+        },
+        summary={
+            "text": summary_text,
+            "selected_period": selected_period,
+            "selected_municipio": municipio,
+            "scope_label": scope,
+        },
+        records=records,
+        metrics={
+            "kpi_summary": kpis,
+            "date_bounds": context.get("date_bounds") or {},
+            "external_signals": context.get("external_signals") or {},
+        },
+        traceability={
+            "source_view": source_view or _local_source_view(AGENT_CONTEXT_VIEWS["view"]),
+            "claim_scope": "dashboard_filter_aggregate",
+            "read_only": True,
+        },
+        compatibility_fields={
+            "selected_period": selected_period,
+            "selected_municipio": municipio,
+            "selected_circuits": context.get("selected_circuits"),
+            "scope_label": scope,
+            "date_bounds": context.get("date_bounds"),
+            "kpi_summary": kpis,
+            "top_circuits": context.get("top_circuits"),
+            "top_event_families": context.get("top_event_families"),
+            "top_causes": context.get("top_causes"),
+            "external_signals": context.get("external_signals"),
+        },
+    )
 
 
 def context_search_matches(context: dict[str, Any], search: str | None) -> bool:
@@ -407,7 +603,47 @@ def context_search_matches(context: dict[str, Any], search: str | None) -> bool:
     return bool(search_tokens & haystack)
 
 
-def event_items_from_frame(frame: pd.DataFrame, *, search: str | None, limit: int) -> list[dict[str, Any]]:
+def event_tool_payload(
+    context: dict[str, Any],
+    *,
+    source_function: str | None = None,
+    source_view: str | None = None,
+) -> dict[str, Any]:
+    event_id = str(context.get("event_id") or context_id("event", context))
+    circuito = context.get("cto_equi_ope") or context.get("circuito") or "Sin circuito"
+    equipo = context.get("equipo_ope") or context.get("display_label") or "Evento"
+    causa = context.get("causa") or context.get("event_family") or "Sin causa"
+    inicio = context.get("inicio") or context.get("inicio_ts") or context.get("map_date")
+    context = {**context, "event_id": event_id}
+    return build_context_tool_payload(
+        kind="event",
+        tool_name="get_event_context",
+        source_function=source_function or _local_source_function("get_event_context"),
+        source_view=source_view or _local_source_view(AGENT_CONTEXT_VIEWS["event"]),
+        parameters={"event_id": event_id},
+        summary={
+            "text": f"Evento {equipo} en circuito {circuito}. Causa: {causa}. Inicio: {inicio or 'N/D'}.",
+            "event_id": event_id,
+        },
+        records=[context],
+        metrics=selected_context_metrics(context),
+        traceability={
+            "source_view": source_view or _local_source_view(AGENT_CONTEXT_VIEWS["event"]),
+            "record_id": event_id,
+            "read_only": True,
+        },
+        compatibility_fields=context,
+    )
+
+
+def event_items_from_frame(
+    frame: pd.DataFrame,
+    *,
+    search: str | None,
+    limit: int,
+    source_function: str | None = None,
+    source_view: str | None = None,
+) -> list[dict[str, Any]]:
     items: list[dict[str, Any]] = []
     for _, row in frame.head(max(limit * 3, limit)).iterrows():
         context = row_context(row, kind="event")
@@ -423,13 +659,18 @@ def event_items_from_frame(frame: pd.DataFrame, *, search: str | None, limit: in
             f"SAIDI: {context.get('SAIDI') or context.get('severity_saidi') or 'N/D'}, "
             f"SAIFI: {context.get('SAIFI') or context.get('severity_saifi') or 'N/D'}."
         )
+        tool_context = event_tool_payload(
+            context,
+            source_function=source_function,
+            source_view=source_view,
+        )
         items.append(
             {
-                "id": context_id("event", context),
+                "id": tool_context["context_id"],
                 "label": label[:180],
                 "kind": "event",
                 "summary": summary,
-                "context": context,
+                "context": tool_context,
             }
         )
         if len(items) >= limit:
@@ -437,11 +678,53 @@ def event_items_from_frame(frame: pd.DataFrame, *, search: str | None, limit: in
     return items
 
 
+def asset_tool_payload(
+    context: dict[str, Any],
+    *,
+    source_function: str | None = None,
+    source_view: str | None = None,
+) -> dict[str, Any]:
+    asset_id = str(context.get("asset_id") or context_id("asset", context))
+    family = context.get("family") or context.get("asset_family") or "Activo"
+    code = context.get("CODE") or context.get("equipo_ope") or context.get("display_label") or family
+    circuito = context.get("FPARENT") or context.get("circuito") or "Sin circuito"
+    municipio = context.get("MUN") or context.get("municipio") or "Sin municipio"
+    context = {
+        **context,
+        "asset_id": asset_id,
+        "CODE": code,
+        "family": family,
+        "FPARENT": circuito,
+        "MUN": municipio,
+    }
+    return build_context_tool_payload(
+        kind="asset",
+        tool_name="get_asset_context",
+        source_function=source_function or _local_source_function("get_asset_context"),
+        source_view=source_view or _local_source_view(AGENT_CONTEXT_VIEWS["asset"]),
+        parameters={"asset_id": asset_id},
+        summary={
+            "text": f"{family} {code} asociado al circuito {circuito} en {municipio}.",
+            "asset_id": asset_id,
+        },
+        records=[context],
+        metrics=selected_context_metrics(context),
+        traceability={
+            "source_view": source_view or _local_source_view(AGENT_CONTEXT_VIEWS["asset"]),
+            "record_id": asset_id,
+            "read_only": True,
+        },
+        compatibility_fields=context,
+    )
+
+
 def asset_items_from_filtered(
     filtered: FilteredMapDataset,
     *,
     search: str | None,
     limit: int,
+    source_function: str | None = None,
+    source_view: str | None = None,
 ) -> list[dict[str, Any]]:
     frames = [
         ("Transformador", filtered.trafos),
@@ -460,13 +743,18 @@ def asset_items_from_filtered(
             municipio = context.get("MUN") or context.get("municipio") or "Sin municipio"
             label = f"{family} {code} | {circuito} | {municipio}"
             summary = f"{family} asociado al circuito {circuito} en {municipio}."
+            tool_context = asset_tool_payload(
+                context,
+                source_function=source_function,
+                source_view=source_view,
+            )
             items.append(
                 {
-                    "id": context_id("asset", context),
+                    "id": tool_context["context_id"],
                     "label": label[:180],
                     "kind": "asset",
                     "summary": summary,
-                    "context": context,
+                    "context": tool_context,
                 }
             )
             if len(items) >= limit:
@@ -485,6 +773,138 @@ def selected_circuits_where(selected_circuits: list[str] | None) -> str:
     return f" AND circuito IN ({literals})"
 
 
+def get_dashboard_context_tool(
+    settings: Settings,
+    *,
+    selected_period: str,
+    selected_municipio: str,
+    selected_circuits: list[str] | None,
+) -> dict[str, Any]:
+    if settings.data_backend == "databricks_sql":
+        return fetch_databricks_context_tool(
+            settings,
+            AGENT_CONTEXT_FUNCTIONS["dashboard"],
+            selected_period,
+            selected_municipio,
+            selected_circuits_argument(selected_circuits),
+        )
+    dataset = load_map_dataset(str(settings.data_dir))
+    filtered = filter_map_dataset(
+        dataset,
+        selected_period=selected_period,
+        selected_municipio=selected_municipio,
+        selected_circuits=selected_circuits,
+        selected_output="BASE",
+    )
+    events = pd.concat(filtered.events_by_day, ignore_index=True) if filtered.events_by_day else pd.DataFrame()
+    context = view_context_from_events(
+        events,
+        selected_period=selected_period,
+        selected_municipio=selected_municipio,
+        selected_circuits=selected_circuits,
+    )
+    return dashboard_context_tool_payload(context)
+
+
+def get_reliability_summary_tool(
+    settings: Settings,
+    *,
+    selected_period: str,
+    selected_municipio: str,
+    selected_circuits: list[str] | None,
+) -> dict[str, Any]:
+    if settings.data_backend == "databricks_sql":
+        return fetch_databricks_context_tool(
+            settings,
+            AGENT_CONTEXT_FUNCTIONS["reliability"],
+            selected_period,
+            selected_municipio,
+            selected_circuits_argument(selected_circuits),
+        )
+    payload = get_dashboard_context_tool(
+        settings,
+        selected_period=selected_period,
+        selected_municipio=selected_municipio,
+        selected_circuits=selected_circuits,
+    )
+    return {**payload, "tool_name": "get_reliability_summary", "source_function": _local_source_function("get_reliability_summary")}
+
+
+def get_compliance_context_tool(
+    settings: Settings,
+    *,
+    selected_period: str,
+    selected_municipio: str,
+    selected_circuits: list[str] | None,
+) -> dict[str, Any]:
+    if settings.data_backend == "databricks_sql":
+        return fetch_databricks_context_tool(
+            settings,
+            AGENT_CONTEXT_FUNCTIONS["compliance"],
+            selected_period,
+            selected_municipio,
+            selected_circuits_argument(selected_circuits),
+        )
+    payload = get_dashboard_context_tool(
+        settings,
+        selected_period=selected_period,
+        selected_municipio=selected_municipio,
+        selected_circuits=selected_circuits,
+    )
+    return {**payload, "tool_name": "get_compliance_context", "source_function": _local_source_function("get_compliance_context")}
+
+
+def get_event_context_tool(
+    settings: Settings,
+    *,
+    event_id: str,
+    fallback_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if settings.data_backend == "databricks_sql":
+        return fetch_databricks_context_tool(settings, AGENT_CONTEXT_FUNCTIONS["event"], event_id)
+    return event_tool_payload({**(fallback_context or {}), "event_id": event_id})
+
+
+def get_asset_context_tool(
+    settings: Settings,
+    *,
+    asset_id: str,
+    fallback_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    if settings.data_backend == "databricks_sql":
+        return fetch_databricks_context_tool(settings, AGENT_CONTEXT_FUNCTIONS["asset"], asset_id)
+    return asset_tool_payload({**(fallback_context or {}), "asset_id": asset_id})
+
+
+def get_circuit_history_tool(
+    settings: Settings,
+    *,
+    circuit: str,
+    start_date: str,
+    end_date: str,
+) -> dict[str, Any]:
+    if settings.data_backend == "databricks_sql":
+        return fetch_databricks_context_tool(
+            settings,
+            AGENT_CONTEXT_FUNCTIONS["circuit_history"],
+            circuit,
+            start_date,
+            end_date,
+        )
+    return build_context_tool_payload(
+        kind="circuit_history",
+        tool_name="get_circuit_history",
+        source_function=_local_source_function("get_circuit_history"),
+        source_view=_local_source_view(AGENT_CONTEXT_VIEWS["circuit_history"]),
+        parameters={"circuit": circuit, "start_date": start_date, "end_date": end_date},
+        summary={"text": f"Historial local del circuito {circuit} entre {start_date} y {end_date}."},
+        records=[],
+        metrics={},
+        traceability={"read_only": True},
+        compatibility_fields={"circuito": circuit},
+    )
+
+
 def databricks_view_items(
     settings: Settings,
     *,
@@ -492,57 +912,25 @@ def databricks_view_items(
     selected_municipio: str,
     selected_circuits: list[str] | None,
 ) -> list[dict[str, Any]]:
-    client = DatabricksSQLWarehouseClient(settings)
-    daily_table = databricks_data_service._gold_table(settings, "gold_saidi_saifi_daily")
-    where_clause = (
-        f"DATE_FORMAT(CAST(fecha_dia AS DATE), 'yyyy-MM') = {sql_literal(selected_period)} "
-        f"AND municipio = {sql_literal(selected_municipio)}"
-        f"{selected_circuits_where(selected_circuits)}"
-    )
-    daily_frame = client.fetch_dataframe(
-        f"""
-        SELECT
-          CAST(fecha_dia AS DATE) AS fecha_dia,
-          circuito,
-          municipio,
-          event_family,
-          COALESCE(saidi_total, 0.0) AS saidi_total,
-          COALESCE(saifi_total, 0.0) AS saifi_total,
-          COALESCE(event_count, 0) AS event_count,
-          COALESCE(duration_total_h, 0.0) AS duration_total_h,
-          COALESCE(users_affected_total, 0.0) AS users_affected_total
-        FROM {daily_table}
-        WHERE {where_clause}
-        """
-    )
-
-    context = view_context_from_events(
-        daily_frame,
+    context = get_dashboard_context_tool(
+        settings,
         selected_period=selected_period,
         selected_municipio=selected_municipio,
         selected_circuits=selected_circuits,
     )
-
-    try:
-        events_table = databricks_data_service._gold_table(settings, "gold_map_event_days")
-        events_frame = client.fetch_dataframe(
-            f"""
-            SELECT *
-            FROM {events_table}
-            WHERE map_period = {sql_literal(selected_period)}
-              AND municipio = {sql_literal(selected_municipio)}
-              {selected_circuits_where(selected_circuits)}
-            LIMIT 5000
-            """
-        )
-    except Exception:
-        events_frame = pd.DataFrame()
-
-    if not events_frame.empty:
-        context["top_causes"] = top_records_from_frame(events_frame, ["causa"])
-        context["external_signals"] = external_signals_from_frame(events_frame)
-
-    return [view_item_from_context(context)]
+    selected_period = context.get("selected_period") or selected_period
+    municipio = context.get("selected_municipio") or selected_municipio
+    scope = context.get("scope_label") or "todos los circuitos"
+    summary = (context.get("summary") or {}).get("text") or f"Vista {municipio} / {selected_period} / {scope}."
+    return [
+        {
+            "id": context.get("context_id") or context_id("view", context),
+            "label": f"Vista filtrada | {municipio} | {selected_period} | {scope}"[:180],
+            "kind": "view",
+            "summary": summary,
+            "context": context,
+        }
+    ]
 
 
 def databricks_context_options(
@@ -569,7 +957,7 @@ def databricks_context_options(
             selected_circuits=selected_circuits,
         )
     if context_kind == "event":
-        table = databricks_data_service._gold_table(settings, "gold_map_event_days")
+        table = context_tool_view_name(settings, AGENT_CONTEXT_VIEWS["event"])
         frame = client.fetch_dataframe(
             f"""
             SELECT *
@@ -579,23 +967,19 @@ def databricks_context_options(
             LIMIT {int(limit)}
             """
         )
-        return event_items_from_frame(frame, search=search, limit=limit)
+        return event_items_from_frame(
+            frame,
+            search=search,
+            limit=limit,
+            source_function=context_tool_function_name(settings, AGENT_CONTEXT_FUNCTIONS["event"]),
+            source_view=table,
+        )
 
-    points_table = databricks_data_service._gold_table(settings, "gold_map_points")
-    lines_table = databricks_data_service._gold_table(settings, "gold_map_line_segments")
+    points_table = context_tool_view_name(settings, AGENT_CONTEXT_VIEWS["asset"])
     points = client.fetch_dataframe(
         f"""
         SELECT *
         FROM {points_table}
-        WHERE point_kind = 'asset' AND {where_clause}
-        ORDER BY asset_family, display_label
-        LIMIT {int(limit)}
-        """
-    )
-    lines = client.fetch_dataframe(
-        f"""
-        SELECT *
-        FROM {lines_table}
         WHERE {where_clause}
         ORDER BY asset_family, display_label
         LIMIT {int(limit)}
@@ -610,6 +994,7 @@ def databricks_context_options(
             points[asset_family == "Supports"].copy(),
             points[asset_family == "Switches"].copy(),
         )
+    lines = points[points["asset_family"] == "LineSegments"].copy() if "asset_family" in points else points
     filtered = FilteredMapDataset(
         trafos=filtered_points[0],
         apoyos=filtered_points[1],
@@ -617,7 +1002,13 @@ def databricks_context_options(
         redmt=lines,
         events_by_day=[],
     )
-    return asset_items_from_filtered(filtered, search=search, limit=limit)
+    return asset_items_from_filtered(
+        filtered,
+        search=search,
+        limit=limit,
+        source_function=context_tool_function_name(settings, AGENT_CONTEXT_FUNCTIONS["asset"]),
+        source_view=points_table,
+    )
 
 
 def get_chatbot_context_options(
@@ -699,7 +1090,14 @@ def has_context_value(value: Any) -> bool:
 def context_identity(context: dict[str, Any]) -> dict[str, Any]:
     identity_keys = [
         "kind",
+        "tool_name",
+        "source_function",
+        "source_view",
+        "context_id",
+        "context_hash",
         "family",
+        "event_id",
+        "asset_id",
         "selected_period",
         "selected_municipio",
         "selected_circuits",
@@ -732,6 +1130,12 @@ def context_identity(context: dict[str, Any]) -> dict[str, Any]:
 
 
 def selected_context_metrics(context: dict[str, Any]) -> dict[str, Any]:
+    tool_metrics = context.get("metrics")
+    if isinstance(tool_metrics, dict) and tool_metrics:
+        nested_kpis = tool_metrics.get("kpi_summary")
+        if isinstance(nested_kpis, dict):
+            return {**nested_kpis, **{key: value for key, value in tool_metrics.items() if key != "kpi_summary"}}
+        return tool_metrics
     metric_candidates = {
         "saidi": ["SAIDI", "severity_saidi", "saidi_total"],
         "saifi": ["SAIFI", "severity_saifi", "saifi_total"],
@@ -774,6 +1178,19 @@ def build_chatbot_context_package(
         "metrics": selected_context_metrics(selected_context),
         "external_signals": selected_external_signals,
     }
+    if selected_context.get("tool_name"):
+        package["structured_context_tool"] = {
+            "tool_name": selected_context.get("tool_name"),
+            "source_function": selected_context.get("source_function"),
+            "source_view": selected_context.get("source_view"),
+            "context_id": selected_context.get("context_id"),
+            "context_hash": selected_context.get("context_hash"),
+            "parameters": selected_context.get("parameters") or {},
+            "summary": selected_context.get("summary") or {},
+            "records": (selected_context.get("records") or [])[:MAX_CONTEXT_TOOL_RECORDS],
+            "metrics": selected_context.get("metrics") or {},
+            "traceability": selected_context.get("traceability") or {},
+        }
     if context_kind == "view":
         package["view_context"] = selected_context
     else:

@@ -77,6 +77,7 @@ class Settings:
     chatbot_skills_dir: Path | None
     chatbot_conversation_backend: str
     chatbot_conversation_schema: str
+    chatbot_context_tools_schema: str
     chatbot_memory_max_turns: int
     chatbot_retrieval_top_k: int
     chatbot_max_context_chars: int
@@ -160,6 +161,7 @@ def load_settings() -> Settings:
         chatbot_skills_dir=chatbot_skills_dir,
         chatbot_conversation_backend=os.getenv("CHATBOT_CONVERSATION_BACKEND", "memory").strip().lower(),
         chatbot_conversation_schema=os.getenv("CHATBOT_CONVERSATION_SCHEMA", "agent").strip() or "agent",
+        chatbot_context_tools_schema=os.getenv("CHATBOT_CONTEXT_TOOLS_SCHEMA", "agent_tools").strip() or "agent_tools",
         chatbot_memory_max_turns=max(_to_int(os.getenv("CHATBOT_MEMORY_MAX_TURNS"), 8), 1),
         chatbot_retrieval_top_k=max(_to_int(os.getenv("CHATBOT_RETRIEVAL_TOP_K"), 5), 1),
         chatbot_max_context_chars=max(_to_int(os.getenv("CHATBOT_MAX_CONTEXT_CHARS"), 12000), 1000),
