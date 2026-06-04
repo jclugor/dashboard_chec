@@ -52,6 +52,18 @@ def _render_app_yaml(template_text: str) -> str:
         "__CHATBOT_CONVERSATION_SCHEMA__": os.getenv("APP_CHATBOT_CONVERSATION_SCHEMA", "agent"),
         "__CHATBOT_CONTEXT_TOOLS_SCHEMA__": os.getenv("APP_CHATBOT_CONTEXT_TOOLS_SCHEMA", "agent_tools"),
         "__CHATBOT_MEMORY_MAX_TURNS__": os.getenv("APP_CHATBOT_MEMORY_MAX_TURNS", "8"),
+        "__CHATBOT_OBSERVABILITY_ENABLED__": os.getenv("APP_CHATBOT_OBSERVABILITY_ENABLED", "false"),
+        "__CHATBOT_TELEMETRY_SCHEMA__": os.getenv("APP_CHATBOT_TELEMETRY_SCHEMA", "agent_observability"),
+        "__CHATBOT_EVAL_REPORT_ONLY__": os.getenv("APP_CHATBOT_EVAL_REPORT_ONLY", "true"),
+        "__CHATBOT_EVAL_LLM_JUDGES_ENABLED__": os.getenv("APP_CHATBOT_EVAL_LLM_JUDGES_ENABLED", "false"),
+        "__CHATBOT_EVAL_ENFORCE__": os.getenv("APP_CHATBOT_EVAL_ENFORCE", "false"),
+        "__MLFLOW_TRACKING_URI__": os.getenv("APP_MLFLOW_TRACKING_URI", "databricks"),
+        "__MLFLOW_EXPERIMENT_NAME__": os.getenv(
+            "APP_MLFLOW_EXPERIMENT_NAME",
+            "/Shared/chec_dash_parity/agent_observability",
+        ),
+        "__MLFLOW_PROMPT_NAME__": os.getenv("APP_MLFLOW_PROMPT_NAME", "chec_chatbot_answer_prompt"),
+        "__MLFLOW_PROMPT_ALIAS__": os.getenv("APP_MLFLOW_PROMPT_ALIAS", "production"),
         "__RETRIEVER_BACKEND__": os.getenv("APP_RETRIEVER_BACKEND", "local_jsonl"),
         "__AI_SEARCH_ENDPOINT_NAME__": os.getenv("APP_AI_SEARCH_ENDPOINT_NAME", "chec-agent-search"),
         "__AI_SEARCH_INDEX_RESOURCE_KEY__": os.getenv(

@@ -1,7 +1,12 @@
 # CHEC Databricks Migration Bundle
 
-This folder now contains the Databricks bundle scaffold for the Phase 1 foundation,
-the Phase 2 consumption pilot, and the Phase 3-5 Dash-parity app scaffolding.
+This folder contains the Databricks bundle scaffold for the Phase 1 foundation,
+the Phase 2 consumption pilot, and the Databricks App / agentic RAG deployment
+flow.
+
+For a beginner-friendly fresh install from a new Azure account, start with:
+
+- `../docs/AZURE_DATABRICKS_FRESH_INSTALL.md`
 
 ## What Is Included
 - A bundle configuration at `databricks.yml`.
@@ -13,7 +18,8 @@ the Phase 2 consumption pilot, and the Phase 3-5 Dash-parity app scaffolding.
 - Classic fallback bootstrap and ingest-validation workflows with approved East US SKUs.
 - A paused Phase 2 pilot refresh workflow.
 - Local scripts for preflight, upload, notebook promotion, dashboard publishing, and pilot permissions.
-- A Databricks App staging/deploy workflow for full Dash parity.
+- A Databricks App staging/deploy workflow for full Dash parity and the
+  governed agentic RAG assistant.
 
 ## Bundle Layout
 ```text
@@ -83,10 +89,10 @@ What Phase 2 adds:
 
 Bundle-managed dashboards are deployed with the target prefix in the live workspace, so the draft appears as `[dev <user>] CHEC Summary Pilot` even though the local resource suffix is `CHEC Summary Pilot`.
 
-## Phase 3-5 Flow
-Phase 3-5 keeps the current Lakeview dashboard as the summary landing page and
-introduces a Databricks App for the full `summary`, `probability`, and `map`
-parity experience.
+## Databricks App / Agentic RAG Flow
+The current Databricks App flow keeps the Lakeview dashboard as the summary
+landing page and deploys the full `summary`, `probability`, `map`, and governed
+technical assistant experience in a Databricks App.
 
 ```bash
 cd /home/jclugor/unal/CHEC/dashboard
@@ -102,17 +108,34 @@ Use these environment variables before staging if you need non-default targets:
 - `APP_CATALOG_NAME`
 - `APP_GOLD_SCHEMA`
 - `APP_SILVER_SCHEMA`
+- `APP_RETRIEVER_BACKEND`
+- `APP_AI_SEARCH_ENDPOINT_NAME`
+- `APP_AI_SEARCH_INDEX_FULL_NAME`
+- `APP_LLM_PROVIDER`
+- `APP_LLM_ENDPOINT_NAME`
+- `APP_CHATBOT_CONVERSATION_BACKEND`
+- `APP_CHATBOT_OBSERVABILITY_ENABLED`
+- `APP_MLFLOW_EXPERIMENT_NAME`
 
-The Databricks App path is documented in:
-- `docs/phase35_databricks_app_parity.md`
+The full client install path is documented in:
+- `../docs/AZURE_DATABRICKS_FRESH_INSTALL.md`
 
-What Phase 3-5 adds:
+The older parity notes remain available in:
+- `../docs/phase35_databricks_app_parity.md`
+
+What the Databricks App / RAG flow adds:
 - `DATA_BACKEND=databricks_sql` provider mode for Dash/FastAPI parity paths.
 - `API_TRANSPORT=inproc` so the Dash app can run in Databricks without an external API base URL.
 - New gold presentation tables for map parity:
   - `gold_map_line_segments`
   - `gold_map_filter_index`
   - `gold_map_event_days`
+- Delta conversation memory in `agent`.
+- Governed active/draft/archive skill files in `agent_config.skills`.
+- Read-only dashboard context functions in `agent_tools`.
+- Delta corpus tables and a Databricks AI Search index for document retrieval.
+- Databricks Model Serving as the production LLM provider.
+- MLflow and Unity Catalog telemetry in `agent_observability`.
 - A staged Databricks App source bundle under `databricks/build/` for deployment.
 
 ## Current Defaults

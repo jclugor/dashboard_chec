@@ -282,6 +282,16 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "setup_chatbot_ai_search()" in deploy_app_script
     assert "setup_phase5_ai_search.py" in deploy_app_script
     assert "chatbot_ai_search_index" in deploy_app_script
+    assert "APP_CHATBOT_OBSERVABILITY_ENABLED" in deploy_app_script
+    assert "APP_CHATBOT_TELEMETRY_SCHEMA" in deploy_app_script
+    assert "APP_CHATBOT_EVAL_REPORT_ONLY" in deploy_app_script
+    assert "APP_CHATBOT_EVAL_LLM_JUDGES_ENABLED" in deploy_app_script
+    assert "APP_MLFLOW_TRACKING_URI" in deploy_app_script
+    assert "APP_MLFLOW_EXPERIMENT_NAME" in deploy_app_script
+    assert "APP_MLFLOW_PROMPT_NAME" in deploy_app_script
+    assert "APP_MLFLOW_PROMPT_ALIAS" in deploy_app_script
+    assert "setup_chatbot_observability()" in deploy_app_script
+    assert "setup_phase9_observability.py" in deploy_app_script
     assert 'APP_LLM_PROVIDER="${APP_LLM_PROVIDER:-databricks_model_serving}"' in deploy_app_script
     assert "APP_LLM_ENDPOINT_NAME" in deploy_app_script
     assert "databricks-qwen3-next-80b-a3b-instruct" in deploy_app_script
@@ -323,6 +333,13 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "APP_CONTEXT_TOOL_VIEWS" in app_permissions_script
     assert "APP_AI_SEARCH_INDEX_FULL_NAME" in app_permissions_script
     assert "GRANT_CHATBOT_AI_SEARCH_ACCESS" in app_permissions_script
+    assert "APP_TELEMETRY_SCHEMA" in app_permissions_script
+    assert "agent_observability" in app_permissions_script
+    assert "GRANT_CHATBOT_OBSERVABILITY_ACCESS" in app_permissions_script
+    assert "APP_MLFLOW_EXPERIMENT_NAME" in app_permissions_script
+    assert "GRANT_CHATBOT_MLFLOW_EXPERIMENT_ACCESS" in app_permissions_script
+    assert "databricks experiments get-by-name" in app_permissions_script
+    assert "databricks experiments update-permissions" in app_permissions_script
     assert "APP_LLM_ENDPOINT_NAME" in app_permissions_script
     assert "GRANT_CHATBOT_LLM_ENDPOINT_ACCESS" in app_permissions_script
     assert "databricks serving-endpoints update-permissions" in app_permissions_script
@@ -347,6 +364,15 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "CHATBOT_CONVERSATION_SCHEMA" in app_template
     assert "CHATBOT_CONTEXT_TOOLS_SCHEMA" in app_template
     assert "CHATBOT_MEMORY_MAX_TURNS" in app_template
+    assert "CHATBOT_OBSERVABILITY_ENABLED" in app_template
+    assert "CHATBOT_TELEMETRY_SCHEMA" in app_template
+    assert "CHATBOT_EVAL_REPORT_ONLY" in app_template
+    assert "CHATBOT_EVAL_LLM_JUDGES_ENABLED" in app_template
+    assert "CHATBOT_EVAL_ENFORCE" in app_template
+    assert "MLFLOW_TRACKING_URI" in app_template
+    assert "MLFLOW_EXPERIMENT_NAME" in app_template
+    assert "MLFLOW_PROMPT_NAME" in app_template
+    assert "MLFLOW_PROMPT_ALIAS" in app_template
     assert "RETRIEVER_BACKEND" in app_template
     assert "AI_SEARCH_ENDPOINT_NAME" in app_template
     assert "AI_SEARCH_INDEX_NAME" in app_template
@@ -371,6 +397,7 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     app_requirements = _read(DATABRICKS_DIR / "apps" / "chec_dash_parity" / "requirements.txt")
     assert "dash==2.18.1" in app_requirements
     assert "databricks-sql-connector" in app_requirements
+    assert "mlflow[databricks]>=3.3,<4" in app_requirements
     assert "pytest" not in app_requirements
 
     permissions_script = _read(DATABRICKS_DIR / "scripts" / "apply_phase2_pilot_permissions.sh")
@@ -453,6 +480,12 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "answer_validation_json" in setup_conversation_script
     assert "citation_validation_json" in setup_conversation_script
     assert "compliance_validation_json" in setup_conversation_script
+    assert "prompt_name" in setup_conversation_script
+    assert "prompt_version" in setup_conversation_script
+    assert "prompt_hash" in setup_conversation_script
+    assert "mlflow_trace_id" in setup_conversation_script
+    assert "mlflow_run_id" in setup_conversation_script
+    assert "latency_ms" in setup_conversation_script
     assert "ALTER TABLE" in setup_conversation_script
 
     setup_context_tools_script = _read(DATABRICKS_DIR / "scripts" / "setup_phase4_context_tools.py")
@@ -484,6 +517,28 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "vector-search-indexes" in setup_ai_search_script
     assert "delta.enableChangeDataFeed" in setup_ai_search_script
 
+    setup_observability_script = _read(DATABRICKS_DIR / "scripts" / "setup_phase9_observability.py")
+    assert "agent_observability" in setup_observability_script
+    assert "agent_turn_traces" in setup_observability_script
+    assert "agent_feedback_events" in setup_observability_script
+    assert "agent_evaluation_results" in setup_observability_script
+    assert "agent_release_reports" in setup_observability_script
+    assert "agent_evaluation_examples" in setup_observability_script
+    assert "mlflow.genai.register_prompt" in setup_observability_script
+    assert "workspace.mkdirs" in setup_observability_script
+    assert "MLflow experiment parent directory" in setup_observability_script
+    assert "chec_chatbot_answer_prompt" in setup_observability_script
+    assert "needs_sme_review" in setup_observability_script
+    assert "saidi_saifi_01" in setup_observability_script
+    assert "memory_05" in setup_observability_script
+
+    run_eval_script = _read(DATABRICKS_DIR / "scripts" / "run_phase9_evaluation.py")
+    assert "agent_turn_traces" in run_eval_script
+    assert "agent_evaluation_results" in run_eval_script
+    assert "agent_release_reports" in run_eval_script
+    assert "build_release_report" in run_eval_script
+    assert "CHATBOT_EVAL_ENFORCE" in run_eval_script
+
     deploy_app_script = _read(DATABRICKS_DIR / "scripts" / "deploy_phase35_databricks_app.sh")
     assert "APP_CHATBOT_ENABLED=\"${APP_CHATBOT_ENABLED:-true}\"" in deploy_app_script
     assert "export APP_CHATBOT_ENABLED" in deploy_app_script
@@ -495,6 +550,57 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "Genie Space managed MCP server" in phase7_doc
     assert "general Databricks SQL MCP server is deferred" in phase7_doc
     assert "read/write" in phase7_doc
+
+    root_readme = _read(ROOT / "README.md")
+    assert "Fresh Azure + Databricks Deployment" in root_readme
+    assert "docs/AZURE_DATABRICKS_FRESH_INSTALL.md" in root_readme
+    assert "Databricks App is the current canonical deployment target" in root_readme
+    assert "databricks_model_serving" in root_readme
+    assert "databricks_ai_search" in root_readme
+    assert "prototype-only fallback" in root_readme
+
+    databricks_readme = _read(DATABRICKS_DIR / "README.md")
+    assert "Databricks App / Agentic RAG Flow" in databricks_readme
+    assert "../docs/AZURE_DATABRICKS_FRESH_INSTALL.md" in databricks_readme
+    assert "agent_observability" in databricks_readme
+
+    parity_doc = _read(ROOT / "docs" / "phase35_databricks_app_parity.md")
+    assert "Historical note" in parity_doc
+    assert "docs/AZURE_DATABRICKS_FRESH_INSTALL.md" in parity_doc
+    assert "databricks_model_serving" in parity_doc
+    assert "databricks_ai_search" in parity_doc
+    assert "databricks_sql" in parity_doc
+    assert "agent_observability" in parity_doc
+
+    fresh_install_doc = _read(ROOT / "docs" / "AZURE_DATABRICKS_FRESH_INSTALL.md")
+    for expected_text in [
+        "Fresh Azure + Databricks Install Runbook",
+        "Azure subscription",
+        "Azure CLI",
+        "Databricks CLI",
+        "Unity Catalog",
+        "Databricks Asset Bundle",
+        "upload_phase1_assets.sh",
+        "upload_chatbot_assets.sh",
+        "deploy_phase35_databricks_app.sh",
+        "apply_phase35_app_permissions.sh",
+        "/chatbot/status",
+        "MLflow",
+        "AI Search",
+        "Model Serving",
+        "evaluation report",
+        "agent_observability",
+        "Prompt Registry",
+        "Annex A: Installing Local Prerequisites",
+        "Python 3.12",
+        "venv",
+        "jq",
+        "git --version",
+        "databricks current-user me",
+        "az login",
+        "corporate proxy",
+    ]:
+        assert expected_text in fresh_install_doc
 
 
 def test_phase35_app_staging_uses_chatbot_volume_resource() -> None:
@@ -561,6 +667,47 @@ def test_phase35_app_staging_renders_conversation_memory_env() -> None:
     assert "value: \"agent_tools\"" in app_yaml
     assert "CHATBOT_MEMORY_MAX_TURNS" in app_yaml
     assert "value: \"3\"" in app_yaml
+
+
+def test_phase35_app_staging_renders_observability_env() -> None:
+    env = os.environ.copy()
+    env.update(
+        {
+            "APP_CHATBOT_OBSERVABILITY_ENABLED": "true",
+            "APP_CHATBOT_TELEMETRY_SCHEMA": "agent_observability",
+            "APP_CHATBOT_EVAL_REPORT_ONLY": "true",
+            "APP_CHATBOT_EVAL_LLM_JUDGES_ENABLED": "false",
+            "APP_CHATBOT_EVAL_ENFORCE": "false",
+            "APP_MLFLOW_TRACKING_URI": "databricks",
+            "APP_MLFLOW_EXPERIMENT_NAME": "/Shared/chec_dash_parity/agent_observability",
+            "APP_MLFLOW_PROMPT_NAME": "chec_chatbot_answer_prompt",
+            "APP_MLFLOW_PROMPT_ALIAS": "production",
+        }
+    )
+    subprocess.run(
+        [sys.executable, "databricks/scripts/stage_phase35_databricks_app.py"],
+        cwd=ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    app_yaml = _read(DATABRICKS_DIR / "build" / "chec_dash_parity" / "app.yaml")
+
+    assert "CHATBOT_OBSERVABILITY_ENABLED" in app_yaml
+    assert "value: \"true\"" in app_yaml
+    assert "CHATBOT_TELEMETRY_SCHEMA" in app_yaml
+    assert "value: \"agent_observability\"" in app_yaml
+    assert "CHATBOT_EVAL_REPORT_ONLY" in app_yaml
+    assert "MLFLOW_TRACKING_URI" in app_yaml
+    assert "value: \"databricks\"" in app_yaml
+    assert "MLFLOW_EXPERIMENT_NAME" in app_yaml
+    assert "/Shared/chec_dash_parity/agent_observability" in app_yaml
+    assert "MLFLOW_PROMPT_NAME" in app_yaml
+    assert "chec_chatbot_answer_prompt" in app_yaml
+    assert "MLFLOW_PROMPT_ALIAS" in app_yaml
+    assert "value: \"production\"" in app_yaml
 
 
 def test_phase35_app_staging_renders_ai_search_env() -> None:

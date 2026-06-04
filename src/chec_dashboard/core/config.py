@@ -90,6 +90,15 @@ class Settings:
     chatbot_conversation_schema: str
     chatbot_context_tools_schema: str
     chatbot_memory_max_turns: int
+    chatbot_observability_enabled: bool
+    chatbot_telemetry_schema: str
+    chatbot_eval_report_only: bool
+    chatbot_eval_llm_judges_enabled: bool
+    chatbot_eval_enforce: bool
+    mlflow_tracking_uri: str
+    mlflow_experiment_name: str
+    mlflow_prompt_name: str
+    mlflow_prompt_alias: str
     retriever_backend: str
     ai_search_endpoint_name: str
     ai_search_index_name: str | None
@@ -183,6 +192,20 @@ def load_settings() -> Settings:
         chatbot_conversation_schema=os.getenv("CHATBOT_CONVERSATION_SCHEMA", "agent").strip() or "agent",
         chatbot_context_tools_schema=os.getenv("CHATBOT_CONTEXT_TOOLS_SCHEMA", "agent_tools").strip() or "agent_tools",
         chatbot_memory_max_turns=max(_to_int(os.getenv("CHATBOT_MEMORY_MAX_TURNS"), 8), 1),
+        chatbot_observability_enabled=_to_bool(os.getenv("CHATBOT_OBSERVABILITY_ENABLED"), False),
+        chatbot_telemetry_schema=os.getenv("CHATBOT_TELEMETRY_SCHEMA", "agent_observability").strip()
+        or "agent_observability",
+        chatbot_eval_report_only=_to_bool(os.getenv("CHATBOT_EVAL_REPORT_ONLY"), True),
+        chatbot_eval_llm_judges_enabled=_to_bool(os.getenv("CHATBOT_EVAL_LLM_JUDGES_ENABLED"), False),
+        chatbot_eval_enforce=_to_bool(os.getenv("CHATBOT_EVAL_ENFORCE"), False),
+        mlflow_tracking_uri=os.getenv("MLFLOW_TRACKING_URI", "databricks").strip() or "databricks",
+        mlflow_experiment_name=(
+            os.getenv("MLFLOW_EXPERIMENT_NAME", "/Shared/chec_dash_parity/agent_observability").strip()
+            or "/Shared/chec_dash_parity/agent_observability"
+        ),
+        mlflow_prompt_name=os.getenv("MLFLOW_PROMPT_NAME", "chec_chatbot_answer_prompt").strip()
+        or "chec_chatbot_answer_prompt",
+        mlflow_prompt_alias=os.getenv("MLFLOW_PROMPT_ALIAS", "production").strip() or "production",
         retriever_backend=os.getenv("RETRIEVER_BACKEND", "local_jsonl").strip().lower(),
         ai_search_endpoint_name=os.getenv("AI_SEARCH_ENDPOINT_NAME", "chec-agent-search").strip() or "chec-agent-search",
         ai_search_index_name=(

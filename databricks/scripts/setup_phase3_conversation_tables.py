@@ -22,6 +22,13 @@ MESSAGE_TRACE_COLUMNS = {
     "answer_validation_json": "STRING",
     "citation_validation_json": "STRING",
     "compliance_validation_json": "STRING",
+    "prompt_name": "STRING",
+    "prompt_alias": "STRING",
+    "prompt_version": "STRING",
+    "prompt_hash": "STRING",
+    "mlflow_trace_id": "STRING",
+    "mlflow_run_id": "STRING",
+    "latency_ms": "BIGINT",
 }
 
 
@@ -86,7 +93,14 @@ CREATE TABLE IF NOT EXISTS {sql_table_name(catalog, schema, "agent_messages")} (
   structured_answer_json STRING,
   answer_validation_json STRING,
   citation_validation_json STRING,
-  compliance_validation_json STRING
+  compliance_validation_json STRING,
+  prompt_name STRING,
+  prompt_alias STRING,
+  prompt_version STRING,
+  prompt_hash STRING,
+  mlflow_trace_id STRING,
+  mlflow_run_id STRING,
+  latency_ms BIGINT
 ) USING DELTA
 """.strip()
     )

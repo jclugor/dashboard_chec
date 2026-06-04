@@ -50,6 +50,12 @@ from chec_dashboard.services.answer_quality_service import (
     validate_compliance_language,
 )
 from chec_dashboard.services.citation_service import _citation_payload, citation_payload
+from chec_dashboard.services.evaluation_service import (
+    _build_release_report,
+    _score_turn_trace,
+    build_release_report,
+    score_turn_trace,
+)
 from chec_dashboard.services.llm_service import (
     DatabricksModelServingLLMClient,
     _databricks_chat_payload,
@@ -57,6 +63,11 @@ from chec_dashboard.services.llm_service import (
     _parse_databricks_model_serving_response,
     llm_endpoint_configured,
     llm_endpoint_name,
+)
+from chec_dashboard.services.observability_service import (
+    context_hash,
+    observability_status,
+    resolve_prompt_metadata,
 )
 from chec_dashboard.services.prompt_service import _briefing_instruction, _build_prompt
 from chec_dashboard.services.retrieval_service import (
@@ -97,16 +108,20 @@ __all__ = [
     "STRUCTURED_SECTION_TITLES",
     "_databricks_chat_payload",
     "_build_answer_quality_metadata",
+    "_build_release_report",
     "_normalize_structured_answer",
     "_parse_databricks_model_serving_response",
+    "_score_turn_trace",
     "_validate_citations",
     "_validate_compliance_language",
     "assess_chatbot_context",
     "ai_search_configured",
     "build_answer_quality_metadata",
+    "build_release_report",
     "build_chatbot_context_package",
     "build_context_tool_payload",
     "citation_payload",
+    "context_hash",
     "create_chatbot_conversation",
     "execute_agent_route",
     "fetch_databricks_context_tool",
@@ -124,12 +139,15 @@ __all__ = [
     "llm_endpoint_configured",
     "llm_endpoint_name",
     "normalize_structured_answer",
+    "observability_status",
     "retriever_runtime_diagnostics",
+    "resolve_prompt_metadata",
     "resolve_skill",
     "retrieve_chatbot_chunks",
     "retrieve_local_jsonl_chunks",
     "route_agent_tools",
     "send_chatbot_message",
+    "score_turn_trace",
     "submit_chatbot_feedback",
     "validate_citations",
     "validate_compliance_language",

@@ -3,8 +3,61 @@ from __future__ import annotations
 import json
 from typing import Any
 
+from chec_dashboard.core.config import Settings
 from chec_dashboard.services.agent_context_service import BRIEFING_LABELS
+from chec_dashboard.services.observability_service import load_registered_prompt_template
 from chec_dashboard.services.skill_service import SkillResolution
+
+
+ANSWER_PROMPT_TEMPLATE = """
+Eres un asistente técnico para CHEC. Responde siempre en español.
+
+Objetivo:
+Analiza el evento o elemento de red seleccionado con base en requisitos técnicos,
+condiciones externas y valores de indicadores. Explica el estado observado, si
+hay señales de cumplimiento o posible incumplimiento, qué condiciones pueden
+explicar los valores, y qué revisiones de campo o datos recomendarías.
+
+Tipo de análisis:
+{{briefing_label}}
+
+Instrucción específica:
+{{briefing_instruction}}
+
+Reglas:
+- Usa únicamente el contexto seleccionado y los documentos recuperados.
+- Si falta información, dilo claramente y sugiere qué dato falta.
+- Cita los documentos usando referencias como [1], [2].
+- No inventes requisitos que no estén soportados por los documentos.
+- Sé conciso, orientado a las personas interesadas y accionable.
+- No uses términos en inglés cuando exista una alternativa clara en español.
+- Estructura la respuesta con estos encabezados exactos, en este orden:
+  ## Estado observado
+  ## Banderas de evidencia
+  ## Requisitos posiblemente aplicables
+  ## Datos faltantes
+  ## Riesgo posible
+  ## Recomendaciones
+  ## Limitaciones
+  ## Citas usadas
+  ## Preguntas sugeridas
+- En afirmaciones regulatorias, normativas o de cumplimiento, incluye un marcador de cita como [1].
+- Usa lenguaje de control prudente: posible riesgo, evidencia disponible, bandera de evidencia, dato faltante o recomendación de verificación.
+- No afirmes conclusiones definitivas como cumple, no cumple, incumplimiento confirmado, sanción aplicable o responsabilidad legal demostrada.
+{{skill_text}}
+
+Paquete de contexto estructurado:
+{{context_json}}
+
+Pregunta guía y/o pregunta adicional del usuario:
+{{question_text}}
+
+Historial reciente de la conversación:
+{{history_text}}
+
+Documentos recuperados:
+{{docs_text}}
+""".strip()
 
 
 def briefing_instruction(briefing_type: str, skill_resolution: SkillResolution | None = None) -> str:
@@ -37,6 +90,7 @@ def build_prompt(
     chunks: list[dict[str, Any]],
     skill_resolution: SkillResolution | None = None,
     conversation_history: list[dict[str, Any]] | None = None,
+    settings: Settings | None = None,
 ) -> str:
     context_json = json.dumps(context_package, ensure_ascii=False, indent=2, default=str)
     snippets = []
@@ -46,55 +100,26 @@ def build_prompt(
     docs_text = "\n\n".join(snippets)
     skill_text = _skill_prompt_text(skill_resolution)
     history_text = _conversation_history_text(conversation_history or [])
-    return f"""
-Eres un asistente técnico para CHEC. Responde siempre en español.
+    template = load_registered_prompt_template(settings) if settings is not None else None
+    return _render_prompt_template(
+        template or ANSWER_PROMPT_TEMPLATE,
+        {
+            "briefing_label": BRIEFING_LABELS.get(briefing_type, "Confiabilidad"),
+            "briefing_instruction": briefing_instruction(briefing_type, skill_resolution),
+            "skill_text": skill_text,
+            "context_json": context_json,
+            "question_text": question or "Sin pregunta adicional.",
+            "history_text": history_text or "Sin historial previo.",
+            "docs_text": docs_text or "No se recuperaron documentos.",
+        },
+    ).strip()
 
-Objetivo:
-Analiza el evento o elemento de red seleccionado con base en requisitos técnicos,
-condiciones externas y valores de indicadores. Explica el estado observado, si
-hay señales de cumplimiento o posible incumplimiento, qué condiciones pueden
-explicar los valores, y qué revisiones de campo o datos recomendarías.
 
-Tipo de análisis:
-{BRIEFING_LABELS.get(briefing_type, "Confiabilidad")}
-
-Instrucción específica:
-{briefing_instruction(briefing_type, skill_resolution)}
-
-Reglas:
-- Usa únicamente el contexto seleccionado y los documentos recuperados.
-- Si falta información, dilo claramente y sugiere qué dato falta.
-- Cita los documentos usando referencias como [1], [2].
-- No inventes requisitos que no estén soportados por los documentos.
-- Sé conciso, orientado a las personas interesadas y accionable.
-- No uses términos en inglés cuando exista una alternativa clara en español.
-- Estructura la respuesta con estos encabezados exactos, en este orden:
-  ## Estado observado
-  ## Banderas de evidencia
-  ## Requisitos posiblemente aplicables
-  ## Datos faltantes
-  ## Riesgo posible
-  ## Recomendaciones
-  ## Limitaciones
-  ## Citas usadas
-  ## Preguntas sugeridas
-- En afirmaciones regulatorias, normativas o de cumplimiento, incluye un marcador de cita como [1].
-- Usa lenguaje de control prudente: posible riesgo, evidencia disponible, bandera de evidencia, dato faltante o recomendación de verificación.
-- No afirmes conclusiones definitivas como cumple, no cumple, incumplimiento confirmado, sanción aplicable o responsabilidad legal demostrada.
-{skill_text}
-
-Paquete de contexto estructurado:
-{context_json}
-
-Pregunta guía y/o pregunta adicional del usuario:
-{question or "Sin pregunta adicional."}
-
-Historial reciente de la conversación:
-{history_text or "Sin historial previo."}
-
-Documentos recuperados:
-{docs_text or "No se recuperaron documentos."}
-""".strip()
+def _render_prompt_template(template: str, values: dict[str, str]) -> str:
+    rendered = template
+    for key, value in values.items():
+        rendered = rendered.replace("{{" + key + "}}", value)
+    return rendered
 
 
 def _conversation_history_text(messages: list[dict[str, Any]]) -> str:
@@ -156,3 +181,4 @@ Frases prohibidas:
 
 _briefing_instruction = briefing_instruction
 _build_prompt = build_prompt
+_answer_prompt_template = ANSWER_PROMPT_TEMPLATE

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import time
 from typing import Any
 
 from chec_dashboard.core.config import Settings
@@ -28,7 +29,14 @@ from chec_dashboard.services.llm_service import (
     llm_endpoint_name,
     llm_provider,
 )
-from chec_dashboard.services.prompt_service import build_prompt
+from chec_dashboard.services.observability_service import (
+    context_hash,
+    observability_status,
+    record_feedback_observability,
+    record_turn_observability,
+    resolve_prompt_metadata,
+)
+from chec_dashboard.services.prompt_service import ANSWER_PROMPT_TEMPLATE, build_prompt
 from chec_dashboard.services.retrieval_service import (
     Corpus,
     corpus_runtime_diagnostics,
@@ -99,6 +107,7 @@ def get_chatbot_status(settings: Settings) -> dict[str, Any]:
             "skill_errors_count": skill_status["skill_errors_count"],
         }
     )
+    payload.update(observability_status(settings))
     return payload
 
 
@@ -109,6 +118,7 @@ def _response_metadata(
     skill_resolution: SkillResolution,
 ) -> dict[str, Any]:
     conversation_turn = resolve_conversation_turn(conversation_id)
+    prompt_metadata = resolve_prompt_metadata(settings, ANSWER_PROMPT_TEMPLATE)
     return {
         "conversation_id": conversation_turn.conversation_id,
         "turn_id": conversation_turn.turn_id,
@@ -118,6 +128,17 @@ def _response_metadata(
         "trace_id": create_trace_id(),
         "llm_provider": llm_provider(settings),
         "model_endpoint_name": _model_endpoint_name(settings),
+        "prompt_name": prompt_metadata.prompt_name,
+        "prompt_alias": prompt_metadata.prompt_alias,
+        "prompt_version": prompt_metadata.prompt_version,
+        "prompt_hash": prompt_metadata.prompt_hash,
+        "prompt_source": prompt_metadata.prompt_source,
+        "prompt_registry_error": prompt_metadata.prompt_registry_error,
+        "mlflow_trace_id": None,
+        "mlflow_run_id": None,
+        "observability_status": "pending" if settings.chatbot_observability_enabled else "disabled",
+        "observability_error": None,
+        "_turn_started_at": time.perf_counter(),
     }
 
 
@@ -159,6 +180,53 @@ def _persist_response(
     mode: str = "guided",
 ) -> None:
     quality = build_answer_quality_metadata(answer, citations, briefing_type=briefing_type)
+    latency_ms = max(int((time.perf_counter() - float(metadata.get("_turn_started_at") or time.perf_counter())) * 1000), 0)
+    metadata["latency_ms"] = latency_ms
+    observability_result = record_turn_observability(
+        settings,
+        {
+            "trace_id": metadata.get("trace_id"),
+            "conversation_id": metadata.get("conversation_id"),
+            "turn_id": metadata.get("turn_id"),
+            "mode": mode,
+            "briefing_type": briefing_type,
+            "question_id": question_id,
+            "user_message": user_message,
+            "answer": answer,
+            "ready": ready,
+            "status_text": status_text,
+            "skill_id": metadata.get("skill_id"),
+            "skill_version": metadata.get("skill_version"),
+            "skill_hash": metadata.get("skill_hash"),
+            "context_snapshot_hash": context_hash(context_package),
+            "prompt_name": metadata.get("prompt_name"),
+            "prompt_alias": metadata.get("prompt_alias"),
+            "prompt_version": metadata.get("prompt_version"),
+            "prompt_hash": metadata.get("prompt_hash"),
+            "prompt_source": metadata.get("prompt_source"),
+            "llm_provider": metadata.get("llm_provider"),
+            "model_endpoint_name": metadata.get("model_endpoint_name"),
+            "retriever_backend": settings.retriever_backend,
+            "ai_search_index_name": settings.ai_search_index_name,
+            "latency_ms": latency_ms,
+            "citations": citations,
+            "citation_count": len(citations),
+            "retrieved_chunk_ids": _chunk_ids(chunks),
+            "agent_tool_calls": agent_tool_calls or [],
+            "agent_skipped_tools": agent_skipped_tools or [],
+            "agent_route_summary": agent_route_summary or _empty_agent_route_summary(),
+            "structured_answer": quality["structured_answer"],
+            "answer_validation": quality["answer_validation"],
+            "citation_validation": quality["citation_validation"],
+            "compliance_validation": quality["compliance_validation"],
+            "validation": {
+                "answer_validation": quality["answer_validation"],
+                "citation_validation": quality["citation_validation"],
+                "compliance_validation": quality["compliance_validation"],
+            },
+        },
+    )
+    metadata.update(observability_result)
     record_conversation_turn(
         settings,
         conversation_id=metadata["conversation_id"],
@@ -185,6 +253,13 @@ def _persist_response(
         answer_validation=quality["answer_validation"],
         citation_validation=quality["citation_validation"],
         compliance_validation=quality["compliance_validation"],
+        prompt_name=metadata.get("prompt_name"),
+        prompt_alias=metadata.get("prompt_alias"),
+        prompt_version=metadata.get("prompt_version"),
+        prompt_hash=metadata.get("prompt_hash"),
+        mlflow_trace_id=metadata.get("mlflow_trace_id"),
+        mlflow_run_id=metadata.get("mlflow_run_id"),
+        latency_ms=latency_ms,
         mode=mode,
     )
 
@@ -202,6 +277,7 @@ def _assessment_payload(
     agent_route_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     quality = build_answer_quality_metadata(answer, citations, briefing_type=briefing_type)
+    public_metadata = {key: value for key, value in metadata.items() if not key.startswith("_")}
     return {
         "answer": answer,
         "citations": citations,
@@ -215,7 +291,7 @@ def _assessment_payload(
         "answer_validation": quality["answer_validation"],
         "citation_validation": quality["citation_validation"],
         "compliance_validation": quality["compliance_validation"],
-        **metadata,
+        **public_metadata,
     }
 
 
@@ -433,6 +509,7 @@ def assess_chatbot_context(
         briefing_type=briefing_type,
         chunks=chunks,
         skill_resolution=skill_resolution,
+        settings=settings,
     )
     try:
         answer = generate_llm_answer(
@@ -655,6 +732,7 @@ def send_chatbot_message(
             chunks=chunks,
             skill_resolution=skill_resolution,
             conversation_history=history,
+            settings=settings,
         )
         try:
             answer = generate_llm_answer(
@@ -715,10 +793,32 @@ def submit_chatbot_feedback(
     rating = (rating or "").strip().lower()
     if rating not in {"helpful", "not_helpful"}:
         raise ValueError("rating debe ser 'helpful' o 'not_helpful'.")
-    return record_feedback(
+    payload = record_feedback(
         settings,
         conversation_id=conversation_id,
         turn_id=turn_id,
         rating=rating,
         comment=comment,
     )
+    turn_metadata = _feedback_turn_metadata(settings, conversation_id, turn_id)
+    payload.update(turn_metadata)
+    record_feedback_observability(settings, payload)
+    return payload
+
+
+def _feedback_turn_metadata(settings: Settings, conversation_id: str, turn_id: str) -> dict[str, Any]:
+    detail = get_conversation_detail(settings, conversation_id) or {}
+    for message in detail.get("messages") or []:
+        if message.get("role") == "assistant" and message.get("turn_id") == turn_id:
+            return {
+                "trace_id": message.get("trace_id"),
+                "mlflow_trace_id": message.get("mlflow_trace_id"),
+                "mlflow_run_id": message.get("mlflow_run_id"),
+                "prompt_name": message.get("prompt_name"),
+                "prompt_version": message.get("prompt_version"),
+                "skill_id": message.get("skill_id"),
+                "skill_hash": message.get("skill_hash"),
+                "llm_provider": message.get("llm_provider"),
+                "model_endpoint_name": message.get("model_endpoint_name"),
+            }
+    return {}

@@ -151,6 +151,10 @@ def test_chatbot_assessment_callback_stores_conversation_id(monkeypatch: pytest.
                 "uncited_regulatory_claims": ["CREG 015 puede aplicar."],
             },
             "compliance_validation": {"valid": True},
+            "trace_id": "trace-guided",
+            "prompt_version": "local",
+            "prompt_hash": "prompt-hash",
+            "latency_ms": 13,
         },
     )
     monkeypatch.setattr(
@@ -168,6 +172,10 @@ def test_chatbot_assessment_callback_stores_conversation_id(monkeypatch: pytest.
                     "skill_version": "1.0",
                     "skill_hash": "hash-1",
                     "trace_id": "trace-1",
+                    "mlflow_trace_id": "trace-1",
+                    "prompt_version": "local",
+                    "prompt_hash": "prompt-hash",
+                    "latency_ms": 13,
                     "agent_tool_calls": [
                         {
                             "tool_name": "get_event_context",
@@ -203,6 +211,9 @@ def test_chatbot_assessment_callback_stores_conversation_id(monkeypatch: pytest.
     assert "Afirmaciones regulatorias sin cita" in _all_text(result[0])
     assert "Respuesta guiada" in _all_text(result[5])
     assert "get_event_context" in _all_text(result[8])
+    assert "trace: trace-1" in _all_text(result[8])
+    assert "prompt: local" in _all_text(result[8])
+    assert "latencia: 13 ms" in _all_text(result[8])
 
 
 def test_chatbot_followup_callback_sends_existing_conversation(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -232,6 +243,11 @@ def test_chatbot_followup_callback_sends_existing_conversation(monkeypatch: pyte
                     "answer_validation": {"valid": False},
                     "citation_validation": {"valid": True},
                     "compliance_validation": {"valid": True},
+                    "trace_id": "trace-followup",
+                    "mlflow_trace_id": "trace-followup",
+                    "prompt_version": "local",
+                    "prompt_hash": "prompt-hash",
+                    "latency_ms": 17,
                     "agent_tool_calls": [
                         {
                             "tool_name": "search_technical_documents",
@@ -263,6 +279,8 @@ def test_chatbot_followup_callback_sends_existing_conversation(monkeypatch: pyte
     assert result[4]["turn_id"] == "turn-2"
     assert "Revisar activo seleccionado" in _all_text(result[1])
     assert "search_technical_documents" in _all_text(result[6])
+    assert "trace: trace-followup" in _all_text(result[6])
+    assert "latencia: 17 ms" in _all_text(result[6])
 
 
 def test_chatbot_followup_callback_creates_free_form_conversation(monkeypatch: pytest.MonkeyPatch) -> None:

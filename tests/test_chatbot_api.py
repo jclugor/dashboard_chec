@@ -106,6 +106,15 @@ def test_chatbot_assess_route_unconfigured(monkeypatch: pytest.MonkeyPatch) -> N
             "answer_validation": {"valid": False, "missing_sections": ["datos_faltantes"]},
             "citation_validation": {"valid": True, "warnings": []},
             "compliance_validation": {"valid": True, "warnings": []},
+            "prompt_name": "chec_chatbot_answer_prompt",
+            "prompt_alias": "production",
+            "prompt_version": "local",
+            "prompt_hash": "prompt-hash",
+            "prompt_source": "local",
+            "mlflow_trace_id": "trace-1",
+            "mlflow_run_id": None,
+            "observability_status": "disabled",
+            "latency_ms": 12,
         },
     )
 
@@ -129,6 +138,11 @@ def test_chatbot_assess_route_unconfigured(monkeypatch: pytest.MonkeyPatch) -> N
     assert response.answer_validation["valid"] is False
     assert response.citation_validation["valid"] is True
     assert response.compliance_validation["valid"] is True
+    assert response.prompt_name == "chec_chatbot_answer_prompt"
+    assert response.prompt_version == "local"
+    assert response.mlflow_trace_id == "trace-1"
+    assert response.observability_status == "disabled"
+    assert response.latency_ms == 12
     assert "Gemini no está configurado" in response.answer
 
 
@@ -156,6 +170,12 @@ def test_chatbot_assessment_schema_accepts_conversation_metadata() -> None:
         answer_validation={"valid": True},
         citation_validation={"valid": True},
         compliance_validation={"valid": True},
+        prompt_name="chec_chatbot_answer_prompt",
+        prompt_alias="production",
+        prompt_version="local",
+        prompt_hash="prompt-hash",
+        mlflow_trace_id="trace-1",
+        latency_ms=18,
     )
 
     assert response.conversation_id == "conv-existing"
@@ -165,6 +185,9 @@ def test_chatbot_assessment_schema_accepts_conversation_metadata() -> None:
     assert response.agent_skipped_tools[0]["skip_reason"] == "blocked_by_skill_policy"
     assert response.structured_answer["estado_observado"] == ["Respuesta"]
     assert response.answer_validation["valid"] is True
+    assert response.prompt_hash == "prompt-hash"
+    assert response.mlflow_trace_id == "trace-1"
+    assert response.latency_ms == 18
 
 
 def test_chatbot_conversation_routes(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -220,6 +243,12 @@ def test_chatbot_conversation_routes(monkeypatch: pytest.MonkeyPatch) -> None:
                     "answer_validation": {"valid": True},
                     "citation_validation": {"valid": True},
                     "compliance_validation": {"valid": True},
+                    "prompt_name": "chec_chatbot_answer_prompt",
+                    "prompt_alias": "production",
+                    "prompt_version": "local",
+                    "prompt_hash": "prompt-hash",
+                    "mlflow_trace_id": "trace-1",
+                    "latency_ms": 21,
                 }
             ],
         },
@@ -236,6 +265,9 @@ def test_chatbot_conversation_routes(monkeypatch: pytest.MonkeyPatch) -> None:
     assert detail.messages[0].skill_hash == "hash-1"
     assert detail.messages[0].agent_tool_calls[0]["tool_name"] == "get_event_context"
     assert detail.messages[0].structured_answer["estado_observado"] == ["Respuesta"]
+    assert detail.messages[0].prompt_version == "local"
+    assert detail.messages[0].mlflow_trace_id == "trace-1"
+    assert detail.messages[0].latency_ms == 21
 
 
 def test_chatbot_conversation_get_returns_404(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -272,6 +304,12 @@ def test_chatbot_send_message_route_and_validation(monkeypatch: pytest.MonkeyPat
             "answer_validation": {"valid": True},
             "citation_validation": {"valid": True},
             "compliance_validation": {"valid": True},
+            "prompt_name": "chec_chatbot_answer_prompt",
+            "prompt_alias": "production",
+            "prompt_version": "local",
+            "prompt_hash": "prompt-hash",
+            "mlflow_trace_id": "trace-2",
+            "latency_ms": 9,
         },
     )
 
@@ -285,6 +323,9 @@ def test_chatbot_send_message_route_and_validation(monkeypatch: pytest.MonkeyPat
     assert response.llm_provider == "mock"
     assert response.agent_tool_calls[0]["tool_name"] == "search_technical_documents"
     assert response.structured_answer["estado_observado"] == ["Seguimiento"]
+    assert response.prompt_version == "local"
+    assert response.mlflow_trace_id == "trace-2"
+    assert response.latency_ms == 9
     with pytest.raises(chatbot_routes.HTTPException) as exc_info:
         chatbot_routes.chatbot_send_message("conv-1", ChatbotConversationMessageRequest(message="   "))
     assert exc_info.value.status_code == 400

@@ -20,6 +20,7 @@ from chec_dashboard.services.chatbot_service import (
     build_answer_quality_metadata,
     build_chatbot_context_package,
     build_context_tool_payload,
+    build_release_report,
     citation_payload,
     create_chatbot_conversation,
     get_circuit_history_tool,
@@ -28,8 +29,11 @@ from chec_dashboard.services.chatbot_service import (
     get_skill_status,
     get_chatbot_status,
     normalize_structured_answer,
+    observability_status,
+    resolve_prompt_metadata,
     retrieve_chatbot_chunks,
     route_agent_tools,
+    score_turn_trace,
     send_chatbot_message,
     submit_chatbot_feedback,
     validate_citations,
@@ -252,6 +256,42 @@ def test_answer_quality_metadata_combines_sections_and_validators() -> None:
     assert metadata["compliance_validation"]["valid"] is True
 
 
+def test_phase9_evaluation_scorers_are_deterministic() -> None:
+    trace = {
+        "ready": True,
+        "latency_ms": 420,
+        "citations": [{"id": "creg-1"}, {"id": "saidi-2"}],
+        "retrieved_chunk_ids": ["creg-1", "other-1", "saidi-2"],
+        "structured_answer": {
+            "estado_observado": ["Texto"],
+            "banderas_evidencia": ["Texto"],
+            "requisitos_posiblemente_aplicables": ["Texto"],
+            "datos_faltantes": ["Texto"],
+            "riesgo_posible": ["Texto"],
+            "recomendaciones": ["Texto"],
+            "limitaciones": ["Texto"],
+            "citas_usadas": ["Texto"],
+            "preguntas_sugeridas": ["Texto"],
+        },
+        "validation": {
+            "citation_validation": {"valid": True},
+            "compliance_validation": {"valid": True},
+        },
+    }
+
+    score = score_turn_trace(trace)
+    report = build_release_report([trace], report_only=True)
+
+    assert score["retrieval_precision_at_3"] == 0.6667
+    assert score["citation_validity"] == 1.0
+    assert score["answer_completeness"] == 1.0
+    assert score["compliance_overclaim_rate"] == 0.0
+    assert report["report_only"] is True
+    assert report["release_status"] == "passed"
+    assert report["metrics"]["latency_p95"] == 420.0
+    assert report["sme_review_coverage"] == "draft_examples_need_sme_review"
+
+
 def test_chatbot_status_uses_mock_provider_without_credentials(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     corpus_dir = tmp_path / "corpus"
@@ -273,6 +313,31 @@ def test_chatbot_status_uses_mock_provider_without_credentials(tmp_path: Path) -
     assert status["chunks_path_exists"] is True
     assert "chunks.jsonl" in status["corpus_dir_entries"]
     assert "listo" in status["message"]
+    assert status["observability_enabled"] is False
+    assert status["mlflow_prompt_name"] == "chec_chatbot_answer_prompt"
+    assert status["mlflow_prompt_alias"] == "production"
+    assert status["mlflow_prompt_source"] == "local"
+    assert status["chatbot_telemetry_schema"] == "agent_observability"
+    assert status["chatbot_eval_report_only"] is True
+
+
+def test_observability_status_and_prompt_metadata_noop_locally(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    data_dir.mkdir()
+    _write_corpus(corpus_dir)
+    settings = _settings(tmp_path, data_dir, corpus_dir)
+
+    metadata = resolve_prompt_metadata(settings, "Hola {{question_text}}")
+    status = observability_status(settings)
+
+    assert metadata.prompt_source == "local"
+    assert metadata.prompt_version == "local"
+    assert metadata.prompt_hash
+    assert status["observability_enabled"] is False
+    assert status["observability_configured"] is False
+    assert status["mlflow_prompt_name"] == "chec_chatbot_answer_prompt"
+    assert status["mlflow_prompt_source"] == "local"
 
 
 def test_chatbot_status_reports_unconfigured_selected_gemini_provider(tmp_path: Path) -> None:
@@ -1099,6 +1164,12 @@ def test_assessment_with_mock_provider_returns_deterministic_answer(tmp_path: Pa
     assert payload["skill_version"] == "1.0"
     assert payload["skill_hash"]
     assert payload["trace_id"].startswith("trace-")
+    assert payload["prompt_name"] == "chec_chatbot_answer_prompt"
+    assert payload["prompt_alias"] == "production"
+    assert payload["prompt_version"] == "local"
+    assert payload["prompt_hash"]
+    assert payload["observability_status"] == "disabled"
+    assert payload["latency_ms"] is not None
     assert payload["structured_answer"]["estado_observado"]
     assert "requisitos_posiblemente_aplicables" in payload["answer_validation"]["missing_sections"]
 
@@ -1143,6 +1214,9 @@ def test_missing_context_assessment_persists_skill_metadata(tmp_path: Path) -> N
     assert detail["skill_version"] == payload["skill_version"]
     assert detail["skill_hash"] == payload["skill_hash"]
     assert detail["messages"][-1]["skill_id"] == payload["skill_id"]
+    assert detail["messages"][-1]["prompt_name"] == payload["prompt_name"]
+    assert detail["messages"][-1]["prompt_hash"] == payload["prompt_hash"]
+    assert detail["messages"][-1]["latency_ms"] == payload["latency_ms"]
     assert payload["structured_answer"]["estado_observado"]
     assert detail["messages"][-1]["structured_answer"] == payload["structured_answer"]
 
@@ -1244,6 +1318,10 @@ def test_conversation_feedback_validates_rating_and_returns_traceable_payload(tm
     assert feedback["conversation_id"] == assessment["conversation_id"]
     assert feedback["turn_id"] == assessment["turn_id"]
     assert feedback["rating"] == "helpful"
+    assert feedback["trace_id"] == assessment["trace_id"]
+    assert feedback["prompt_name"] == assessment["prompt_name"]
+    assert feedback["prompt_version"] == assessment["prompt_version"]
+    assert feedback["skill_hash"] == assessment["skill_hash"]
     with pytest.raises(ValueError, match="rating"):
         submit_chatbot_feedback(
             settings,
@@ -1337,6 +1415,12 @@ def test_databricks_conversation_store_targets_agent_schema(tmp_path: Path) -> N
     assert "answer_validation_json" in statements
     assert "citation_validation_json" in statements
     assert "compliance_validation_json" in statements
+    assert "prompt_name" in statements
+    assert "prompt_version" in statements
+    assert "prompt_hash" in statements
+    assert "mlflow_trace_id" in statements
+    assert "mlflow_run_id" in statements
+    assert "latency_ms" in statements
 
 
 def test_phase7_router_selects_documents_structured_tools_and_direct_mode() -> None:

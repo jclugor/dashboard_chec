@@ -1388,6 +1388,23 @@ body {
   line-height: 1.3;
 }
 
+.chatbot-trace-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chatbot-trace-chip {
+  max-width: 100%;
+  padding: 3px 7px;
+  border-radius: 8px;
+  background: #eef5f0;
+  color: #31513b;
+  font-size: 11px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
 .chatbot-tool-row {
   padding: 8px;
   border: 1px solid #dbe8df;

@@ -28,6 +28,15 @@ def _base_env(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.delenv("AI_SEARCH_QUERY_TYPE", raising=False)
     monkeypatch.delenv("AI_SEARCH_EMBEDDING_ENDPOINT_NAME", raising=False)
     monkeypatch.delenv("AI_SEARCH_ENDPOINT_TYPE", raising=False)
+    monkeypatch.delenv("CHATBOT_OBSERVABILITY_ENABLED", raising=False)
+    monkeypatch.delenv("CHATBOT_TELEMETRY_SCHEMA", raising=False)
+    monkeypatch.delenv("CHATBOT_EVAL_REPORT_ONLY", raising=False)
+    monkeypatch.delenv("CHATBOT_EVAL_LLM_JUDGES_ENABLED", raising=False)
+    monkeypatch.delenv("CHATBOT_EVAL_ENFORCE", raising=False)
+    monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
+    monkeypatch.delenv("MLFLOW_EXPERIMENT_NAME", raising=False)
+    monkeypatch.delenv("MLFLOW_PROMPT_NAME", raising=False)
+    monkeypatch.delenv("MLFLOW_PROMPT_ALIAS", raising=False)
 
 
 def test_explicit_chatbot_corpus_dir_has_priority(monkeypatch, tmp_path: Path) -> None:
@@ -175,6 +184,44 @@ def test_phase5_retriever_env_defaults_and_overrides(monkeypatch, tmp_path: Path
     assert settings.ai_search_query_type == "ann"
     assert settings.ai_search_embedding_endpoint_name == "databricks-gte-large-en"
     assert settings.ai_search_endpoint_type == "STORAGE_OPTIMIZED"
+
+
+def test_phase9_observability_env_defaults_and_overrides(monkeypatch, tmp_path: Path) -> None:
+    _base_env(monkeypatch, tmp_path)
+
+    settings = load_settings()
+
+    assert settings.chatbot_observability_enabled is False
+    assert settings.chatbot_telemetry_schema == "agent_observability"
+    assert settings.chatbot_eval_report_only is True
+    assert settings.chatbot_eval_llm_judges_enabled is False
+    assert settings.chatbot_eval_enforce is False
+    assert settings.mlflow_tracking_uri == "databricks"
+    assert settings.mlflow_experiment_name == "/Shared/chec_dash_parity/agent_observability"
+    assert settings.mlflow_prompt_name == "chec_chatbot_answer_prompt"
+    assert settings.mlflow_prompt_alias == "production"
+
+    monkeypatch.setenv("CHATBOT_OBSERVABILITY_ENABLED", "true")
+    monkeypatch.setenv("CHATBOT_TELEMETRY_SCHEMA", "agent_obs_test")
+    monkeypatch.setenv("CHATBOT_EVAL_REPORT_ONLY", "false")
+    monkeypatch.setenv("CHATBOT_EVAL_LLM_JUDGES_ENABLED", "true")
+    monkeypatch.setenv("CHATBOT_EVAL_ENFORCE", "true")
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", "file:///tmp/mlruns")
+    monkeypatch.setenv("MLFLOW_EXPERIMENT_NAME", "/Shared/custom/agent")
+    monkeypatch.setenv("MLFLOW_PROMPT_NAME", "custom_prompt")
+    monkeypatch.setenv("MLFLOW_PROMPT_ALIAS", "staging")
+
+    settings = load_settings()
+
+    assert settings.chatbot_observability_enabled is True
+    assert settings.chatbot_telemetry_schema == "agent_obs_test"
+    assert settings.chatbot_eval_report_only is False
+    assert settings.chatbot_eval_llm_judges_enabled is True
+    assert settings.chatbot_eval_enforce is True
+    assert settings.mlflow_tracking_uri == "file:///tmp/mlruns"
+    assert settings.mlflow_experiment_name == "/Shared/custom/agent"
+    assert settings.mlflow_prompt_name == "custom_prompt"
+    assert settings.mlflow_prompt_alias == "staging"
 
 
 def test_phase0_decision_record_locks_demo_defaults() -> None:

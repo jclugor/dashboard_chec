@@ -64,6 +64,13 @@ class ConversationMessage:
     answer_validation: dict[str, Any] = field(default_factory=dict)
     citation_validation: dict[str, Any] = field(default_factory=dict)
     compliance_validation: dict[str, Any] = field(default_factory=dict)
+    prompt_name: str | None = None
+    prompt_alias: str | None = None
+    prompt_version: str | None = None
+    prompt_hash: str | None = None
+    mlflow_trace_id: str | None = None
+    mlflow_run_id: str | None = None
+    latency_ms: int | None = None
 
 
 @dataclass
@@ -102,10 +109,10 @@ def _json_dumps(payload: Any) -> str:
 
 
 def _json_loads(value: Any, default: Any) -> Any:
-    if value in {None, ""}:
-        return default
     if isinstance(value, (dict, list)):
         return value
+    if value in {None, ""}:
+        return default
     try:
         return json.loads(str(value))
     except (TypeError, json.JSONDecodeError):
@@ -176,6 +183,13 @@ def message_payload(message: ConversationMessage) -> dict[str, Any]:
         "answer_validation": message.answer_validation,
         "citation_validation": message.citation_validation,
         "compliance_validation": message.compliance_validation,
+        "prompt_name": message.prompt_name,
+        "prompt_alias": message.prompt_alias,
+        "prompt_version": message.prompt_version,
+        "prompt_hash": message.prompt_hash,
+        "mlflow_trace_id": message.mlflow_trace_id,
+        "mlflow_run_id": message.mlflow_run_id,
+        "latency_ms": message.latency_ms,
     }
 
 
@@ -329,7 +343,8 @@ SELECT conversation_id, turn_id, role, content, created_at, briefing_type,
        model_endpoint_name, citations_json, retrieved_chunk_ids_json, status_text, ready,
        agent_tool_calls_json, agent_skipped_tools_json, agent_route_summary_json,
        structured_answer_json, answer_validation_json, citation_validation_json,
-       compliance_validation_json
+       compliance_validation_json, prompt_name, prompt_alias, prompt_version,
+       prompt_hash, mlflow_trace_id, mlflow_run_id, latency_ms
 FROM {self.messages_table}
 WHERE conversation_id = {sql_literal(conversation_id)}
 ORDER BY created_at ASC, CASE role WHEN 'user' THEN 0 ELSE 1 END ASC
@@ -349,7 +364,9 @@ INSERT INTO {self.messages_table} (
   skill_id, skill_version, skill_hash, trace_id, llm_provider, model_endpoint_name, citations_json,
   retrieved_chunk_ids_json, status_text, ready, agent_tool_calls_json,
   agent_skipped_tools_json, agent_route_summary_json, structured_answer_json,
-  answer_validation_json, citation_validation_json, compliance_validation_json
+  answer_validation_json, citation_validation_json, compliance_validation_json,
+  prompt_name, prompt_alias, prompt_version, prompt_hash, mlflow_trace_id,
+  mlflow_run_id, latency_ms
 ) VALUES (
   {sql_literal(message.conversation_id)},
   {sql_literal(message.turn_id)},
@@ -374,7 +391,14 @@ INSERT INTO {self.messages_table} (
   {_sql_json(message.structured_answer)},
   {_sql_json(message.answer_validation)},
   {_sql_json(message.citation_validation)},
-  {_sql_json(message.compliance_validation)}
+  {_sql_json(message.compliance_validation)},
+  {sql_literal(message.prompt_name)},
+  {sql_literal(message.prompt_alias)},
+  {sql_literal(message.prompt_version)},
+  {sql_literal(message.prompt_hash)},
+  {sql_literal(message.mlflow_trace_id)},
+  {sql_literal(message.mlflow_run_id)},
+  {sql_literal(message.latency_ms)}
 )
 """.strip()
             )
@@ -422,6 +446,13 @@ INSERT INTO {self.feedback_table} (
             answer_validation=_json_loads(_row_value(row, "answer_validation_json"), {}),
             citation_validation=_json_loads(_row_value(row, "citation_validation_json"), {}),
             compliance_validation=_json_loads(_row_value(row, "compliance_validation_json"), {}),
+            prompt_name=_row_value(row, "prompt_name"),
+            prompt_alias=_row_value(row, "prompt_alias"),
+            prompt_version=_row_value(row, "prompt_version"),
+            prompt_hash=_row_value(row, "prompt_hash"),
+            mlflow_trace_id=_row_value(row, "mlflow_trace_id"),
+            mlflow_run_id=_row_value(row, "mlflow_run_id"),
+            latency_ms=_row_value(row, "latency_ms"),
         )
 
 
@@ -514,6 +545,13 @@ def record_conversation_turn(
     answer_validation: dict[str, Any] | None = None,
     citation_validation: dict[str, Any] | None = None,
     compliance_validation: dict[str, Any] | None = None,
+    prompt_name: str | None = None,
+    prompt_alias: str | None = None,
+    prompt_version: str | None = None,
+    prompt_hash: str | None = None,
+    mlflow_trace_id: str | None = None,
+    mlflow_run_id: str | None = None,
+    latency_ms: int | None = None,
     mode: str = "guided",
 ) -> None:
     store = get_conversation_store(settings)
@@ -546,6 +584,13 @@ def record_conversation_turn(
                 llm_provider=llm_provider,
                 model_endpoint_name=model_endpoint_name,
                 ready=ready,
+                prompt_name=prompt_name,
+                prompt_alias=prompt_alias,
+                prompt_version=prompt_version,
+                prompt_hash=prompt_hash,
+                mlflow_trace_id=mlflow_trace_id,
+                mlflow_run_id=mlflow_run_id,
+                latency_ms=latency_ms,
             ),
             ConversationMessage(
                 conversation_id=conversation_id,
@@ -571,6 +616,13 @@ def record_conversation_turn(
                 answer_validation=answer_validation or {},
                 citation_validation=citation_validation or {},
                 compliance_validation=compliance_validation or {},
+                prompt_name=prompt_name,
+                prompt_alias=prompt_alias,
+                prompt_version=prompt_version,
+                prompt_hash=prompt_hash,
+                mlflow_trace_id=mlflow_trace_id,
+                mlflow_run_id=mlflow_run_id,
+                latency_ms=latency_ms,
             ),
         ]
     )

@@ -85,13 +85,20 @@ Inference:
 
 Technical chatbot / RAG assessment:
 - `CHATBOT_ENABLED` (`true|false`; the tab loads either way and reports the configured state)
-- `GEMINI_API_KEY` (placeholder only; provide through environment variables or a secret manager)
-- `GEMINI_MODEL` (defaults to `gemini-2.5-flash`)
+- `LLM_PROVIDER` (`mock|databricks_model_serving|gemini|azure_openai|openai`; production Databricks App deployments use `databricks_model_serving`)
+- `LLM_ENDPOINT_NAME` (Databricks Model Serving endpoint resource name in app deployments)
+- `RETRIEVER_BACKEND` (`local_jsonl|databricks_ai_search`; production Databricks App deployments use `databricks_ai_search`)
+- `AI_SEARCH_ENDPOINT_NAME`, `AI_SEARCH_INDEX_NAME`, `AI_SEARCH_TOP_K`, `AI_SEARCH_QUERY_TYPE`
 - `CHATBOT_CORPUS_DIR` (local/dev explicit directory containing `chunks.jsonl` and chatbot manifests)
 - `CHATBOT_CORPUS_VOLUME_DIR` (Databricks App resource path exposed with `valueFrom`)
 - `CHATBOT_CORPUS_SUBDIR` (defaults to `chatbot_corpus`)
+- `CHATBOT_SKILLS_VOLUME_DIR`, `CHATBOT_SKILLS_SUBDIR`
+- `CHATBOT_CONVERSATION_BACKEND`, `CHATBOT_CONVERSATION_SCHEMA`, `CHATBOT_MEMORY_MAX_TURNS`
+- `CHATBOT_OBSERVABILITY_ENABLED`, `CHATBOT_TELEMETRY_SCHEMA`
+- `MLFLOW_TRACKING_URI`, `MLFLOW_EXPERIMENT_NAME`, `MLFLOW_PROMPT_NAME`, `MLFLOW_PROMPT_ALIAS`
 - `CHATBOT_RETRIEVAL_TOP_K`
 - `CHATBOT_MAX_CONTEXT_CHARS`
+- `GEMINI_API_KEY` and `GEMINI_MODEL` remain prototype-only fallback settings; do not use direct vendor keys as the production Databricks App route.
 
 Databricks SQL parity runtime:
 - `DATABRICKS_SQL_WAREHOUSE_ID`
@@ -126,9 +133,14 @@ Payload guardrails:
 - Response includes `request_id` and `X-Request-ID` header for traceability.
 
 ### Technical Chatbot
-- `GET /chatbot/status`: reports feature, Gemini, and corpus readiness.
+- `GET /chatbot/status`: reports feature, Model Serving, AI Search, skills, conversation, and observability readiness.
+- `GET /chatbot/skills/status`: reports governed active/draft/archive skill validation state.
 - `POST /chatbot/context-options`: returns selectable events or network elements from the dashboard data context.
-- `POST /chatbot/assess`: retrieves technical document chunks and, when Gemini is configured, generates the Spanish technical assessment.
+- `POST /chatbot/assess`: retrieves governed evidence, routes approved read-only tools, and generates the Spanish technical assessment.
+- `POST /chatbot/conversations`: creates a guided or free-form conversation.
+- `GET /chatbot/conversations/{conversation_id}`: returns persisted conversation detail.
+- `POST /chatbot/conversations/{conversation_id}/messages`: sends a follow-up turn using memory and the selected context.
+- `POST /chatbot/feedback`: records helpful/not-helpful feedback linked to the turn trace.
 
 ## Chatbot Data Roadmap
 
@@ -222,10 +234,19 @@ File: `.github/workflows/ci.yml`
 - Each worker can duplicate dataset/model memory due process-local caching.
 - Prefer Azure ML or Databricks Model Serving for large model hosting.
 - Keep cloud tokens/secrets in environment variables or secret managers.
-- Provide the Gemini key through environment variables or platform secrets only; never commit real keys or generated private document indexes.
-- Azure Container Apps runbook (from zero account to public URL): `docs/AZURE_CONTAINER_APPS_DEPLOYMENT.md`
-- Databricks is not required for the first containerized web demo deployment.
-- Databricks App parity runbook: `docs/phase35_databricks_app_parity.md`
+- Databricks App is the current canonical deployment target for the governed RAG assistant.
+- Azure Container Apps remains a legacy/alternate web deployment path for non-Databricks demos: `docs/AZURE_CONTAINER_APPS_DEPLOYMENT.md`.
+- Fresh Azure + Databricks install runbook for new client accounts: `docs/AZURE_DATABRICKS_FRESH_INSTALL.md`.
+- Historical Databricks App parity notes: `docs/phase35_databricks_app_parity.md`.
+- Direct Gemini keys are prototype-only fallback settings; production RAG deployments use Databricks Model Serving, Databricks AI Search, Unity Catalog, and MLflow observability.
+
+## Fresh Azure + Databricks Deployment
+
+For new client Azure accounts, start with the detailed beginner runbook:
+
+- `docs/AZURE_DATABRICKS_FRESH_INSTALL.md`
+
+That guide covers prerequisite installation, Azure subscription setup, Databricks workspace creation, Unity Catalog setup, bundle deployment, raw data upload, Lakeview dashboard publishing, chatbot corpus/skill upload, Databricks App deployment, app permissions, AI Search, Model Serving, MLflow observability, report-only evaluation, validation, troubleshooting, and cost shutdown notes.
 
 ## Memory and Performance Notes
 

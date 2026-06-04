@@ -8,7 +8,7 @@ REPO_ROOT="$(cd "${DATABRICKS_DIR}/.." && pwd)"
 APP_NAME="${APP_NAME:-chec-dash-parity}"
 APP_DESCRIPTION="${APP_DESCRIPTION:-CHEC Databricks App for full Dash parity}"
 APP_COMPUTE_SIZE="${APP_COMPUTE_SIZE:-MEDIUM}"
-WORKSPACE_SOURCE_PATH="${WORKSPACE_SOURCE_PATH:-/Workspace/Users/$(databricks current-user me -o json | jq -r '.userName')/.apps/${APP_NAME}}"
+WORKSPACE_SOURCE_PATH="${WORKSPACE_SOURCE_PATH:-}"
 BUILD_APP_DIR="${DATABRICKS_DIR}/build/chec_dash_parity"
 APP_CHATBOT_CORPUS_VOLUME_RESOURCE_KEY="${APP_CHATBOT_CORPUS_VOLUME_RESOURCE_KEY:-chatbot_corpus_volume}"
 APP_CHATBOT_CORPUS_VOLUME_FULL_NAME="${APP_CHATBOT_CORPUS_VOLUME_FULL_NAME:-${APP_CATALOG_NAME:-chec_dbx_demo}.raw.${APP_SOURCE_VOLUME_NAME:-source_files}}"
@@ -38,6 +38,15 @@ APP_AI_SEARCH_TOP_K="${APP_AI_SEARCH_TOP_K:-8}"
 APP_AI_SEARCH_QUERY_TYPE="${APP_AI_SEARCH_QUERY_TYPE:-hybrid}"
 APP_AI_SEARCH_EMBEDDING_ENDPOINT_NAME="${APP_AI_SEARCH_EMBEDDING_ENDPOINT_NAME:-databricks-qwen3-embedding-0-6b}"
 APP_AI_SEARCH_ENDPOINT_TYPE="${APP_AI_SEARCH_ENDPOINT_TYPE:-STANDARD}"
+APP_CHATBOT_OBSERVABILITY_ENABLED="${APP_CHATBOT_OBSERVABILITY_ENABLED:-true}"
+APP_CHATBOT_TELEMETRY_SCHEMA="${APP_CHATBOT_TELEMETRY_SCHEMA:-agent_observability}"
+APP_CHATBOT_EVAL_REPORT_ONLY="${APP_CHATBOT_EVAL_REPORT_ONLY:-true}"
+APP_CHATBOT_EVAL_LLM_JUDGES_ENABLED="${APP_CHATBOT_EVAL_LLM_JUDGES_ENABLED:-false}"
+APP_CHATBOT_EVAL_ENFORCE="${APP_CHATBOT_EVAL_ENFORCE:-false}"
+APP_MLFLOW_TRACKING_URI="${APP_MLFLOW_TRACKING_URI:-databricks}"
+APP_MLFLOW_EXPERIMENT_NAME="${APP_MLFLOW_EXPERIMENT_NAME:-/Shared/chec_dash_parity/agent_observability}"
+APP_MLFLOW_PROMPT_NAME="${APP_MLFLOW_PROMPT_NAME:-chec_chatbot_answer_prompt}"
+APP_MLFLOW_PROMPT_ALIAS="${APP_MLFLOW_PROMPT_ALIAS:-production}"
 APP_GEMINI_SECRET_RESOURCE_KEY="${APP_GEMINI_SECRET_RESOURCE_KEY:-gemini_api_key}"
 APP_GEMINI_SECRET_SCOPE="${APP_GEMINI_SECRET_SCOPE:-chec_dash_parity}"
 APP_GEMINI_SECRET_KEY="${APP_GEMINI_SECRET_KEY:-gemini_api_key}"
@@ -60,11 +69,68 @@ export APP_AI_SEARCH_TOP_K
 export APP_AI_SEARCH_QUERY_TYPE
 export APP_AI_SEARCH_EMBEDDING_ENDPOINT_NAME
 export APP_AI_SEARCH_ENDPOINT_TYPE
+export APP_CHATBOT_OBSERVABILITY_ENABLED
+export APP_CHATBOT_TELEMETRY_SCHEMA
+export APP_CHATBOT_EVAL_REPORT_ONLY
+export APP_CHATBOT_EVAL_LLM_JUDGES_ENABLED
+export APP_CHATBOT_EVAL_ENFORCE
+export APP_MLFLOW_TRACKING_URI
+export APP_MLFLOW_EXPERIMENT_NAME
+export APP_MLFLOW_PROMPT_NAME
+export APP_MLFLOW_PROMPT_ALIAS
+
+run_with_retries() {
+  local attempt=1
+  local max_attempts="${DATABRICKS_CLI_RETRIES:-4}"
+  local delay_seconds="${DATABRICKS_CLI_RETRY_DELAY_SECONDS:-5}"
+  while true; do
+    if "$@"; then
+      return 0
+    fi
+    if (( attempt >= max_attempts )); then
+      return 1
+    fi
+    echo "Retrying Databricks command after transient failure (${attempt}/${max_attempts}): $*" >&2
+    sleep "${delay_seconds}"
+    attempt=$((attempt + 1))
+  done
+}
+
+capture_with_retries() {
+  local attempt=1
+  local max_attempts="${DATABRICKS_CLI_RETRIES:-4}"
+  local delay_seconds="${DATABRICKS_CLI_RETRY_DELAY_SECONDS:-5}"
+  local output
+  local status
+  local stderr_file
+  while true; do
+    stderr_file="$(mktemp)"
+    if output="$("$@" 2>"${stderr_file}")"; then
+      rm -f "${stderr_file}"
+      printf '%s' "${output}"
+      return 0
+    fi
+    status=$?
+    cat "${stderr_file}" >&2 || true
+    rm -f "${stderr_file}"
+    if (( attempt >= max_attempts )); then
+      return "${status}"
+    fi
+    echo "Retrying Databricks command after transient failure (${attempt}/${max_attempts}): $*" >&2
+    sleep "${delay_seconds}"
+    attempt=$((attempt + 1))
+  done
+}
+
+if [[ -z "${WORKSPACE_SOURCE_PATH}" ]]; then
+  WORKSPACE_USER="$(capture_with_retries databricks current-user me -o json | jq -r '.userName')"
+  WORKSPACE_SOURCE_PATH="/Workspace/Users/${WORKSPACE_USER}/.apps/${APP_NAME}"
+fi
 
 ensure_chatbot_skill_lifecycle_dirs() {
   local lifecycle_dir
   for lifecycle_dir in active draft archive; do
-    databricks fs mkdir "${APP_CHATBOT_SKILLS_VOLUME_PATH}/${lifecycle_dir}" >/dev/null
+    run_with_retries databricks fs mkdir "${APP_CHATBOT_SKILLS_VOLUME_PATH}/${lifecycle_dir}" >/dev/null
   done
 }
 
@@ -100,20 +166,38 @@ setup_chatbot_ai_search() {
     ./.venv/bin/python databricks/scripts/setup_phase5_ai_search.py
 }
 
+setup_chatbot_observability() {
+  if [[ "${APP_CHATBOT_OBSERVABILITY_ENABLED}" != "true" ]]; then
+    return 0
+  fi
+  APP_WAREHOUSE_ID="${APP_WAREHOUSE_ID:-4437a6195e05c59c}" \
+  APP_CATALOG_NAME="${APP_CATALOG_NAME:-chec_dbx_demo}" \
+  APP_CHATBOT_TELEMETRY_SCHEMA="${APP_CHATBOT_TELEMETRY_SCHEMA}" \
+  APP_CHATBOT_EVAL_REPORT_ONLY="${APP_CHATBOT_EVAL_REPORT_ONLY}" \
+  APP_CHATBOT_EVAL_LLM_JUDGES_ENABLED="${APP_CHATBOT_EVAL_LLM_JUDGES_ENABLED}" \
+  APP_CHATBOT_EVAL_ENFORCE="${APP_CHATBOT_EVAL_ENFORCE}" \
+  APP_MLFLOW_TRACKING_URI="${APP_MLFLOW_TRACKING_URI}" \
+  APP_MLFLOW_EXPERIMENT_NAME="${APP_MLFLOW_EXPERIMENT_NAME}" \
+  APP_MLFLOW_PROMPT_NAME="${APP_MLFLOW_PROMPT_NAME}" \
+  APP_MLFLOW_PROMPT_ALIAS="${APP_MLFLOW_PROMPT_ALIAS}" \
+    ./.venv/bin/python databricks/scripts/setup_phase9_observability.py
+}
+
 cd "${REPO_ROOT}"
 ./.venv/bin/python databricks/scripts/stage_phase35_databricks_app.py
 ensure_chatbot_skill_lifecycle_dirs
 setup_chatbot_conversation_tables
 setup_chatbot_context_tools
 setup_chatbot_ai_search
+setup_chatbot_observability
 
-if ! databricks apps get "${APP_NAME}" -o json >/dev/null 2>&1; then
-  databricks apps create "${APP_NAME}" \
+if ! run_with_retries databricks apps get "${APP_NAME}" -o json >/dev/null 2>&1; then
+  run_with_retries databricks apps create "${APP_NAME}" \
     --description "${APP_DESCRIPTION}" \
     --compute-size "${APP_COMPUTE_SIZE}"
 fi
 
-APP_JSON="$(databricks apps get "${APP_NAME}" -o json)"
+APP_JSON="$(capture_with_retries databricks apps get "${APP_NAME}" -o json)"
 APP_RESOURCE_UPDATE_JSON="$(jq -c \
   --arg description "${APP_DESCRIPTION}" \
   --arg resource_key "${APP_CHATBOT_CORPUS_VOLUME_RESOURCE_KEY}" \
@@ -188,19 +272,19 @@ APP_RESOURCE_UPDATE_JSON="$(jq -c \
       }] else [] end)
     )
   }' <<< "${APP_JSON}")"
-databricks apps update "${APP_NAME}" --json "${APP_RESOURCE_UPDATE_JSON}" >/dev/null
+run_with_retries databricks apps update "${APP_NAME}" --json "${APP_RESOURCE_UPDATE_JSON}" >/dev/null
 
-APP_JSON="$(databricks apps get "${APP_NAME}" -o json)"
+APP_JSON="$(capture_with_retries databricks apps get "${APP_NAME}" -o json)"
 COMPUTE_STATE="$(jq -r '.compute_status.state // empty' <<< "${APP_JSON}")"
 if [[ "${COMPUTE_STATE}" != "ACTIVE" ]]; then
-  databricks apps start "${APP_NAME}" >/dev/null
+  run_with_retries databricks apps start "${APP_NAME}" >/dev/null
 fi
 
-databricks workspace delete "${WORKSPACE_SOURCE_PATH}" --recursive >/dev/null 2>&1 || true
-databricks workspace import-dir "${BUILD_APP_DIR}" "${WORKSPACE_SOURCE_PATH}" --overwrite
-databricks apps deploy "${APP_NAME}" \
+run_with_retries databricks workspace delete "${WORKSPACE_SOURCE_PATH}" --recursive >/dev/null 2>&1 || true
+run_with_retries databricks workspace import-dir "${BUILD_APP_DIR}" "${WORKSPACE_SOURCE_PATH}" --overwrite
+run_with_retries databricks apps deploy "${APP_NAME}" \
   --source-code-path "${WORKSPACE_SOURCE_PATH}" \
   --mode SNAPSHOT
-databricks apps start "${APP_NAME}"
+run_with_retries databricks apps start "${APP_NAME}"
 
 echo "Deployed Databricks app '${APP_NAME}' from ${WORKSPACE_SOURCE_PATH}"

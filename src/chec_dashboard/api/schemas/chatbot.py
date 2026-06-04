@@ -26,6 +26,21 @@ class ChatbotStatusResponse(ChatbotAPIModel):
     documents_count: int = 0
     chunks_count: int = 0
     message: str
+    observability_enabled: bool = False
+    observability_configured: bool = False
+    mlflow_tracking_uri: str | None = None
+    mlflow_experiment_name: str | None = None
+    mlflow_prompt_name: str | None = None
+    mlflow_prompt_alias: str | None = None
+    mlflow_prompt_version: str | None = None
+    mlflow_prompt_hash: str | None = None
+    mlflow_prompt_source: str | None = None
+    mlflow_prompt_registry_error: str | None = None
+    chatbot_telemetry_schema: str | None = None
+    chatbot_eval_report_only: bool = True
+    chatbot_eval_llm_judges_enabled: bool = False
+    chatbot_eval_enforce: bool = False
+    last_evaluation_summary: dict[str, Any] | None = None
 
 
 class ChatbotSkillStatusItem(ChatbotAPIModel):
@@ -109,6 +124,17 @@ class ChatbotAssessmentResponse(ChatbotAPIModel):
     answer_validation: dict[str, Any] = Field(default_factory=dict)
     citation_validation: dict[str, Any] = Field(default_factory=dict)
     compliance_validation: dict[str, Any] = Field(default_factory=dict)
+    prompt_name: str | None = None
+    prompt_alias: str | None = None
+    prompt_version: str | None = None
+    prompt_hash: str | None = None
+    prompt_source: str | None = None
+    prompt_registry_error: str | None = None
+    mlflow_trace_id: str | None = None
+    mlflow_run_id: str | None = None
+    observability_status: str | None = None
+    observability_error: str | None = None
+    latency_ms: int | None = None
 
 
 class ChatbotConversationMessage(ChatbotAPIModel):
@@ -136,6 +162,13 @@ class ChatbotConversationMessage(ChatbotAPIModel):
     answer_validation: dict[str, Any] = Field(default_factory=dict)
     citation_validation: dict[str, Any] = Field(default_factory=dict)
     compliance_validation: dict[str, Any] = Field(default_factory=dict)
+    prompt_name: str | None = None
+    prompt_alias: str | None = None
+    prompt_version: str | None = None
+    prompt_hash: str | None = None
+    mlflow_trace_id: str | None = None
+    mlflow_run_id: str | None = None
+    latency_ms: int | None = None
 
 
 class ChatbotConversationCreateRequest(ChatbotAPIModel):

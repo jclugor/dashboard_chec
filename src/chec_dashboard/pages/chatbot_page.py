@@ -188,8 +188,9 @@ def _tool_trace_component(trace: dict[str, Any] | None):
     calls = trace.get("agent_tool_calls") or []
     skipped = trace.get("agent_skipped_tools") or []
     summary = trace.get("agent_route_summary") or {}
+    trace_meta = _trace_metadata_component(trace)
     if not calls and not skipped:
-        return html.Div("Sin herramientas adicionales.", className="chatbot-empty-state")
+        return html.Div([trace_meta, html.Div("Sin herramientas adicionales.", className="chatbot-empty-state")])
 
     call_rows = []
     for call in calls[:6]:
@@ -223,11 +224,29 @@ def _tool_trace_component(trace: dict[str, Any] | None):
     return html.Div(
         [
             html.Div(str(route_text)[:220], className="chatbot-tool-summary") if route_text else None,
+            trace_meta,
             *call_rows,
             html.Div(skipped_text, className="chatbot-tool-skipped") if skipped_text else None,
         ],
         className="chatbot-tool-trace",
     )
+
+
+def _trace_metadata_component(trace: dict[str, Any] | None):
+    trace = trace or {}
+    values = [
+        ("trace", trace.get("trace_id") or trace.get("mlflow_trace_id")),
+        ("prompt", trace.get("prompt_version") or trace.get("prompt_hash")),
+        ("latencia", f"{trace.get('latency_ms')} ms" if trace.get("latency_ms") is not None else None),
+    ]
+    chips = [
+        html.Span(f"{label}: {value}", className="chatbot-trace-chip")
+        for label, value in values
+        if value not in {None, ""}
+    ]
+    if not chips:
+        return None
+    return html.Div(chips, className="chatbot-trace-meta")
 
 
 def _latest_tool_trace(messages: list[dict[str, Any]] | None, fallback: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -237,12 +256,22 @@ def _latest_tool_trace(messages: list[dict[str, Any]] | None, fallback: dict[str
                 "agent_tool_calls": message.get("agent_tool_calls") or [],
                 "agent_skipped_tools": message.get("agent_skipped_tools") or [],
                 "agent_route_summary": message.get("agent_route_summary") or {},
+                "trace_id": message.get("trace_id"),
+                "mlflow_trace_id": message.get("mlflow_trace_id"),
+                "prompt_version": message.get("prompt_version"),
+                "prompt_hash": message.get("prompt_hash"),
+                "latency_ms": message.get("latency_ms"),
             }
     fallback = fallback or {}
     return {
         "agent_tool_calls": fallback.get("agent_tool_calls") or [],
         "agent_skipped_tools": fallback.get("agent_skipped_tools") or [],
         "agent_route_summary": fallback.get("agent_route_summary") or {},
+        "trace_id": fallback.get("trace_id"),
+        "mlflow_trace_id": fallback.get("mlflow_trace_id"),
+        "prompt_version": fallback.get("prompt_version"),
+        "prompt_hash": fallback.get("prompt_hash"),
+        "latency_ms": fallback.get("latency_ms"),
     }
 
 
@@ -280,6 +309,10 @@ def _last_assistant_turn(messages: list[dict[str, Any]] | None) -> dict[str, Any
                 "skill_version": message.get("skill_version"),
                 "skill_hash": message.get("skill_hash"),
                 "trace_id": message.get("trace_id"),
+                "mlflow_trace_id": message.get("mlflow_trace_id"),
+                "prompt_version": message.get("prompt_version"),
+                "prompt_hash": message.get("prompt_hash"),
+                "latency_ms": message.get("latency_ms"),
             }
     return {}
 

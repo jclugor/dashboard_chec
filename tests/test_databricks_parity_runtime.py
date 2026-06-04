@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from dataclasses import replace
 
-from fastapi.testclient import TestClient
+from fastapi import Response
 
 from chec_dashboard.app import create_app
-from chec_dashboard.api.main import create_api_app
+from chec_dashboard.api.routes import health as health_routes
 from chec_dashboard.core.config import settings as base_settings
 from chec_dashboard.dash_app import api_client
 from chec_dashboard.services.databricks_sql import sql_literal
@@ -112,14 +112,15 @@ def test_dash_server_exposes_local_data_contract(monkeypatch) -> None:
 
 def test_fastapi_ready_uses_databricks_readiness_when_backend_selected(monkeypatch) -> None:
     mock_settings = replace(base_settings, data_backend="databricks_sql")
-    monkeypatch.setattr("chec_dashboard.api.routes.health.settings", mock_settings)
+    monkeypatch.setattr(health_routes, "settings", mock_settings)
     monkeypatch.setattr(
-        "chec_dashboard.api.routes.health.databricks_data_readiness_check",
+        health_routes,
+        "databricks_data_readiness_check",
         lambda *_: (True, "Databricks data backend ready"),
     )
 
-    client = TestClient(create_api_app())
-    response = client.get("/ready")
+    response = Response()
+    payload = health_routes.readiness(response)
 
     assert response.status_code == 200
-    assert response.json()["checks"]["data"]["message"] == "Databricks data backend ready"
+    assert payload.checks["data"].message == "Databricks data backend ready"

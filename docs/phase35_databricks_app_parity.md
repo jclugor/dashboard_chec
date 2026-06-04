@@ -1,5 +1,9 @@
 # Phase 3-5 Databricks App Parity
 
+> Historical note: this document explains the original Databricks App parity
+> path. For a new client install from a fresh Azure account, use the canonical
+> runbook: `docs/AZURE_DATABRICKS_FRESH_INSTALL.md`.
+
 This guide covers the Databricks-native parity path for the full CHEC Dash experience.
 
 ## Goal
@@ -31,19 +35,43 @@ The staged app runtime then receives:
 - `DATABRICKS_GOLD_SCHEMA`
 - `DATABRICKS_SILVER_SCHEMA`
 
-Chatbot deployments also require the corpus and Gemini configuration to be supplied through Databricks app environment variables and secrets:
+Current chatbot deployments use Databricks-native RAG settings supplied through
+Databricks App environment variables and app resources:
 - `CHATBOT_ENABLED`
-- `GEMINI_API_KEY`
-- `GEMINI_MODEL`
+- `LLM_PROVIDER=databricks_model_serving`
+- `LLM_ENDPOINT_NAME` from the Databricks App resource key `chatbot_llm_endpoint`
+- `LLM_MAX_TOKENS`
+- `LLM_TEMPERATURE`
+- `RETRIEVER_BACKEND=databricks_ai_search`
+- `AI_SEARCH_ENDPOINT_NAME`
+- `AI_SEARCH_INDEX_NAME` from the Databricks App resource key `chatbot_ai_search_index`
+- `AI_SEARCH_TOP_K`
+- `AI_SEARCH_QUERY_TYPE=hybrid`
 - `CHATBOT_CORPUS_VOLUME_DIR` from the Databricks App resource key `chatbot_corpus_volume`
 - `CHATBOT_CORPUS_SUBDIR`
+- `CHATBOT_SKILLS_VOLUME_DIR` from the Databricks App resource key `chatbot_skills_volume`
+- `CHATBOT_SKILLS_SUBDIR=active`
+- `CHATBOT_CONVERSATION_BACKEND=databricks_sql`
+- `CHATBOT_CONVERSATION_SCHEMA=agent`
+- `CHATBOT_CONTEXT_TOOLS_SCHEMA=agent_tools`
+- `CHATBOT_OBSERVABILITY_ENABLED=true`
+- `CHATBOT_TELEMETRY_SCHEMA=agent_observability`
+- `MLFLOW_TRACKING_URI=databricks`
+- `MLFLOW_EXPERIMENT_NAME=/Shared/chec_dash_parity/agent_observability`
 - `CHATBOT_CORPUS_DIR` only as a local/dev explicit override
 - `CHATBOT_RETRIEVAL_TOP_K`
 - `CHATBOT_MAX_CONTEXT_CHARS`
 
-Do not commit real Gemini keys or generated private document indexes to the repository. Store the generated chatbot corpus in `chec_dbx_demo.raw.source_files/chatbot_corpus`, bind that volume to the app as a read-only resource key named `chatbot_corpus_volume`, and reference it from `app.yaml` with `valueFrom`. Store the Gemini key in a Databricks secret scope and bind it to the app resource key `gemini_api_key`; `app.yaml` should reference it with `valueFrom`, never a literal value.
+Do not commit real vendor keys or generated private document indexes to the
+repository. Store the generated chatbot corpus in
+`chec_dbx_demo.raw.source_files/chatbot_corpus`, bind that volume to the app as
+a read-only resource key named `chatbot_corpus_volume`, and reference it from
+`app.yaml` with `valueFrom`. Production chatbot generation should use
+Databricks Model Serving. Direct Gemini configuration remains a prototype-only
+fallback and should be supplied through Databricks secrets if ever used.
 
-Build and upload chatbot document artifacts before enabling Gemini-backed answers:
+Build and upload chatbot document artifacts before enabling Databricks AI
+Search-backed answers:
 
 ```bash
 cd /home/jclugor/unal/CHEC/dashboard
@@ -56,7 +84,9 @@ cd /home/jclugor/unal/CHEC/dashboard
 bash databricks/scripts/upload_chatbot_assets.sh
 ```
 
-Bind the uploaded volume to the Databricks App before deploying:
+The current deploy script binds the uploaded corpus volume, skill volume, AI
+Search index, and Model Serving endpoint to the Databricks App. If you need to
+inspect the resource shape manually, it follows the same app-resource pattern:
 
 ```bash
 databricks apps update chec-dash-parity \
@@ -132,9 +162,12 @@ bash scripts/apply_phase35_app_permissions.sh
 - `REDMT` line geometry renders alongside points
 
 ### Technical Chatbot / RAG Assessment
-- chatbot tab loads without a Gemini key and shows a configured/unconfigured state in Spanish
+- chatbot tab loads and `/chatbot/status` reports `databricks_model_serving`, `databricks_ai_search`, `databricks_sql`, and `agent_observability` readiness
 - selected event or network-element context is carried into the prompt payload as structured metadata
-- answer is generated in Spanish once `GEMINI_API_KEY` is configured
+- answer is generated in Spanish through Databricks Model Serving once the app endpoint resource has `CAN_QUERY`
+- citations come from the Databricks AI Search index and include title/path/page/snippet metadata
+- conversation turns persist to Delta tables in `chec_dbx_demo.agent`
+- observability records persist to `chec_dbx_demo.agent_observability`
 - missing documents or missing selected context produce a graceful Spanish message
 
 ## Notes
