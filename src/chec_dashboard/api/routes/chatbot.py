@@ -7,12 +7,14 @@ from chec_dashboard.api.schemas.chatbot import (
     ChatbotAssessmentResponse,
     ChatbotContextOptionsRequest,
     ChatbotContextOptionsResponse,
+    ChatbotSkillStatusResponse,
     ChatbotStatusResponse,
 )
 from chec_dashboard.core.config import settings
 from chec_dashboard.services.chatbot_service import (
     assess_chatbot_context,
     get_chatbot_context_options,
+    get_skill_status,
     get_chatbot_status,
 )
 
@@ -23,6 +25,11 @@ router = APIRouter(prefix="/chatbot", tags=["chatbot"])
 @router.get("/status", response_model=ChatbotStatusResponse)
 def chatbot_status() -> ChatbotStatusResponse:
     return ChatbotStatusResponse(**get_chatbot_status(settings))
+
+
+@router.get("/skills/status", response_model=ChatbotSkillStatusResponse)
+def chatbot_skills_status() -> ChatbotSkillStatusResponse:
+    return ChatbotSkillStatusResponse(**get_skill_status(settings))
 
 
 @router.post("/context-options", response_model=ChatbotContextOptionsResponse)
@@ -47,5 +54,6 @@ def chatbot_assess(request: ChatbotAssessmentRequest) -> ChatbotAssessmentRespon
         question=request.question,
         briefing_type=request.briefing_type,
         question_id=request.question_id,
+        conversation_id=request.conversation_id,
     )
     return ChatbotAssessmentResponse(**payload)

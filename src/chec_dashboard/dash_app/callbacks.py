@@ -25,6 +25,7 @@ from chec_dashboard.services.data_service import (
 from chec_dashboard.services.chatbot_service import (
     assess_chatbot_context,
     get_chatbot_context_options,
+    get_skill_status,
     get_chatbot_status,
 )
 from chec_dashboard.services.databricks_data_service import databricks_data_readiness_check
@@ -243,6 +244,10 @@ def _register_local_contract_routes(app: Dash, settings: Settings) -> None:
     def chatbot_status():
         return jsonify(get_chatbot_status(settings)), 200
 
+    @app.server.route("/chatbot/skills/status", methods=["GET"])
+    def chatbot_skills_status():
+        return jsonify(get_skill_status(settings)), 200
+
     @app.server.route("/chatbot/context-options", methods=["POST"])
     def chatbot_context_options():
         try:
@@ -270,6 +275,7 @@ def _register_local_contract_routes(app: Dash, settings: Settings) -> None:
                 question=payload.get("question"),
                 briefing_type=payload.get("briefing_type") or "reliability",
                 question_id=payload.get("question_id"),
+                conversation_id=payload.get("conversation_id"),
             )
             return jsonify(response_payload), 200
         except Exception as exc:

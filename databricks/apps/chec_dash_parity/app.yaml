@@ -18,6 +18,10 @@ env:
     value: "true"
   - name: MODEL_BACKEND
     value: mock
+  - name: LLM_PROVIDER
+    value: "__LLM_PROVIDER__"
+  - name: LLM_ENDPOINT_NAME
+    value: "__LLM_ENDPOINT_NAME__"
   - name: CHATBOT_ENABLED
     value: "__CHATBOT_ENABLED__"
   - name: CHATBOT_CORPUS_DIR
@@ -26,6 +30,12 @@ env:
     valueFrom: "__CHATBOT_CORPUS_VOLUME_RESOURCE_KEY__"
   - name: CHATBOT_CORPUS_SUBDIR
     value: "__CHATBOT_CORPUS_SUBDIR__"
+  - name: CHATBOT_SKILLS_DIR
+    value: ""
+  - name: CHATBOT_SKILLS_VOLUME_DIR
+    valueFrom: "__CHATBOT_SKILLS_VOLUME_RESOURCE_KEY__"
+  - name: CHATBOT_SKILLS_SUBDIR
+    value: "__CHATBOT_SKILLS_SUBDIR__"
   - name: CHATBOT_RETRIEVAL_TOP_K
     value: "__CHATBOT_RETRIEVAL_TOP_K__"
   - name: CHATBOT_MAX_CONTEXT_CHARS

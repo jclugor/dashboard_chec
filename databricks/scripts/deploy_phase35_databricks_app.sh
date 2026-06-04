@@ -13,6 +13,9 @@ BUILD_APP_DIR="${DATABRICKS_DIR}/build/chec_dash_parity"
 APP_CHATBOT_CORPUS_VOLUME_RESOURCE_KEY="${APP_CHATBOT_CORPUS_VOLUME_RESOURCE_KEY:-chatbot_corpus_volume}"
 APP_CHATBOT_CORPUS_VOLUME_FULL_NAME="${APP_CHATBOT_CORPUS_VOLUME_FULL_NAME:-${APP_CATALOG_NAME:-chec_dbx_demo}.raw.${APP_SOURCE_VOLUME_NAME:-source_files}}"
 APP_CHATBOT_CORPUS_VOLUME_DESCRIPTION="${APP_CHATBOT_CORPUS_VOLUME_DESCRIPTION:-Read-only CHEC chatbot corpus and source documents volume}"
+APP_CHATBOT_SKILLS_VOLUME_RESOURCE_KEY="${APP_CHATBOT_SKILLS_VOLUME_RESOURCE_KEY:-chatbot_skills_volume}"
+APP_CHATBOT_SKILLS_VOLUME_FULL_NAME="${APP_CHATBOT_SKILLS_VOLUME_FULL_NAME:-${APP_CATALOG_NAME:-chec_dbx_demo}.agent_config.skills}"
+APP_CHATBOT_SKILLS_VOLUME_DESCRIPTION="${APP_CHATBOT_SKILLS_VOLUME_DESCRIPTION:-Read-only CHEC governed assistant skill files volume}"
 APP_GEMINI_SECRET_RESOURCE_KEY="${APP_GEMINI_SECRET_RESOURCE_KEY:-gemini_api_key}"
 APP_GEMINI_SECRET_SCOPE="${APP_GEMINI_SECRET_SCOPE:-chec_dash_parity}"
 APP_GEMINI_SECRET_KEY="${APP_GEMINI_SECRET_KEY:-gemini_api_key}"
@@ -35,6 +38,9 @@ APP_RESOURCE_UPDATE_JSON="$(jq -c \
   --arg resource_key "${APP_CHATBOT_CORPUS_VOLUME_RESOURCE_KEY}" \
   --arg resource_description "${APP_CHATBOT_CORPUS_VOLUME_DESCRIPTION}" \
   --arg volume_full_name "${APP_CHATBOT_CORPUS_VOLUME_FULL_NAME}" \
+  --arg skills_resource_key "${APP_CHATBOT_SKILLS_VOLUME_RESOURCE_KEY}" \
+  --arg skills_resource_description "${APP_CHATBOT_SKILLS_VOLUME_DESCRIPTION}" \
+  --arg skills_volume_full_name "${APP_CHATBOT_SKILLS_VOLUME_FULL_NAME}" \
   --arg gemini_resource_key "${APP_GEMINI_SECRET_RESOURCE_KEY}" \
   --arg gemini_resource_description "${APP_GEMINI_SECRET_DESCRIPTION}" \
   --arg gemini_secret_scope "${APP_GEMINI_SECRET_SCOPE}" \
@@ -42,13 +48,22 @@ APP_RESOURCE_UPDATE_JSON="$(jq -c \
   '{
     description: $description,
     resources: (
-      ((.resources // []) | map(select(.name != $resource_key and .name != $gemini_resource_key)))
+      ((.resources // []) | map(select(.name != $resource_key and .name != $skills_resource_key and .name != $gemini_resource_key)))
       + [{
         name: $resource_key,
         description: $resource_description,
         uc_securable: {
           securable_type: "VOLUME",
           securable_full_name: $volume_full_name,
+          permission: "READ_VOLUME"
+        }
+      }]
+      + [{
+        name: $skills_resource_key,
+        description: $skills_resource_description,
+        uc_securable: {
+          securable_type: "VOLUME",
+          securable_full_name: $skills_volume_full_name,
           permission: "READ_VOLUME"
         }
       }]

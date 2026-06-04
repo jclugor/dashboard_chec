@@ -11,12 +11,36 @@ class ChatbotAPIModel(BaseModel):
 
 class ChatbotStatusResponse(ChatbotAPIModel):
     enabled: bool
+    llm_provider: str = "mock"
+    llm_configured: bool = False
     gemini_configured: bool
     corpus_available: bool
     ready: bool
+    skills_available: bool = False
+    skills_count: int = 0
+    skill_errors_count: int = 0
     documents_count: int = 0
     chunks_count: int = 0
     message: str
+
+
+class ChatbotSkillStatusItem(ChatbotAPIModel):
+    skill_id: str | None = None
+    version: str | None = None
+    status: str | None = None
+    source_type: str
+    source_path: str
+    skill_hash: str | None = None
+    errors: list[str] = Field(default_factory=list)
+    file_name: str | None = None
+
+
+class ChatbotSkillStatusResponse(ChatbotAPIModel):
+    skills_available: bool
+    skills_count: int
+    skill_errors_count: int
+    skills: list[ChatbotSkillStatusItem] = Field(default_factory=list)
+    validation_errors: list[ChatbotSkillStatusItem] = Field(default_factory=list)
 
 
 class ChatbotContextOptionsRequest(ChatbotAPIModel):
@@ -55,6 +79,7 @@ class ChatbotAssessmentRequest(ChatbotAPIModel):
     question: str | None = None
     briefing_type: Literal["reliability", "compliance", "maintenance"] = "reliability"
     question_id: str | None = None
+    conversation_id: str | None = None
 
 
 class ChatbotAssessmentResponse(ChatbotAPIModel):
@@ -63,3 +88,9 @@ class ChatbotAssessmentResponse(ChatbotAPIModel):
     status_text: str
     ready: bool
     briefing_type: Literal["reliability", "compliance", "maintenance"] = "reliability"
+    conversation_id: str | None = None
+    turn_id: str | None = None
+    skill_id: str | None = None
+    skill_version: str | None = None
+    skill_hash: str | None = None
+    trace_id: str | None = None

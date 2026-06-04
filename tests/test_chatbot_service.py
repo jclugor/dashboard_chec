@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import replace
 from pathlib import Path
+import textwrap
 
 import pandas as pd
 import pytest
@@ -11,9 +12,12 @@ from chec_dashboard.services.chatbot_service import (
     assess_chatbot_context,
     build_chatbot_context_package,
     get_chatbot_context_options,
+    get_skill_status,
     get_chatbot_status,
     retrieve_chatbot_chunks,
 )
+from chec_dashboard.services.prompt_service import build_prompt
+from chec_dashboard.services.skill_service import resolve_skill
 
 
 def _settings(tmp_path: Path, data_dir: Path, corpus_dir: Path, **overrides):
@@ -124,7 +128,12 @@ def _write_corpus(corpus_dir: Path) -> None:
     (corpus_dir / "variables_manifest.json").write_text('{"variables":[]}', encoding="utf-8")
 
 
-def test_chatbot_status_reports_unconfigured_key(tmp_path: Path) -> None:
+def _write_skill(skill_dir: Path, name: str, text: str) -> None:
+    skill_dir.mkdir(parents=True, exist_ok=True)
+    (skill_dir / name).write_text(textwrap.dedent(text).strip() + "\n", encoding="utf-8")
+
+
+def test_chatbot_status_uses_mock_provider_without_credentials(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     corpus_dir = tmp_path / "corpus"
     data_dir.mkdir()
@@ -134,12 +143,40 @@ def test_chatbot_status_reports_unconfigured_key(tmp_path: Path) -> None:
     status = get_chatbot_status(settings)
 
     assert status["enabled"] is True
+    assert status["llm_provider"] == "mock"
+    assert status["llm_configured"] is True
     assert status["corpus_available"] is True
     assert status["gemini_configured"] is False
-    assert status["ready"] is False
+    assert status["ready"] is True
+    assert status["skills_available"] is True
+    assert status["skills_count"] == 6
+    assert status["skill_errors_count"] == 0
     assert status["chunks_path_exists"] is True
     assert "chunks.jsonl" in status["corpus_dir_entries"]
-    assert "Gemini no está configurado" in status["message"]
+    assert "listo" in status["message"]
+
+
+def test_chatbot_status_reports_unconfigured_selected_gemini_provider(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    data_dir.mkdir()
+    _write_corpus(corpus_dir)
+    settings = _settings(
+        tmp_path,
+        data_dir,
+        corpus_dir,
+        chatbot_enabled=True,
+        gemini_api_key=None,
+        llm_provider="gemini",
+    )
+
+    status = get_chatbot_status(settings)
+
+    assert status["llm_provider"] == "gemini"
+    assert status["llm_configured"] is False
+    assert status["gemini_configured"] is False
+    assert status["ready"] is False
+    assert "gemini" in status["message"]
 
 
 def test_chatbot_status_reports_missing_corpus(tmp_path: Path) -> None:
@@ -178,10 +215,10 @@ def test_chatbot_status_loads_corpus_through_databricks_files_api(
             return '{"variables":[]}'
         return None
 
-    monkeypatch.setattr("chec_dashboard.services.chatbot_service._read_databricks_file_text", fake_read)
-    monkeypatch.setattr("chec_dashboard.services.chatbot_service._databricks_file_exists", lambda path: True)
+    monkeypatch.setattr("chec_dashboard.services.retrieval_service.read_databricks_file_text", fake_read)
+    monkeypatch.setattr("chec_dashboard.services.retrieval_service.databricks_file_exists", lambda path: True)
     monkeypatch.setattr(
-        "chec_dashboard.services.chatbot_service._list_databricks_directory",
+        "chec_dashboard.services.retrieval_service.list_databricks_directory",
         lambda path: (["chunks.jsonl", "documents_manifest.json", "variables_manifest.json"], None),
     )
 
@@ -211,7 +248,181 @@ def test_retrieval_ranks_relevant_chunks(tmp_path: Path) -> None:
     assert chunks[0]["chunk_id"] == "retie-1"
 
 
-def test_assessment_without_gemini_key_returns_graceful_message(tmp_path: Path) -> None:
+def test_default_repo_skills_load_and_validate(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    data_dir.mkdir()
+    settings = _settings(tmp_path, data_dir, corpus_dir)
+
+    status = get_skill_status(settings)
+    skill = resolve_skill("compliance", settings)
+
+    assert status["skills_available"] is True
+    assert status["skills_count"] == 6
+    assert status["skill_errors_count"] == 0
+    assert skill.skill_id == "cumplimiento"
+    assert skill.skill_version == "1.0"
+    assert skill.skill_hash
+    assert skill.skill.source_type == "default"
+
+
+def test_configured_skill_overrides_default_and_shapes_prompt(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    skill_dir = tmp_path / "skills"
+    data_dir.mkdir()
+    _write_skill(
+        skill_dir,
+        "mantenimiento.yml",
+        """
+        skill_id: mantenimiento
+        version: "2.0"
+        status: active
+        role: Asistente de mantenimiento personalizado.
+        language: es
+        tone: Directo.
+        allowed_tools:
+          - get_dashboard_context
+          - search_technical_documents
+        instructions:
+          - Prioriza cuadrillas de campo por criticidad personalizada.
+        output:
+          sections:
+            - Seccion personalizada
+            - Evidencia de campo
+            - Datos por confirmar
+            - Accion sugerida
+        constraints:
+          must_cite_regulatory_claims: true
+          cannot_make_legal_conclusions: true
+          forbidden_phrases:
+            - cierre definitivo
+        missing_evidence_behavior: Pedir medicion de campo.
+        retrieval:
+          backend: local_jsonl
+          top_k: 2
+          boost_tags:
+            - mantenimiento
+        """,
+    )
+    settings = _settings(tmp_path, data_dir, corpus_dir, chatbot_skills_dir=skill_dir)
+
+    skill = resolve_skill("maintenance", settings)
+    prompt = build_prompt(
+        context_package={"nombre_analisis": "Mantenimiento", "selected_context": {"CODE": "TR-1"}},
+        question="prioridad",
+        briefing_type="maintenance",
+        chunks=[],
+        skill_resolution=skill,
+    )
+
+    assert skill.skill_version == "2.0"
+    assert skill.skill.source_type == "configured"
+    assert "Seccion personalizada" in prompt
+    assert "Prioriza cuadrillas de campo" in prompt
+    assert "cierre definitivo" in prompt
+
+
+def test_invalid_configured_skill_falls_back_and_reports_error(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    skill_dir = tmp_path / "skills"
+    data_dir.mkdir()
+    _write_skill(
+        skill_dir,
+        "cumplimiento.yml",
+        """
+        skill_id: cumplimiento
+        version: "2.0"
+        status: active
+        sql: select * from secret_table
+        instructions:
+          - No debe aceptarse.
+        """,
+    )
+    settings = _settings(tmp_path, data_dir, corpus_dir, chatbot_skills_dir=skill_dir)
+
+    status = get_skill_status(settings)
+    skill = resolve_skill("compliance", settings)
+
+    assert status["skill_errors_count"] == 1
+    assert status["validation_errors"][0]["source_type"] == "configured"
+    assert "control bloqueado" in " ".join(status["validation_errors"][0]["errors"])
+    assert skill.skill_version == "1.0"
+    assert skill.skill.source_type == "default"
+
+
+def test_retrieval_uses_skill_top_k_and_boost_tags(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    skill_dir = tmp_path / "skills"
+    data_dir.mkdir()
+    corpus_dir.mkdir()
+    chunks = [
+        {
+            "chunk_id": "red-1",
+            "document_title": "Red",
+            "tags": ["red"],
+            "text": "Condiciones ambientales y continuidad del servicio.",
+        },
+        {
+            "chunk_id": "aislador-1",
+            "document_title": "Aislador",
+            "tags": ["aislador"],
+            "text": "Condiciones normales de aisladores.",
+        },
+    ]
+    (corpus_dir / "chunks.jsonl").write_text(
+        "\n".join(__import__("json").dumps(chunk, ensure_ascii=False) for chunk in chunks) + "\n",
+        encoding="utf-8",
+    )
+    (corpus_dir / "documents_manifest.json").write_text('{"documents":[]}', encoding="utf-8")
+    (corpus_dir / "variables_manifest.json").write_text('{"variables":[]}', encoding="utf-8")
+    _write_skill(
+        skill_dir,
+        "confiabilidad.yml",
+        """
+        skill_id: confiabilidad
+        version: "2.0"
+        status: active
+        role: Skill de prueba.
+        language: es
+        tone: Tecnico.
+        allowed_tools:
+          - get_dashboard_context
+          - search_technical_documents
+        instructions:
+          - Probar refuerzo por etiqueta.
+        output:
+          sections:
+            - Estado observado
+        constraints:
+          must_cite_regulatory_claims: true
+          cannot_make_legal_conclusions: true
+          forbidden_phrases: []
+        missing_evidence_behavior: Reportar faltantes.
+        retrieval:
+          backend: local_jsonl
+          top_k: 1
+          boost_tags:
+            - aislador
+        """,
+    )
+    settings = _settings(tmp_path, data_dir, corpus_dir, chatbot_skills_dir=skill_dir)
+    skill = resolve_skill("reliability", settings)
+
+    chunks = retrieve_chatbot_chunks(
+        settings,
+        selected_context={"causa": "condiciones"},
+        question="condiciones",
+        skill_resolution=skill,
+    )
+
+    assert len(chunks) == 1
+    assert chunks[0]["chunk_id"] == "aislador-1"
+
+
+def test_assessment_with_mock_provider_returns_deterministic_answer(tmp_path: Path) -> None:
     data_dir = tmp_path / "data"
     corpus_dir = tmp_path / "corpus"
     data_dir.mkdir()
@@ -224,9 +435,33 @@ def test_assessment_without_gemini_key_returns_graceful_message(tmp_path: Path) 
         question="explica el indicador",
     )
 
-    assert payload["ready"] is False
-    assert "Gemini no está configurado" in payload["answer"]
+    assert payload["ready"] is True
+    assert "análisis mock" in payload["answer"]
     assert payload["citations"]
+    assert payload["conversation_id"].startswith("conv-")
+    assert payload["turn_id"].startswith("turn-")
+    assert payload["skill_id"] == "confiabilidad"
+    assert payload["skill_version"] == "1.0"
+    assert payload["skill_hash"]
+    assert payload["trace_id"].startswith("trace-")
+
+
+def test_assessment_reuses_conversation_id(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    data_dir.mkdir()
+    _write_corpus(corpus_dir)
+    settings = _settings(tmp_path, data_dir, corpus_dir, chatbot_enabled=True)
+
+    payload = assess_chatbot_context(
+        settings,
+        selected_context={"causa": "VIENTO", "cto_equi_ope": "CKT-1"},
+        question=None,
+        conversation_id="conv-existing",
+    )
+
+    assert payload["conversation_id"] == "conv-existing"
+    assert payload["turn_id"].startswith("turn-")
 
 
 def test_context_options_from_local_map_files(tmp_path: Path) -> None:
@@ -313,6 +548,7 @@ def test_assessment_prompt_uses_guided_analysis_type(
         data_dir,
         corpus_dir,
         chatbot_enabled=True,
+        llm_provider="gemini",
         gemini_api_key="fake-key",
     )
     captured_prompt = {}
@@ -322,7 +558,7 @@ def test_assessment_prompt_uses_guided_analysis_type(
         return "Respuesta técnica en español [1]."
 
     monkeypatch.setattr(
-        "chec_dashboard.services.chatbot_service._generate_gemini_answer",
+        "chec_dashboard.services.llm_service._generate_gemini_answer",
         fake_generate,
     )
 
@@ -349,11 +585,12 @@ def test_gemini_wrapper_can_be_mocked(tmp_path: Path, monkeypatch: pytest.Monkey
         data_dir,
         corpus_dir,
         chatbot_enabled=True,
+        llm_provider="gemini",
         gemini_api_key="fake-key",
     )
 
     monkeypatch.setattr(
-        "chec_dashboard.services.chatbot_service._generate_gemini_answer",
+        "chec_dashboard.services.llm_service._generate_gemini_answer",
         lambda settings, prompt: "Respuesta técnica en español [1].",
     )
 

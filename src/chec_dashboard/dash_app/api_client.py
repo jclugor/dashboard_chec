@@ -22,6 +22,7 @@ from chec_dashboard.services.data_service import (
 from chec_dashboard.services.chatbot_service import (
     assess_chatbot_context,
     get_chatbot_context_options,
+    get_skill_status,
     get_chatbot_status,
 )
 
@@ -415,6 +416,12 @@ def fetch_chatbot_status() -> dict[str, Any]:
     return _request_json("GET", "/chatbot/status")
 
 
+def fetch_chatbot_skill_status() -> dict[str, Any]:
+    if _use_inproc_transport():
+        return get_skill_status(settings)
+    return _request_json("GET", "/chatbot/skills/status")
+
+
 def fetch_chatbot_context_options(
     *,
     context_kind: str,
@@ -454,6 +461,7 @@ def fetch_chatbot_assessment(
     question: str | None = None,
     briefing_type: str = "reliability",
     question_id: str | None = None,
+    conversation_id: str | None = None,
 ) -> dict[str, Any]:
     if _use_inproc_transport():
         return assess_chatbot_context(
@@ -462,6 +470,7 @@ def fetch_chatbot_assessment(
             question=question,
             briefing_type=briefing_type,
             question_id=question_id,
+            conversation_id=conversation_id,
         )
     return _request_json(
         "POST",
@@ -471,5 +480,6 @@ def fetch_chatbot_assessment(
             "question": question,
             "briefing_type": briefing_type,
             "question_id": question_id,
+            "conversation_id": conversation_id,
         },
     )

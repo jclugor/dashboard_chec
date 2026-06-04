@@ -68,10 +68,13 @@ class Settings:
     request_timeout_seconds: int
     inference_http_retries: int
     inference_retry_backoff_ms: int
+    llm_provider: str
+    llm_endpoint_name: str | None
     chatbot_enabled: bool
     gemini_api_key: str | None
     gemini_model: str
     chatbot_corpus_dir: Path
+    chatbot_skills_dir: Path | None
     chatbot_retrieval_top_k: int
     chatbot_max_context_chars: int
     max_summary_points: int
@@ -93,6 +96,9 @@ def load_settings() -> Settings:
     explicit_chatbot_corpus_dir = _env_value("CHATBOT_CORPUS_DIR")
     chatbot_corpus_volume_dir = _env_value("CHATBOT_CORPUS_VOLUME_DIR")
     chatbot_corpus_subdir = (_env_value("CHATBOT_CORPUS_SUBDIR") or "chatbot_corpus").strip("/")
+    explicit_chatbot_skills_dir = _env_value("CHATBOT_SKILLS_DIR")
+    chatbot_skills_volume_dir = _env_value("CHATBOT_SKILLS_VOLUME_DIR")
+    chatbot_skills_subdir = (_env_value("CHATBOT_SKILLS_SUBDIR") or "active").strip("/")
     prefer_volume_corpus = os.getenv("ENVIRONMENT", "").strip().lower() == "databricks_app"
     if chatbot_corpus_volume_dir and (prefer_volume_corpus or not explicit_chatbot_corpus_dir):
         volume_root = _env_path(chatbot_corpus_volume_dir)
@@ -101,6 +107,13 @@ def load_settings() -> Settings:
         chatbot_corpus_dir = Path(explicit_chatbot_corpus_dir).resolve()
     else:
         chatbot_corpus_dir = default_chatbot_corpus_dir
+    if chatbot_skills_volume_dir and (prefer_volume_corpus or not explicit_chatbot_skills_dir):
+        skills_volume_root = _env_path(chatbot_skills_volume_dir)
+        chatbot_skills_dir = (skills_volume_root / chatbot_skills_subdir if chatbot_skills_subdir else skills_volume_root).resolve()
+    elif explicit_chatbot_skills_dir:
+        chatbot_skills_dir = Path(explicit_chatbot_skills_dir).resolve()
+    else:
+        chatbot_skills_dir = None
 
     api_host = os.getenv("API_HOST", "0.0.0.0")
     api_port = _to_int(os.getenv("API_PORT"), 8000)
@@ -135,10 +148,13 @@ def load_settings() -> Settings:
         request_timeout_seconds=_to_int(os.getenv("REQUEST_TIMEOUT_SECONDS"), 30),
         inference_http_retries=max(_to_int(os.getenv("INFERENCE_HTTP_RETRIES"), 1), 0),
         inference_retry_backoff_ms=max(_to_int(os.getenv("INFERENCE_RETRY_BACKOFF_MS"), 250), 0),
+        llm_provider=os.getenv("LLM_PROVIDER", "mock").strip().lower(),
+        llm_endpoint_name=_env_value("LLM_ENDPOINT_NAME"),
         chatbot_enabled=_to_bool(os.getenv("CHATBOT_ENABLED"), False),
         gemini_api_key=os.getenv("GEMINI_API_KEY") or None,
         gemini_model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash"),
         chatbot_corpus_dir=chatbot_corpus_dir,
+        chatbot_skills_dir=chatbot_skills_dir,
         chatbot_retrieval_top_k=max(_to_int(os.getenv("CHATBOT_RETRIEVAL_TOP_K"), 5), 1),
         chatbot_max_context_chars=max(_to_int(os.getenv("CHATBOT_MAX_CONTEXT_CHARS"), 12000), 1000),
         max_summary_points=max(_to_int(os.getenv("MAX_SUMMARY_POINTS"), 5000), 100),

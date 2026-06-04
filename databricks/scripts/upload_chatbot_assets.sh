@@ -10,9 +10,11 @@ SOURCE_VOLUME_NAME="${SOURCE_VOLUME_NAME:-source_files}"
 DOCS_SOURCE_DIR="${CHATBOT_SOURCE_DOCS_DIR:-${CHEC_ROOT}/Dashboard_CHEC/Unstructured_Files}"
 VARIABLES_SOURCE_DIR="${CHATBOT_VARIABLES_SOURCE_DIR:-${CHEC_ROOT}/data/arbol_decision_recomendaciones}"
 CORPUS_SOURCE_DIR="${CHATBOT_CORPUS_SOURCE_DIR:-${CHEC_ROOT}/data/chatbot_corpus}"
+SKILLS_SOURCE_DIR="${CHATBOT_SKILLS_SOURCE_DIR:-${CHEC_ROOT}/dashboard/src/chec_dashboard/agent_skills/active}"
 
 DOCS_TARGET_ROOT="dbfs:/Volumes/${CATALOG_NAME}/raw/${SOURCE_VOLUME_NAME}/chatbot_documents"
 CORPUS_TARGET_ROOT="dbfs:/Volumes/${CATALOG_NAME}/raw/${SOURCE_VOLUME_NAME}/chatbot_corpus"
+SKILLS_TARGET_ROOT="dbfs:/Volumes/${CATALOG_NAME}/agent_config/skills/active"
 
 CURATED_DOCS=(
   "retie.pdf"
@@ -27,6 +29,15 @@ CORPUS_FILES=(
   "chunks.jsonl"
   "documents_manifest.json"
   "variables_manifest.json"
+)
+
+SKILL_FILES=(
+  "confiabilidad.yml"
+  "cumplimiento.yml"
+  "mantenimiento.yml"
+  "free_form_chat.yml"
+  "global_policy.yml"
+  "retrieval_policy.yml"
 )
 
 require_command() {
@@ -74,4 +85,9 @@ for relative_path in "${CORPUS_FILES[@]}"; do
   upload_file "${CORPUS_SOURCE_DIR}/${relative_path}" "${CORPUS_TARGET_ROOT}/${relative_path}"
 done
 
-echo "Chatbot assets uploaded to ${DOCS_TARGET_ROOT} and ${CORPUS_TARGET_ROOT}"
+echo "Uploading governed chatbot skills from ${SKILLS_SOURCE_DIR}"
+for relative_path in "${SKILL_FILES[@]}"; do
+  upload_file "${SKILLS_SOURCE_DIR}/${relative_path}" "${SKILLS_TARGET_ROOT}/${relative_path}"
+done
+
+echo "Chatbot assets uploaded to ${DOCS_TARGET_ROOT}, ${CORPUS_TARGET_ROOT}, and ${SKILLS_TARGET_ROOT}"

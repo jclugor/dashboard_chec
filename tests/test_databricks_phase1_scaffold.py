@@ -267,6 +267,8 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "databricks apps create" in deploy_app_script
     assert "databricks apps update" in deploy_app_script
     assert "APP_CHATBOT_CORPUS_VOLUME_RESOURCE_KEY" in deploy_app_script
+    assert "APP_CHATBOT_SKILLS_VOLUME_RESOURCE_KEY" in deploy_app_script
+    assert "agent_config.skills" in deploy_app_script
     assert "APP_GEMINI_SECRET_RESOURCE_KEY" in deploy_app_script
     assert "APP_GEMINI_SECRET_SCOPE" in deploy_app_script
     assert "APP_GEMINI_SECRET_KEY" in deploy_app_script
@@ -374,6 +376,8 @@ def test_phase35_app_staging_uses_chatbot_volume_resource() -> None:
             "APP_CHATBOT_ENABLED": "true",
             "APP_CHATBOT_CORPUS_VOLUME_RESOURCE_KEY": "chatbot_corpus_volume",
             "APP_CHATBOT_CORPUS_SUBDIR": "chatbot_corpus",
+            "APP_CHATBOT_SKILLS_VOLUME_RESOURCE_KEY": "chatbot_skills_volume",
+            "APP_CHATBOT_SKILLS_SUBDIR": "active",
         }
     )
     subprocess.run(
@@ -393,6 +397,10 @@ def test_phase35_app_staging_uses_chatbot_volume_resource() -> None:
     assert "valueFrom: \"chatbot_corpus_volume\"" in app_yaml
     assert "CHATBOT_CORPUS_SUBDIR" in app_yaml
     assert "value: \"chatbot_corpus\"" in app_yaml
+    assert "CHATBOT_SKILLS_VOLUME_DIR" in app_yaml
+    assert "valueFrom: \"chatbot_skills_volume\"" in app_yaml
+    assert "CHATBOT_SKILLS_SUBDIR" in app_yaml
+    assert "value: \"active\"" in app_yaml
     assert not (build_root / "data" / "chatbot_corpus").exists()
 
 
