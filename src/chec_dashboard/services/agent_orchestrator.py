@@ -29,6 +29,7 @@ from chec_dashboard.services.retrieval_service import (
     Corpus,
     corpus_runtime_diagnostics,
     load_chatbot_corpus,
+    retriever_runtime_diagnostics,
     retrieve_chatbot_chunks,
 )
 from chec_dashboard.services.skill_service import SkillResolution, get_skill_status, resolve_skill
@@ -36,21 +37,30 @@ from chec_dashboard.services.skill_service import SkillResolution, get_skill_sta
 
 def get_chatbot_status(settings: Settings) -> dict[str, Any]:
     corpus_error = None
-    try:
-        corpus = load_chatbot_corpus(settings)
-    except Exception as exc:
+    retriever_diagnostics = retriever_runtime_diagnostics(settings)
+    if retriever_diagnostics["retriever_backend"] == "databricks_ai_search":
         corpus = Corpus(chunks=[], documents=[], variables=[])
-        corpus_error = str(exc)
+        corpus_available = bool(retriever_diagnostics["retriever_configured"])
+    else:
+        try:
+            corpus = load_chatbot_corpus(settings)
+        except Exception as exc:
+            corpus = Corpus(chunks=[], documents=[], variables=[])
+            corpus_error = str(exc)
+        corpus_available = bool(corpus.chunks)
     diagnostics = corpus_runtime_diagnostics(settings)
     enabled = settings.chatbot_enabled
     provider = llm_provider(settings)
     configured = llm_configured(settings)
     gemini_configured = bool(settings.gemini_api_key)
-    corpus_available = bool(corpus.chunks)
     ready = enabled and configured and corpus_available
 
     if not enabled:
         message = "El asistente técnico está deshabilitado en esta instalación."
+    elif not retriever_diagnostics["retriever_supported"]:
+        message = f"Recuperador técnico no soportado: {retriever_diagnostics['retriever_backend']}."
+    elif not retriever_diagnostics["retriever_configured"]:
+        message = "El recuperador Databricks AI Search no está configurado. Define AI_SEARCH_INDEX_NAME."
     elif not corpus_available:
         message = "El corpus técnico no está disponible. Carga los documentos antes de analizar."
     elif not configured:
@@ -68,6 +78,7 @@ def get_chatbot_status(settings: Settings) -> dict[str, Any]:
         "documents_count": len(corpus.documents),
         "chunks_count": len(corpus.chunks),
         "message": message,
+        **retriever_diagnostics,
         **diagnostics,
     }
     if corpus_error:
@@ -254,6 +265,33 @@ def assess_chatbot_context(
         return _assessment_payload(
             answer=answer,
             citations=citations,
+            status_text=status_text,
+            ready=False,
+            briefing_type=briefing_type,
+            metadata=metadata,
+        )
+    if not status.get("retriever_configured", True):
+        answer = (
+            "El recuperador técnico seleccionado no está configurado. "
+            "Revisa RETRIEVER_BACKEND y AI_SEARCH_INDEX_NAME antes de solicitar el análisis."
+        )
+        status_text = status["message"]
+        _persist_response(
+            settings,
+            metadata=metadata,
+            user_message=user_message,
+            answer=answer,
+            briefing_type=briefing_type,
+            question_id=question_id,
+            context_package=context_package,
+            citations=[],
+            chunks=[],
+            status_text=status_text,
+            ready=False,
+        )
+        return _assessment_payload(
+            answer=answer,
+            citations=[],
             status_text=status_text,
             ready=False,
             briefing_type=briefing_type,
@@ -489,6 +527,13 @@ def send_chatbot_message(
 
     if not status["enabled"]:
         answer = "El asistente técnico está deshabilitado para continuar la conversación."
+        status_text = status["message"]
+        ready = False
+    elif not status.get("retriever_configured", True):
+        answer = (
+            "El recuperador técnico seleccionado no está configurado para continuar la conversación."
+        )
+        citations = []
         status_text = status["message"]
         ready = False
     elif not chunks:

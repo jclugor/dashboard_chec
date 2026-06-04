@@ -19,6 +19,13 @@ def _base_env(monkeypatch, tmp_path: Path) -> None:
     monkeypatch.delenv("CHATBOT_SKILLS_SUBDIR", raising=False)
     monkeypatch.delenv("LLM_PROVIDER", raising=False)
     monkeypatch.delenv("LLM_ENDPOINT_NAME", raising=False)
+    monkeypatch.delenv("RETRIEVER_BACKEND", raising=False)
+    monkeypatch.delenv("AI_SEARCH_ENDPOINT_NAME", raising=False)
+    monkeypatch.delenv("AI_SEARCH_INDEX_NAME", raising=False)
+    monkeypatch.delenv("AI_SEARCH_TOP_K", raising=False)
+    monkeypatch.delenv("AI_SEARCH_QUERY_TYPE", raising=False)
+    monkeypatch.delenv("AI_SEARCH_EMBEDDING_ENDPOINT_NAME", raising=False)
+    monkeypatch.delenv("AI_SEARCH_ENDPOINT_TYPE", raising=False)
 
 
 def test_explicit_chatbot_corpus_dir_has_priority(monkeypatch, tmp_path: Path) -> None:
@@ -130,6 +137,38 @@ def test_llm_provider_env_overrides(monkeypatch, tmp_path: Path) -> None:
 
     assert settings.llm_provider == "databricks_model_serving"
     assert settings.llm_endpoint_name == "chec-agent-demo"
+
+
+def test_phase5_retriever_env_defaults_and_overrides(monkeypatch, tmp_path: Path) -> None:
+    _base_env(monkeypatch, tmp_path)
+
+    settings = load_settings()
+
+    assert settings.retriever_backend == "local_jsonl"
+    assert settings.ai_search_endpoint_name == "chec-agent-search"
+    assert settings.ai_search_index_name == "chec_dbx_demo.gold.technical_doc_chunks_current_index"
+    assert settings.ai_search_top_k == 8
+    assert settings.ai_search_query_type == "hybrid"
+    assert settings.ai_search_embedding_endpoint_name == "databricks-qwen3-embedding-0-6b"
+    assert settings.ai_search_endpoint_type == "STANDARD"
+
+    monkeypatch.setenv("RETRIEVER_BACKEND", "databricks_ai_search")
+    monkeypatch.setenv("AI_SEARCH_ENDPOINT_NAME", "custom-search")
+    monkeypatch.setenv("AI_SEARCH_INDEX_NAME", "cat.gold.idx")
+    monkeypatch.setenv("AI_SEARCH_TOP_K", "11")
+    monkeypatch.setenv("AI_SEARCH_QUERY_TYPE", "ann")
+    monkeypatch.setenv("AI_SEARCH_EMBEDDING_ENDPOINT_NAME", "databricks-gte-large-en")
+    monkeypatch.setenv("AI_SEARCH_ENDPOINT_TYPE", "storage_optimized")
+
+    settings = load_settings()
+
+    assert settings.retriever_backend == "databricks_ai_search"
+    assert settings.ai_search_endpoint_name == "custom-search"
+    assert settings.ai_search_index_name == "cat.gold.idx"
+    assert settings.ai_search_top_k == 11
+    assert settings.ai_search_query_type == "ann"
+    assert settings.ai_search_embedding_endpoint_name == "databricks-gte-large-en"
+    assert settings.ai_search_endpoint_type == "STORAGE_OPTIMIZED"
 
 
 def test_phase0_decision_record_locks_demo_defaults() -> None:

@@ -10,8 +10,10 @@ APP_CONVERSATION_SCHEMA="${APP_CONVERSATION_SCHEMA:-agent}"
 APP_CONTEXT_TOOLS_SCHEMA="${APP_CONTEXT_TOOLS_SCHEMA:-agent_tools}"
 APP_CONTEXT_TOOL_FUNCTIONS="${APP_CONTEXT_TOOL_FUNCTIONS:-get_dashboard_context,get_reliability_summary,get_compliance_context,get_event_context,get_asset_context,get_circuit_history}"
 APP_CONTEXT_TOOL_VIEWS="${APP_CONTEXT_TOOL_VIEWS:-gold_agent_view_context,gold_agent_event_context,gold_agent_asset_context,gold_agent_circuit_history}"
+APP_AI_SEARCH_INDEX_FULL_NAME="${APP_AI_SEARCH_INDEX_FULL_NAME:-${CATALOG_NAME}.gold.technical_doc_chunks_current_index}"
 GRANT_CHATBOT_CONVERSATION_ACCESS="${GRANT_CHATBOT_CONVERSATION_ACCESS:-true}"
 GRANT_CHATBOT_CONTEXT_TOOL_ACCESS="${GRANT_CHATBOT_CONTEXT_TOOL_ACCESS:-true}"
+GRANT_CHATBOT_AI_SEARCH_ACCESS="${GRANT_CHATBOT_AI_SEARCH_ACCESS:-true}"
 
 resolve_permission_level() {
   local desired_csv="$1"
@@ -180,6 +182,22 @@ if [[ "${GRANT_CHATBOT_CONTEXT_TOOL_ACCESS}" == "true" ]]; then
     databricks grants update table "${CATALOG_NAME}.gold.${view_name}" --json "@${VIEW_GRANTS_FILE}"
     rm -f "${VIEW_GRANTS_FILE}"
   done
+fi
+
+if [[ "${GRANT_CHATBOT_AI_SEARCH_ACCESS}" == "true" ]]; then
+  AI_SEARCH_GRANTS_FILE="$(mktemp)"
+  jq -n \
+    --arg principal "${APP_UC_PRINCIPAL}" \
+    '{
+      changes: [
+        {
+          principal: $principal,
+          add: ["SELECT"]
+        }
+      ]
+    }' >"${AI_SEARCH_GRANTS_FILE}"
+  databricks grants update table "${APP_AI_SEARCH_INDEX_FULL_NAME}" --json "@${AI_SEARCH_GRANTS_FILE}"
+  rm -f "${AI_SEARCH_GRANTS_FILE}"
 fi
 
 echo "Applied app permissions for ${APP_NAME} and data grants for ${APP_SERVICE_PRINCIPAL_NAME:-$APP_UC_PRINCIPAL} (${APP_UC_PRINCIPAL})"

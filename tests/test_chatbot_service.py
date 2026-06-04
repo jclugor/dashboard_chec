@@ -10,9 +10,12 @@ import pytest
 
 from chec_dashboard.core.config import settings as base_settings
 from chec_dashboard.services.chatbot_service import (
+    DatabricksAISearchRetriever,
+    _parse_ai_search_response,
     assess_chatbot_context,
     build_chatbot_context_package,
     build_context_tool_payload,
+    citation_payload,
     create_chatbot_conversation,
     get_circuit_history_tool,
     get_chatbot_context_options,
@@ -261,6 +264,171 @@ def test_retrieval_ranks_relevant_chunks(tmp_path: Path) -> None:
 
     assert chunks
     assert chunks[0]["chunk_id"] == "retie-1"
+
+
+def test_ai_search_response_parser_returns_citation_ready_chunks() -> None:
+    response = {
+        "manifest": {
+            "columns": [
+                {"name": "chunk_id"},
+                {"name": "document_title"},
+                {"name": "document_type"},
+                {"name": "source_path"},
+                {"name": "source_uri"},
+                {"name": "page"},
+                {"name": "section_title"},
+                {"name": "section_number"},
+                {"name": "authority_level"},
+                {"name": "text"},
+            ]
+        },
+        "result": {
+            "data_array": [
+                [
+                    "creg-015-1",
+                    "CREG 015",
+                    "pdf",
+                    "resolucion_creg_0015_2018.pdf",
+                    "/Volumes/chec_dbx_demo/raw/source_files/chatbot_documents/resolucion_creg_0015_2018.pdf",
+                    4,
+                    "SAIDI y SAIFI",
+                    "2.1",
+                    "normative_or_technical_document",
+                    "CREG 015 define indicadores SAIDI y SAIFI para calidad del servicio.",
+                ]
+            ]
+        },
+    }
+
+    chunks = _parse_ai_search_response(response)
+    citations = citation_payload(chunks)
+
+    assert chunks[0]["chunk_id"] == "creg-015-1"
+    assert chunks[0]["score"] == 1.0
+    assert citations[0]["id"] == "creg-015-1"
+    assert citations[0]["title"] == "CREG 015"
+    assert citations[0]["source_uri"].endswith("resolucion_creg_0015_2018.pdf")
+    assert citations[0]["section_title"] == "SAIDI y SAIFI"
+    assert citations[0]["section_number"] == "2.1"
+    assert citations[0]["document_type"] == "pdf"
+    assert citations[0]["authority_level"] == "normative_or_technical_document"
+
+
+def test_ai_search_retriever_builds_bounded_hybrid_query(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "missing-corpus"
+    data_dir.mkdir()
+    settings = _settings(
+        tmp_path,
+        data_dir,
+        corpus_dir,
+        retriever_backend="databricks_ai_search",
+        ai_search_index_name="chec_dbx_demo.gold.technical_doc_chunks_current_index",
+        ai_search_top_k=2,
+        ai_search_query_type="hybrid",
+    )
+    calls: list[dict[str, object]] = []
+
+    class FakeVectorSearchIndexes:
+        def query_index(self, **kwargs):
+            calls.append(kwargs)
+            return {
+                "manifest": {
+                    "columns": [
+                        {"name": "chunk_id"},
+                        {"name": "document_title"},
+                        {"name": "source_path"},
+                        {"name": "page"},
+                        {"name": "text"},
+                    ]
+                },
+                "result": {
+                    "data_array": [
+                        ["saidi-1", "RETIE", "retie.pdf", 10, "SAIDI SAIFI CREG 015 continuidad del servicio."],
+                        [
+                            "saifi-2",
+                            "CREG 015",
+                            "resolucion_creg_0015_2018.pdf",
+                            22,
+                            "SAIFI y duracion de interrupciones para circuitos.",
+                        ],
+                    ]
+                },
+            }
+
+    class FakeWorkspaceClient:
+        vector_search_indexes = FakeVectorSearchIndexes()
+
+    retriever = DatabricksAISearchRetriever(settings, workspace_client_factory=FakeWorkspaceClient)
+
+    chunks = retriever.retrieve(
+        selected_context={"structured_context_tool": {"summary": {"text": "Circuito CKT-1 con SAIDI alto."}}},
+        question="CREG 015 SAIDI",
+    )
+
+    assert calls[0]["index_name"] == "chec_dbx_demo.gold.technical_doc_chunks_current_index"
+    assert calls[0]["query_type"] == "hybrid"
+    assert calls[0]["num_results"] == 2
+    assert "text" in calls[0]["columns"]
+    assert "CREG 015 SAIDI" in calls[0]["query_text"]
+    assert len(chunks) == 2
+    assert chunks[0]["snippet"] == "SAIDI SAIFI CREG 015 continuidad del servicio."
+    assert chunks[1]["snippet"].startswith("SAIFI")
+
+
+def test_chatbot_status_reports_ai_search_ready_without_jsonl(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "missing-corpus"
+    data_dir.mkdir()
+    settings = _settings(
+        tmp_path,
+        data_dir,
+        corpus_dir,
+        chatbot_enabled=True,
+        retriever_backend="databricks_ai_search",
+        ai_search_index_name="chec_dbx_demo.gold.technical_doc_chunks_current_index",
+    )
+
+    status = get_chatbot_status(settings)
+
+    assert status["ready"] is True
+    assert status["corpus_available"] is True
+    assert status["chunks_path_exists"] is False
+    assert status["retriever_backend"] == "databricks_ai_search"
+    assert status["ai_search_configured"] is True
+    assert status["ai_search_index_name"] == "chec_dbx_demo.gold.technical_doc_chunks_current_index"
+    assert status["ai_search_query_type"] == "hybrid"
+    assert status["ai_search_top_k"] == 8
+
+
+def test_missing_ai_search_config_returns_traceable_early_answer(tmp_path: Path) -> None:
+    reset_memory_conversation_store()
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "missing-corpus"
+    data_dir.mkdir()
+    settings = _settings(
+        tmp_path,
+        data_dir,
+        corpus_dir,
+        chatbot_enabled=True,
+        retriever_backend="databricks_ai_search",
+        ai_search_index_name=None,
+    )
+
+    result = assess_chatbot_context(
+        settings,
+        selected_context={"CODE": "TR-1", "causa": "VIENTO"},
+        question="CREG 015",
+        briefing_type="reliability",
+    )
+    detail = get_chatbot_conversation(settings, result["conversation_id"])
+
+    assert result["ready"] is False
+    assert "AI_SEARCH_INDEX_NAME" in result["status_text"]
+    assert result["skill_id"]
+    assert result["skill_version"]
+    assert result["skill_hash"]
+    assert detail["messages"][-1]["skill_id"] == result["skill_id"]
 
 
 def test_default_repo_skills_load_and_validate(tmp_path: Path) -> None:

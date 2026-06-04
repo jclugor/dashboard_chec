@@ -22,6 +22,15 @@ APP_CHATBOT_CONVERSATION_BACKEND="${APP_CHATBOT_CONVERSATION_BACKEND:-databricks
 APP_CHATBOT_CONVERSATION_SCHEMA="${APP_CHATBOT_CONVERSATION_SCHEMA:-agent}"
 APP_CHATBOT_CONTEXT_TOOLS_SCHEMA="${APP_CHATBOT_CONTEXT_TOOLS_SCHEMA:-agent_tools}"
 APP_CHATBOT_MEMORY_MAX_TURNS="${APP_CHATBOT_MEMORY_MAX_TURNS:-8}"
+APP_RETRIEVER_BACKEND="${APP_RETRIEVER_BACKEND:-databricks_ai_search}"
+APP_AI_SEARCH_ENDPOINT_NAME="${APP_AI_SEARCH_ENDPOINT_NAME:-chec-agent-search}"
+APP_AI_SEARCH_INDEX_FULL_NAME="${APP_AI_SEARCH_INDEX_FULL_NAME:-${APP_CATALOG_NAME:-chec_dbx_demo}.gold.technical_doc_chunks_current_index}"
+APP_AI_SEARCH_INDEX_RESOURCE_KEY="${APP_AI_SEARCH_INDEX_RESOURCE_KEY:-chatbot_ai_search_index}"
+APP_AI_SEARCH_INDEX_DESCRIPTION="${APP_AI_SEARCH_INDEX_DESCRIPTION:-Read-only CHEC chatbot technical document AI Search index}"
+APP_AI_SEARCH_TOP_K="${APP_AI_SEARCH_TOP_K:-8}"
+APP_AI_SEARCH_QUERY_TYPE="${APP_AI_SEARCH_QUERY_TYPE:-hybrid}"
+APP_AI_SEARCH_EMBEDDING_ENDPOINT_NAME="${APP_AI_SEARCH_EMBEDDING_ENDPOINT_NAME:-databricks-qwen3-embedding-0-6b}"
+APP_AI_SEARCH_ENDPOINT_TYPE="${APP_AI_SEARCH_ENDPOINT_TYPE:-STANDARD}"
 APP_GEMINI_SECRET_RESOURCE_KEY="${APP_GEMINI_SECRET_RESOURCE_KEY:-gemini_api_key}"
 APP_GEMINI_SECRET_SCOPE="${APP_GEMINI_SECRET_SCOPE:-chec_dash_parity}"
 APP_GEMINI_SECRET_KEY="${APP_GEMINI_SECRET_KEY:-gemini_api_key}"
@@ -32,6 +41,13 @@ export APP_CHATBOT_CONVERSATION_BACKEND
 export APP_CHATBOT_CONVERSATION_SCHEMA
 export APP_CHATBOT_CONTEXT_TOOLS_SCHEMA
 export APP_CHATBOT_MEMORY_MAX_TURNS
+export APP_RETRIEVER_BACKEND
+export APP_AI_SEARCH_ENDPOINT_NAME
+export APP_AI_SEARCH_INDEX_RESOURCE_KEY
+export APP_AI_SEARCH_TOP_K
+export APP_AI_SEARCH_QUERY_TYPE
+export APP_AI_SEARCH_EMBEDDING_ENDPOINT_NAME
+export APP_AI_SEARCH_ENDPOINT_TYPE
 
 ensure_chatbot_skill_lifecycle_dirs() {
   local lifecycle_dir
@@ -57,11 +73,27 @@ setup_chatbot_context_tools() {
     ./.venv/bin/python databricks/scripts/setup_phase4_context_tools.py
 }
 
+setup_chatbot_ai_search() {
+  if [[ "${APP_RETRIEVER_BACKEND}" != "databricks_ai_search" ]]; then
+    return 0
+  fi
+  APP_WAREHOUSE_ID="${APP_WAREHOUSE_ID:-4437a6195e05c59c}" \
+  APP_CATALOG_NAME="${APP_CATALOG_NAME:-chec_dbx_demo}" \
+  APP_SOURCE_VOLUME_NAME="${APP_SOURCE_VOLUME_NAME:-source_files}" \
+  APP_AI_SEARCH_ENDPOINT_NAME="${APP_AI_SEARCH_ENDPOINT_NAME}" \
+  APP_AI_SEARCH_INDEX_FULL_NAME="${APP_AI_SEARCH_INDEX_FULL_NAME}" \
+  APP_AI_SEARCH_EMBEDDING_ENDPOINT_NAME="${APP_AI_SEARCH_EMBEDDING_ENDPOINT_NAME}" \
+  APP_AI_SEARCH_ENDPOINT_TYPE="${APP_AI_SEARCH_ENDPOINT_TYPE}" \
+  APP_AI_SEARCH_QUERY_TYPE="${APP_AI_SEARCH_QUERY_TYPE}" \
+    ./.venv/bin/python databricks/scripts/setup_phase5_ai_search.py
+}
+
 cd "${REPO_ROOT}"
 ./.venv/bin/python databricks/scripts/stage_phase35_databricks_app.py
 ensure_chatbot_skill_lifecycle_dirs
 setup_chatbot_conversation_tables
 setup_chatbot_context_tools
+setup_chatbot_ai_search
 
 if ! databricks apps get "${APP_NAME}" -o json >/dev/null 2>&1; then
   databricks apps create "${APP_NAME}" \
@@ -78,6 +110,9 @@ APP_RESOURCE_UPDATE_JSON="$(jq -c \
   --arg skills_resource_key "${APP_CHATBOT_SKILLS_VOLUME_RESOURCE_KEY}" \
   --arg skills_resource_description "${APP_CHATBOT_SKILLS_VOLUME_DESCRIPTION}" \
   --arg skills_volume_full_name "${APP_CHATBOT_SKILLS_VOLUME_FULL_NAME}" \
+  --arg ai_search_resource_key "${APP_AI_SEARCH_INDEX_RESOURCE_KEY}" \
+  --arg ai_search_resource_description "${APP_AI_SEARCH_INDEX_DESCRIPTION}" \
+  --arg ai_search_index_full_name "${APP_AI_SEARCH_INDEX_FULL_NAME}" \
   --arg gemini_resource_key "${APP_GEMINI_SECRET_RESOURCE_KEY}" \
   --arg gemini_resource_description "${APP_GEMINI_SECRET_DESCRIPTION}" \
   --arg gemini_secret_scope "${APP_GEMINI_SECRET_SCOPE}" \
@@ -85,7 +120,12 @@ APP_RESOURCE_UPDATE_JSON="$(jq -c \
   '{
     description: $description,
     resources: (
-      ((.resources // []) | map(select(.name != $resource_key and .name != $skills_resource_key and .name != $gemini_resource_key)))
+      ((.resources // []) | map(select(
+        .name != $resource_key
+        and .name != $skills_resource_key
+        and .name != $ai_search_resource_key
+        and .name != $gemini_resource_key
+      )))
       + [{
         name: $resource_key,
         description: $resource_description,
@@ -102,6 +142,15 @@ APP_RESOURCE_UPDATE_JSON="$(jq -c \
           securable_type: "VOLUME",
           securable_full_name: $skills_volume_full_name,
           permission: "READ_VOLUME"
+        }
+      }]
+      + [{
+        name: $ai_search_resource_key,
+        description: $ai_search_resource_description,
+        uc_securable: {
+          securable_type: "TABLE",
+          securable_full_name: $ai_search_index_full_name,
+          permission: "SELECT"
         }
       }]
       + (if ($gemini_resource_key != "" and $gemini_secret_scope != "" and $gemini_secret_key != "") then [{

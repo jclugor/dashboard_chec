@@ -50,6 +50,19 @@ def _render_app_yaml(template_text: str) -> str:
         "__CHATBOT_CONVERSATION_SCHEMA__": os.getenv("APP_CHATBOT_CONVERSATION_SCHEMA", "agent"),
         "__CHATBOT_CONTEXT_TOOLS_SCHEMA__": os.getenv("APP_CHATBOT_CONTEXT_TOOLS_SCHEMA", "agent_tools"),
         "__CHATBOT_MEMORY_MAX_TURNS__": os.getenv("APP_CHATBOT_MEMORY_MAX_TURNS", "8"),
+        "__RETRIEVER_BACKEND__": os.getenv("APP_RETRIEVER_BACKEND", "local_jsonl"),
+        "__AI_SEARCH_ENDPOINT_NAME__": os.getenv("APP_AI_SEARCH_ENDPOINT_NAME", "chec-agent-search"),
+        "__AI_SEARCH_INDEX_RESOURCE_KEY__": os.getenv(
+            "APP_AI_SEARCH_INDEX_RESOURCE_KEY",
+            "chatbot_ai_search_index",
+        ),
+        "__AI_SEARCH_TOP_K__": os.getenv("APP_AI_SEARCH_TOP_K", "8"),
+        "__AI_SEARCH_QUERY_TYPE__": os.getenv("APP_AI_SEARCH_QUERY_TYPE", "hybrid"),
+        "__AI_SEARCH_EMBEDDING_ENDPOINT_NAME__": os.getenv(
+            "APP_AI_SEARCH_EMBEDDING_ENDPOINT_NAME",
+            "databricks-qwen3-embedding-0-6b",
+        ),
+        "__AI_SEARCH_ENDPOINT_TYPE__": os.getenv("APP_AI_SEARCH_ENDPOINT_TYPE", "STANDARD"),
         "__GEMINI_MODEL__": os.getenv("APP_GEMINI_MODEL", "gemini-2.5-flash"),
         "__GEMINI_API_KEY_ENV__": gemini_api_key_env,
     }

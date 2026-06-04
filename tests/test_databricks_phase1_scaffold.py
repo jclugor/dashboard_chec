@@ -274,6 +274,14 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "APP_CHATBOT_CONTEXT_TOOLS_SCHEMA" in deploy_app_script
     assert "setup_chatbot_context_tools()" in deploy_app_script
     assert "setup_phase4_context_tools.py" in deploy_app_script
+    assert 'APP_RETRIEVER_BACKEND="${APP_RETRIEVER_BACKEND:-databricks_ai_search}"' in deploy_app_script
+    assert "APP_AI_SEARCH_ENDPOINT_NAME" in deploy_app_script
+    assert "APP_AI_SEARCH_INDEX_FULL_NAME" in deploy_app_script
+    assert "APP_AI_SEARCH_EMBEDDING_ENDPOINT_NAME" in deploy_app_script
+    assert "databricks-qwen3-embedding-0-6b" in deploy_app_script
+    assert "setup_chatbot_ai_search()" in deploy_app_script
+    assert "setup_phase5_ai_search.py" in deploy_app_script
+    assert "chatbot_ai_search_index" in deploy_app_script
     assert "APP_CHATBOT_CORPUS_VOLUME_RESOURCE_KEY" in deploy_app_script
     assert "APP_CHATBOT_SKILLS_VOLUME_RESOURCE_KEY" in deploy_app_script
     assert "agent_config.skills" in deploy_app_script
@@ -306,6 +314,8 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "GRANT_CHATBOT_CONTEXT_TOOL_ACCESS" in app_permissions_script
     assert "APP_CONTEXT_TOOL_FUNCTIONS" in app_permissions_script
     assert "APP_CONTEXT_TOOL_VIEWS" in app_permissions_script
+    assert "APP_AI_SEARCH_INDEX_FULL_NAME" in app_permissions_script
+    assert "GRANT_CHATBOT_AI_SEARCH_ACCESS" in app_permissions_script
     assert "databricks grants update function" in app_permissions_script
     assert "databricks grants update table" in app_permissions_script
     assert 'add: ["USE_SCHEMA", "EXECUTE"]' in app_permissions_script
@@ -327,6 +337,14 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "CHATBOT_CONVERSATION_SCHEMA" in app_template
     assert "CHATBOT_CONTEXT_TOOLS_SCHEMA" in app_template
     assert "CHATBOT_MEMORY_MAX_TURNS" in app_template
+    assert "RETRIEVER_BACKEND" in app_template
+    assert "AI_SEARCH_ENDPOINT_NAME" in app_template
+    assert "AI_SEARCH_INDEX_NAME" in app_template
+    assert "AI_SEARCH_TOP_K" in app_template
+    assert "AI_SEARCH_QUERY_TYPE" in app_template
+    assert "AI_SEARCH_EMBEDDING_ENDPOINT_NAME" in app_template
+    assert "AI_SEARCH_ENDPOINT_TYPE" in app_template
+    assert "valueFrom: \"__AI_SEARCH_INDEX_RESOURCE_KEY__\"" in app_template
     assert "valueFrom: \"__CHATBOT_CORPUS_VOLUME_RESOURCE_KEY__\"" in app_template
     assert "gunicorn" in app_template
     assert "- sh" in app_template
@@ -432,6 +450,18 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "source_view" in setup_context_tools_script
     assert "context_hash" in setup_context_tools_script
 
+    setup_ai_search_script = _read(DATABRICKS_DIR / "scripts" / "setup_phase5_ai_search.py")
+    assert "silver.technical_doc_chunks" in setup_ai_search_script
+    assert "gold.technical_doc_chunks_current" in setup_ai_search_script
+    assert "technical_doc_chunks_current_index" in setup_ai_search_script
+    assert "chec-agent-search" in setup_ai_search_script
+    assert "databricks-qwen3-embedding-0-6b" in setup_ai_search_script
+    assert "TRIGGERED" in setup_ai_search_script
+    assert "hybrid" in setup_ai_search_script
+    assert "vector-search-endpoints" in setup_ai_search_script
+    assert "vector-search-indexes" in setup_ai_search_script
+    assert "delta.enableChangeDataFeed" in setup_ai_search_script
+
 
 def test_phase35_app_staging_uses_chatbot_volume_resource() -> None:
     env = os.environ.copy()
@@ -497,6 +527,44 @@ def test_phase35_app_staging_renders_conversation_memory_env() -> None:
     assert "value: \"agent_tools\"" in app_yaml
     assert "CHATBOT_MEMORY_MAX_TURNS" in app_yaml
     assert "value: \"3\"" in app_yaml
+
+
+def test_phase35_app_staging_renders_ai_search_env() -> None:
+    env = os.environ.copy()
+    env.update(
+        {
+            "APP_RETRIEVER_BACKEND": "databricks_ai_search",
+            "APP_AI_SEARCH_ENDPOINT_NAME": "chec-agent-search",
+            "APP_AI_SEARCH_INDEX_RESOURCE_KEY": "chatbot_ai_search_index",
+            "APP_AI_SEARCH_TOP_K": "8",
+            "APP_AI_SEARCH_QUERY_TYPE": "hybrid",
+            "APP_AI_SEARCH_EMBEDDING_ENDPOINT_NAME": "databricks-qwen3-embedding-0-6b",
+            "APP_AI_SEARCH_ENDPOINT_TYPE": "STANDARD",
+        }
+    )
+    subprocess.run(
+        [sys.executable, "databricks/scripts/stage_phase35_databricks_app.py"],
+        cwd=ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    app_yaml = _read(DATABRICKS_DIR / "build" / "chec_dash_parity" / "app.yaml")
+
+    assert "RETRIEVER_BACKEND" in app_yaml
+    assert "value: \"databricks_ai_search\"" in app_yaml
+    assert "AI_SEARCH_ENDPOINT_NAME" in app_yaml
+    assert "value: \"chec-agent-search\"" in app_yaml
+    assert "AI_SEARCH_INDEX_NAME" in app_yaml
+    assert "valueFrom: \"chatbot_ai_search_index\"" in app_yaml
+    assert "AI_SEARCH_TOP_K" in app_yaml
+    assert "value: \"8\"" in app_yaml
+    assert "AI_SEARCH_QUERY_TYPE" in app_yaml
+    assert "value: \"hybrid\"" in app_yaml
+    assert "databricks-qwen3-embedding-0-6b" in app_yaml
+    assert "value: \"STANDARD\"" in app_yaml
 
 
 def test_phase35_app_staging_can_bind_gemini_secret_resource() -> None:

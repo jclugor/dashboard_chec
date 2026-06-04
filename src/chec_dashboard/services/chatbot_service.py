@@ -35,6 +35,8 @@ from chec_dashboard.services.llm_service import _generate_gemini_answer
 from chec_dashboard.services.prompt_service import _briefing_instruction, _build_prompt
 from chec_dashboard.services.retrieval_service import (
     Corpus,
+    DatabricksAISearchRetriever,
+    _parse_ai_search_response,
     _corpus_runtime_diagnostics,
     _databricks_api_auth_headers,
     _databricks_file_exists,
@@ -44,8 +46,11 @@ from chec_dashboard.services.retrieval_service import (
     _list_databricks_directory,
     _read_corpus_text,
     _read_databricks_file_text,
+    ai_search_configured,
     load_chatbot_corpus,
+    retriever_runtime_diagnostics,
     retrieve_chatbot_chunks,
+    retrieve_local_jsonl_chunks,
 )
 from chec_dashboard.services.skill_service import get_skill_status, resolve_skill
 
@@ -55,8 +60,11 @@ __all__ = [
     "BRIEFING_TYPES",
     "GUIDED_QUESTIONS",
     "SPANISH_STOPWORDS",
+    "_parse_ai_search_response",
     "Corpus",
+    "DatabricksAISearchRetriever",
     "assess_chatbot_context",
+    "ai_search_configured",
     "build_chatbot_context_package",
     "build_context_tool_payload",
     "citation_payload",
@@ -73,8 +81,10 @@ __all__ = [
     "get_skill_status",
     "get_reliability_summary_tool",
     "load_chatbot_corpus",
+    "retriever_runtime_diagnostics",
     "resolve_skill",
     "retrieve_chatbot_chunks",
+    "retrieve_local_jsonl_chunks",
     "send_chatbot_message",
     "submit_chatbot_feedback",
 ]

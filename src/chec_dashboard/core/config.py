@@ -79,6 +79,13 @@ class Settings:
     chatbot_conversation_schema: str
     chatbot_context_tools_schema: str
     chatbot_memory_max_turns: int
+    retriever_backend: str
+    ai_search_endpoint_name: str
+    ai_search_index_name: str | None
+    ai_search_top_k: int
+    ai_search_query_type: str
+    ai_search_embedding_endpoint_name: str
+    ai_search_endpoint_type: str
     chatbot_retrieval_top_k: int
     chatbot_max_context_chars: int
     max_summary_points: int
@@ -163,6 +170,19 @@ def load_settings() -> Settings:
         chatbot_conversation_schema=os.getenv("CHATBOT_CONVERSATION_SCHEMA", "agent").strip() or "agent",
         chatbot_context_tools_schema=os.getenv("CHATBOT_CONTEXT_TOOLS_SCHEMA", "agent_tools").strip() or "agent_tools",
         chatbot_memory_max_turns=max(_to_int(os.getenv("CHATBOT_MEMORY_MAX_TURNS"), 8), 1),
+        retriever_backend=os.getenv("RETRIEVER_BACKEND", "local_jsonl").strip().lower(),
+        ai_search_endpoint_name=os.getenv("AI_SEARCH_ENDPOINT_NAME", "chec-agent-search").strip() or "chec-agent-search",
+        ai_search_index_name=(
+            _env_value("AI_SEARCH_INDEX_NAME")
+            or f"{os.getenv('DATABRICKS_CATALOG_NAME', 'chec_dbx_demo')}.gold.technical_doc_chunks_current_index"
+        ),
+        ai_search_top_k=max(_to_int(os.getenv("AI_SEARCH_TOP_K"), 8), 1),
+        ai_search_query_type=os.getenv("AI_SEARCH_QUERY_TYPE", "hybrid").strip().lower() or "hybrid",
+        ai_search_embedding_endpoint_name=(
+            os.getenv("AI_SEARCH_EMBEDDING_ENDPOINT_NAME", "databricks-qwen3-embedding-0-6b").strip()
+            or "databricks-qwen3-embedding-0-6b"
+        ),
+        ai_search_endpoint_type=os.getenv("AI_SEARCH_ENDPOINT_TYPE", "STANDARD").strip().upper() or "STANDARD",
         chatbot_retrieval_top_k=max(_to_int(os.getenv("CHATBOT_RETRIEVAL_TOP_K"), 5), 1),
         chatbot_max_context_chars=max(_to_int(os.getenv("CHATBOT_MAX_CONTEXT_CHARS"), 12000), 1000),
         max_summary_points=max(_to_int(os.getenv("MAX_SUMMARY_POINTS"), 5000), 100),

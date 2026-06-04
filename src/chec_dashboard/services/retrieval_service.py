@@ -5,7 +5,7 @@ import json
 import os
 from pathlib import Path
 import time
-from typing import Any
+from typing import Any, Callable
 from urllib.parse import quote
 
 import httpx
@@ -23,6 +23,27 @@ class Corpus:
 
 _CORPUS_CACHE: dict[str, tuple[float, Corpus]] = {}
 _DATABRICKS_TOKEN_CACHE: dict[str, Any] = {}
+
+SUPPORTED_RETRIEVER_BACKENDS = {"local_jsonl", "databricks_ai_search"}
+AI_SEARCH_COLUMNS = [
+    "chunk_id",
+    "document_id",
+    "document_title",
+    "document_type",
+    "source_path",
+    "source_uri",
+    "page",
+    "section_title",
+    "section_number",
+    "effective_date",
+    "version",
+    "jurisdiction",
+    "topic_tags",
+    "analysis_tags",
+    "authority_level",
+    "text",
+    "text_hash",
+]
 
 
 def databricks_host() -> str | None:
@@ -133,6 +154,37 @@ def read_corpus_text(path: Path) -> str | None:
     return read_databricks_file_text(path)
 
 
+def retriever_backend(settings: Settings) -> str:
+    backend = (settings.retriever_backend or "local_jsonl").strip().lower()
+    if backend in SUPPORTED_RETRIEVER_BACKENDS:
+        return backend
+    return backend
+
+
+def ai_search_configured(settings: Settings) -> bool:
+    return bool((settings.ai_search_index_name or "").strip())
+
+
+def retriever_runtime_diagnostics(settings: Settings) -> dict[str, Any]:
+    backend = retriever_backend(settings)
+    payload: dict[str, Any] = {
+        "retriever_backend": backend,
+        "retriever_supported": backend in SUPPORTED_RETRIEVER_BACKENDS,
+        "ai_search_endpoint_name": settings.ai_search_endpoint_name,
+        "ai_search_index_name": settings.ai_search_index_name,
+        "ai_search_top_k": settings.ai_search_top_k,
+        "ai_search_query_type": settings.ai_search_query_type,
+        "ai_search_embedding_endpoint_name": settings.ai_search_embedding_endpoint_name,
+        "ai_search_endpoint_type": settings.ai_search_endpoint_type,
+        "ai_search_configured": ai_search_configured(settings),
+    }
+    if backend == "databricks_ai_search":
+        payload["retriever_configured"] = bool(payload["retriever_supported"] and payload["ai_search_configured"])
+    else:
+        payload["retriever_configured"] = payload["retriever_supported"]
+    return payload
+
+
 def load_chatbot_corpus(settings: Settings) -> Corpus:
     corpus_dir = settings.chatbot_corpus_dir
     chunks_path = corpus_dir / "chunks.jsonl"
@@ -228,6 +280,27 @@ def retrieve_chatbot_chunks(
     question: str | None,
     skill_resolution: Any | None = None,
 ) -> list[dict[str, Any]]:
+    if retriever_backend(settings) == "databricks_ai_search":
+        return DatabricksAISearchRetriever(settings).retrieve(
+            selected_context=selected_context,
+            question=question,
+            skill_resolution=skill_resolution,
+        )
+    return retrieve_local_jsonl_chunks(
+        settings,
+        selected_context=selected_context,
+        question=question,
+        skill_resolution=skill_resolution,
+    )
+
+
+def retrieve_local_jsonl_chunks(
+    settings: Settings,
+    *,
+    selected_context: dict[str, Any],
+    question: str | None,
+    skill_resolution: Any | None = None,
+) -> list[dict[str, Any]]:
     corpus = load_chatbot_corpus(settings)
     if not corpus.chunks:
         return []
@@ -257,13 +330,12 @@ def retrieve_chatbot_chunks(
 
     scored.sort(key=lambda item: item[0], reverse=True)
     results: list[dict[str, Any]] = []
-    char_budget = settings.chatbot_max_context_chars
     used_chars = 0
     for score, chunk in scored[: effective_top_k * 3]:
         text = str(chunk.get("text", "")).strip()
         if not text:
             continue
-        if used_chars >= char_budget:
+        if used_chars >= settings.chatbot_max_context_chars:
             break
         snippet = text[: min(len(text), 900)]
         used_chars += len(snippet)
@@ -276,8 +348,187 @@ def retrieve_chatbot_chunks(
     return results
 
 
-def _effective_top_k(settings: Settings, skill_resolution: Any | None) -> int:
-    default_top_k = max(int(settings.chatbot_retrieval_top_k), 1)
+class DatabricksAISearchRetriever:
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        workspace_client_factory: Callable[[], Any] | None = None,
+    ) -> None:
+        self.settings = settings
+        self._workspace_client_factory = workspace_client_factory
+
+    def retrieve(
+        self,
+        *,
+        selected_context: dict[str, Any],
+        question: str | None,
+        skill_resolution: Any | None = None,
+    ) -> list[dict[str, Any]]:
+        if not ai_search_configured(self.settings):
+            return []
+        effective_top_k = _effective_top_k(
+            self.settings,
+            skill_resolution,
+            default_top_k=self.settings.ai_search_top_k,
+        )
+        query_top_k = max(effective_top_k, int(self.settings.ai_search_top_k))
+        query_text = _ai_search_query_text(selected_context=selected_context, question=question)
+        if not query_text:
+            return []
+
+        response = self._query_index(query_text=query_text, num_results=query_top_k)
+        parsed_chunks = _parse_ai_search_response(response)
+        return _bounded_chunks(
+            parsed_chunks,
+            limit=effective_top_k,
+            char_budget=self.settings.chatbot_max_context_chars,
+        )
+
+    def _query_index(self, *, query_text: str, num_results: int) -> Any:
+        client = self._workspace_client()
+        return client.vector_search_indexes.query_index(
+            index_name=str(self.settings.ai_search_index_name),
+            columns=AI_SEARCH_COLUMNS,
+            num_results=int(num_results),
+            query_text=query_text,
+            query_type=self.settings.ai_search_query_type,
+        )
+
+    def _workspace_client(self) -> Any:
+        if self._workspace_client_factory is not None:
+            return self._workspace_client_factory()
+        from databricks.sdk import WorkspaceClient
+
+        return WorkspaceClient()
+
+
+def _ai_search_query_text(*, selected_context: dict[str, Any], question: str | None) -> str:
+    context_bits = []
+    if question:
+        context_bits.append(str(question))
+    for key in (
+        "document_title",
+        "tool_name",
+        "source_view",
+        "summary",
+        "nombre_analisis",
+        "causa",
+        "tipo_elemento",
+        "equipo_ope",
+        "CODE",
+        "FPARENT",
+        "circuito",
+        "selected_context",
+        "structured_context_tool",
+        "metrics",
+    ):
+        value = selected_context.get(key)
+        if value:
+            context_bits.append(json.dumps(value, ensure_ascii=False, default=str) if isinstance(value, (dict, list)) else str(value))
+    return " ".join(" ".join(context_bits).split())[:4000]
+
+
+def _bounded_chunks(
+    chunks: list[dict[str, Any]],
+    *,
+    limit: int,
+    char_budget: int,
+) -> list[dict[str, Any]]:
+    results: list[dict[str, Any]] = []
+    used_chars = 0
+    for chunk in chunks:
+        text = str(chunk.get("text", "")).strip()
+        if not text:
+            continue
+        if used_chars >= char_budget:
+            break
+        snippet = str(chunk.get("snippet") or text[: min(len(text), 900)]).strip()
+        used_chars += len(snippet)
+        citation = dict(chunk)
+        citation["snippet"] = snippet
+        results.append(citation)
+        if len(results) >= limit:
+            break
+    return results
+
+
+def _parse_ai_search_response(response: Any) -> list[dict[str, Any]]:
+    column_names = _ai_search_column_names(response)
+    rows = _ai_search_rows(response)
+    chunks: list[dict[str, Any]] = []
+    for row_index, row in enumerate(rows, start=1):
+        row_values = list(row) if isinstance(row, (list, tuple)) else []
+        mapped = {
+            str(column_name): row_values[index]
+            for index, column_name in enumerate(column_names)
+            if index < len(row_values)
+        }
+        text = str(mapped.get("text") or "").strip()
+        if not text:
+            continue
+        score = mapped.get("score") or mapped.get("_score") or mapped.get("similarity_score")
+        chunk = {
+            "chunk_id": mapped.get("chunk_id") or f"ai-search-{row_index}",
+            "document_id": mapped.get("document_id"),
+            "document_title": mapped.get("document_title") or mapped.get("title"),
+            "document_type": mapped.get("document_type"),
+            "source_path": mapped.get("source_path"),
+            "source_uri": mapped.get("source_uri"),
+            "page": mapped.get("page"),
+            "section_title": mapped.get("section_title"),
+            "section_number": mapped.get("section_number"),
+            "effective_date": mapped.get("effective_date"),
+            "version": mapped.get("version"),
+            "jurisdiction": mapped.get("jurisdiction"),
+            "topic_tags": mapped.get("topic_tags") or [],
+            "analysis_tags": mapped.get("analysis_tags") or [],
+            "authority_level": mapped.get("authority_level"),
+            "text": text,
+            "text_hash": mapped.get("text_hash"),
+            "score": _score_value(score, row_index),
+        }
+        chunks.append({key: value for key, value in chunk.items() if value not in (None, "")})
+    return chunks
+
+
+def _score_value(value: Any, row_index: int) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 1.0 / max(row_index, 1)
+
+
+def _ai_search_column_names(response: Any) -> list[str]:
+    manifest = _field(response, "manifest", {})
+    columns = _field(manifest, "columns", []) or []
+    names: list[str] = []
+    for column in columns:
+        name = _field(column, "name")
+        if name:
+            names.append(str(name))
+    return names
+
+
+def _ai_search_rows(response: Any) -> list[Any]:
+    result = _field(response, "result", {})
+    rows = _field(result, "data_array", []) or []
+    return list(rows)
+
+
+def _field(value: Any, name: str, default: Any = None) -> Any:
+    if isinstance(value, dict):
+        return value.get(name, default)
+    if hasattr(value, "as_dict"):
+        try:
+            return value.as_dict().get(name, default)
+        except Exception:
+            pass
+    return getattr(value, name, default)
+
+
+def _effective_top_k(settings: Settings, skill_resolution: Any | None, *, default_top_k: int | None = None) -> int:
+    default_top_k = max(int(default_top_k or settings.chatbot_retrieval_top_k), 1)
     if skill_resolution is None:
         return default_top_k
     skill = getattr(skill_resolution, "skill", None)
