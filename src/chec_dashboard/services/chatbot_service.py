@@ -30,6 +30,13 @@ from chec_dashboard.services.agent_orchestrator import (
     send_chatbot_message,
     submit_chatbot_feedback,
 )
+from chec_dashboard.services.agent_routing_service import (
+    DOCUMENT_SEARCH_TOOLS,
+    RUNTIME_AGENT_TOOLS,
+    STRUCTURED_CONTEXT_TOOLS,
+    execute_agent_route,
+    route_agent_tools,
+)
 from chec_dashboard.services.citation_service import _citation_payload, citation_payload
 from chec_dashboard.services.llm_service import (
     DatabricksModelServingLLMClient,
@@ -71,6 +78,9 @@ __all__ = [
     "Corpus",
     "DatabricksAISearchRetriever",
     "DatabricksModelServingLLMClient",
+    "DOCUMENT_SEARCH_TOOLS",
+    "RUNTIME_AGENT_TOOLS",
+    "STRUCTURED_CONTEXT_TOOLS",
     "_databricks_chat_payload",
     "_parse_databricks_model_serving_response",
     "assess_chatbot_context",
@@ -79,6 +89,7 @@ __all__ = [
     "build_context_tool_payload",
     "citation_payload",
     "create_chatbot_conversation",
+    "execute_agent_route",
     "fetch_databricks_context_tool",
     "get_asset_context_tool",
     "get_chatbot_context_options",
@@ -97,6 +108,7 @@ __all__ = [
     "resolve_skill",
     "retrieve_chatbot_chunks",
     "retrieve_local_jsonl_chunks",
+    "route_agent_tools",
     "send_chatbot_message",
     "submit_chatbot_feedback",
 ]

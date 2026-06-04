@@ -1313,6 +1313,74 @@ body {
   line-height: 1.35;
 }
 
+.chatbot-tool-trace-shell {
+  max-height: 190px;
+  overflow-y: auto;
+  border: 1px solid #dbe8df;
+  border-radius: 8px;
+  background: #fbfdfb;
+  padding: 8px;
+}
+
+.chatbot-tool-trace {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-family: "DM Sans", sans-serif;
+}
+
+.chatbot-tool-summary,
+.chatbot-tool-skipped {
+  color: #51705c;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.chatbot-tool-row {
+  padding: 8px;
+  border: 1px solid #dbe8df;
+  border-radius: 8px;
+  background: #ffffff;
+}
+
+.chatbot-tool-row-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.chatbot-tool-name {
+  color: #00782b;
+  font-size: 12px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.chatbot-tool-status {
+  flex: 0 0 auto;
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: #e4f8eb;
+  color: #00551f;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.chatbot-tool-reason,
+.chatbot-tool-meta {
+  margin-top: 4px;
+  color: #1b3324;
+  font-size: 12px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.chatbot-tool-meta {
+  color: #51705c;
+}
+
 .chatbot-conversation-thread-shell {
   max-height: 310px;
   overflow-y: auto;

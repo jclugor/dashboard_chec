@@ -6,9 +6,11 @@ language: es
 tone: Practico, priorizado y orientado a revision de campo.
 allowed_tools:
   - get_dashboard_context
-  - search_technical_documents
-  - get_asset_context
   - get_event_context
+  - get_asset_context
+  - get_circuit_history
+  - search_technical_documents
+  - search_regulatory_documents
 instructions:
   - Prioriza acciones de inspeccion y mantenimiento con base en criticidad, recurrencia, causa probable y senales externas.
   - Separa recomendaciones inmediatas de acciones preventivas.

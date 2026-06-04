@@ -8,6 +8,7 @@ from chec_dashboard.services.agent_context_service import (
     resolve_question,
     sanitize_briefing_type,
 )
+from chec_dashboard.services.agent_routing_service import execute_agent_route
 from chec_dashboard.services.agent_trace_service import create_trace_id
 from chec_dashboard.services.citation_service import citation_payload
 from chec_dashboard.services.conversation_service import (
@@ -32,7 +33,6 @@ from chec_dashboard.services.retrieval_service import (
     corpus_runtime_diagnostics,
     load_chatbot_corpus,
     retriever_runtime_diagnostics,
-    retrieve_chatbot_chunks,
 )
 from chec_dashboard.services.skill_service import SkillResolution, get_skill_status, resolve_skill
 
@@ -152,6 +152,9 @@ def _persist_response(
     chunks: list[dict[str, Any]],
     status_text: str,
     ready: bool,
+    agent_tool_calls: list[dict[str, Any]] | None = None,
+    agent_skipped_tools: list[dict[str, Any]] | None = None,
+    agent_route_summary: dict[str, Any] | None = None,
     mode: str = "guided",
 ) -> None:
     record_conversation_turn(
@@ -173,6 +176,9 @@ def _persist_response(
         retrieved_chunk_ids=_chunk_ids(chunks),
         status_text=status_text,
         ready=ready,
+        agent_tool_calls=agent_tool_calls or [],
+        agent_skipped_tools=agent_skipped_tools or [],
+        agent_route_summary=agent_route_summary or _empty_agent_route_summary(),
         mode=mode,
     )
 
@@ -185,6 +191,9 @@ def _assessment_payload(
     ready: bool,
     briefing_type: str,
     metadata: dict[str, Any],
+    agent_tool_calls: list[dict[str, Any]] | None = None,
+    agent_skipped_tools: list[dict[str, Any]] | None = None,
+    agent_route_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "answer": answer,
@@ -192,7 +201,37 @@ def _assessment_payload(
         "status_text": status_text,
         "ready": ready,
         "briefing_type": briefing_type,
+        "agent_tool_calls": agent_tool_calls or [],
+        "agent_skipped_tools": agent_skipped_tools or [],
+        "agent_route_summary": agent_route_summary or _empty_agent_route_summary(),
         **metadata,
+    }
+
+
+def _empty_agent_route_summary() -> dict[str, Any]:
+    return {
+        "route_mode": "direct_answer",
+        "route_reason": "No se ejecutaron herramientas adicionales.",
+        "requested_tools": [],
+        "executed_tools": [],
+        "skipped_tools": [],
+        "documents_requested": False,
+        "direct_answer": True,
+        "read_only": True,
+    }
+
+
+def _route_fields(route: Any | None) -> dict[str, Any]:
+    if route is None:
+        return {
+            "agent_tool_calls": [],
+            "agent_skipped_tools": [],
+            "agent_route_summary": _empty_agent_route_summary(),
+        }
+    return {
+        "agent_tool_calls": route.agent_tool_calls,
+        "agent_skipped_tools": route.agent_skipped_tools,
+        "agent_route_summary": route.agent_route_summary,
     }
 
 
@@ -225,6 +264,7 @@ def assess_chatbot_context(
             chunks=[],
             status_text=status_text,
             ready=False,
+            **_route_fields(None),
         )
         return _assessment_payload(
             answer=answer,
@@ -233,6 +273,7 @@ def assess_chatbot_context(
             ready=False,
             briefing_type=briefing_type,
             metadata=metadata,
+            **_route_fields(None),
         )
 
     context_package = build_chatbot_context_package(
@@ -241,13 +282,22 @@ def assess_chatbot_context(
         question_id=question_id,
     )
     user_message = _guided_user_message(resolved_question)
-    chunks = retrieve_chatbot_chunks(
+    route = execute_agent_route(
         settings,
-        selected_context=context_package,
+        selected_context=selected_context,
+        context_package=context_package,
         question=resolved_question,
+        briefing_type=briefing_type,
+        question_id=question_id,
         skill_resolution=skill_resolution,
     )
+    context_package = route.context_package
+    chunks = route.chunks
     citations = citation_payload(chunks)
+
+    if not route.documents_executed:
+        chunks = []
+        citations = []
 
     if not status["enabled"]:
         answer = (
@@ -267,6 +317,7 @@ def assess_chatbot_context(
             chunks=chunks,
             status_text=status_text,
             ready=False,
+            **_route_fields(route),
         )
         return _assessment_payload(
             answer=answer,
@@ -275,8 +326,9 @@ def assess_chatbot_context(
             ready=False,
             briefing_type=briefing_type,
             metadata=metadata,
+            **_route_fields(route),
         )
-    if not status.get("retriever_configured", True):
+    if route.documents_executed and not status.get("retriever_configured", True):
         answer = (
             "El recuperador técnico seleccionado no está configurado. "
             "Revisa RETRIEVER_BACKEND y AI_SEARCH_INDEX_NAME antes de solicitar el análisis."
@@ -294,6 +346,7 @@ def assess_chatbot_context(
             chunks=[],
             status_text=status_text,
             ready=False,
+            **_route_fields(route),
         )
         return _assessment_payload(
             answer=answer,
@@ -302,8 +355,9 @@ def assess_chatbot_context(
             ready=False,
             briefing_type=briefing_type,
             metadata=metadata,
+            **_route_fields(route),
         )
-    if not chunks:
+    if route.documents_executed and not chunks:
         answer = (
             "No se encontraron documentos técnicos relevantes en el corpus. "
             "Carga o reconstruye el corpus antes de solicitar el análisis."
@@ -321,6 +375,7 @@ def assess_chatbot_context(
             chunks=[],
             status_text=status_text,
             ready=False,
+            **_route_fields(route),
         )
         return _assessment_payload(
             answer=answer,
@@ -329,6 +384,7 @@ def assess_chatbot_context(
             ready=False,
             briefing_type=briefing_type,
             metadata=metadata,
+            **_route_fields(route),
         )
     if not status["llm_configured"]:
         answer = (
@@ -348,6 +404,7 @@ def assess_chatbot_context(
             chunks=chunks,
             status_text=status_text,
             ready=False,
+            **_route_fields(route),
         )
         return _assessment_payload(
             answer=answer,
@@ -356,6 +413,7 @@ def assess_chatbot_context(
             ready=False,
             briefing_type=briefing_type,
             metadata=metadata,
+            **_route_fields(route),
         )
 
     prompt = build_prompt(
@@ -390,6 +448,7 @@ def assess_chatbot_context(
             chunks=chunks,
             status_text=status_text,
             ready=False,
+            **_route_fields(route),
         )
         return _assessment_payload(
             answer=answer,
@@ -398,9 +457,15 @@ def assess_chatbot_context(
             ready=False,
             briefing_type=briefing_type,
             metadata=metadata,
+            **_route_fields(route),
         )
 
-    status_text = "Análisis generado con documentos técnicos recuperados."
+    if chunks:
+        status_text = "Análisis generado con documentos técnicos recuperados."
+    elif route.agent_tool_calls:
+        status_text = "Análisis generado con herramientas gobernadas de contexto."
+    else:
+        status_text = "Respuesta generada con contexto existente e historial disponible."
     _persist_response(
         settings,
         metadata=metadata,
@@ -413,6 +478,7 @@ def assess_chatbot_context(
         chunks=chunks,
         status_text=status_text,
         ready=True,
+        **_route_fields(route),
     )
     return _assessment_payload(
         answer=answer,
@@ -421,6 +487,7 @@ def assess_chatbot_context(
         ready=True,
         briefing_type=briefing_type,
         metadata=metadata,
+        **_route_fields(route),
     )
 
 
@@ -511,6 +578,7 @@ def send_chatbot_message(
             chunks=[],
             status_text=status_text,
             ready=False,
+            **_route_fields(None),
             mode="free_form",
         )
         return _assessment_payload(
@@ -520,30 +588,40 @@ def send_chatbot_message(
             ready=False,
             briefing_type=resolved_briefing_type,
             metadata=metadata,
+            **_route_fields(None),
         )
 
     status = get_chatbot_status(settings)
-    chunks = retrieve_chatbot_chunks(
-        settings,
-        selected_context=context_package,
-        question=message,
-        skill_resolution=skill_resolution,
-    )
-    citations = citation_payload(chunks)
     history = recent_conversation_messages(settings, conversation_id)
+    route = execute_agent_route(
+        settings,
+        selected_context=selected_context or {},
+        context_package=context_package,
+        question=message,
+        briefing_type=resolved_briefing_type,
+        question_id=None,
+        skill_resolution=skill_resolution,
+        conversation_history=history,
+    )
+    context_package = route.context_package
+    chunks = route.chunks
+    citations = citation_payload(chunks)
+    if not route.documents_executed:
+        chunks = []
+        citations = []
 
     if not status["enabled"]:
         answer = "El asistente técnico está deshabilitado para continuar la conversación."
         status_text = status["message"]
         ready = False
-    elif not status.get("retriever_configured", True):
+    elif route.documents_executed and not status.get("retriever_configured", True):
         answer = (
             "El recuperador técnico seleccionado no está configurado para continuar la conversación."
         )
         citations = []
         status_text = status["message"]
         ready = False
-    elif not chunks:
+    elif route.documents_executed and not chunks:
         answer = (
             "No se encontraron documentos técnicos relevantes para esta pregunta. "
             "Puedes reformularla o seleccionar otro contexto."
@@ -577,7 +655,12 @@ def send_chatbot_message(
                 skill_resolution=skill_resolution,
                 trace_id=metadata.get("trace_id"),
             )
-            status_text = "Respuesta de seguimiento generada con memoria de conversación."
+            if chunks:
+                status_text = "Respuesta de seguimiento generada con memoria y documentos recuperados."
+            elif route.agent_tool_calls:
+                status_text = "Respuesta de seguimiento generada con memoria y herramientas gobernadas."
+            else:
+                status_text = "Respuesta de seguimiento generada con memoria de conversación."
             ready = True
         except Exception as exc:
             answer = f"No fue posible continuar la conversación con el proveedor LLM '{status['llm_provider']}': {exc}"
@@ -596,6 +679,7 @@ def send_chatbot_message(
         chunks=chunks,
         status_text=status_text,
         ready=ready,
+        **_route_fields(route),
         mode="free_form",
     )
     return _assessment_payload(
@@ -605,6 +689,7 @@ def send_chatbot_message(
         ready=ready,
         briefing_type=resolved_briefing_type,
         metadata=metadata,
+        **_route_fields(route),
     )
 
 

@@ -57,6 +57,9 @@ class ConversationMessage:
     retrieved_chunk_ids: list[str] = field(default_factory=list)
     status_text: str | None = None
     ready: bool = True
+    agent_tool_calls: list[dict[str, Any]] = field(default_factory=list)
+    agent_skipped_tools: list[dict[str, Any]] = field(default_factory=list)
+    agent_route_summary: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -162,6 +165,9 @@ def message_payload(message: ConversationMessage) -> dict[str, Any]:
         "retrieved_chunk_ids": message.retrieved_chunk_ids,
         "status_text": message.status_text,
         "ready": message.ready,
+        "agent_tool_calls": message.agent_tool_calls,
+        "agent_skipped_tools": message.agent_skipped_tools,
+        "agent_route_summary": message.agent_route_summary,
     }
 
 
@@ -312,7 +318,8 @@ LIMIT 1
             f"""
 SELECT conversation_id, turn_id, role, content, created_at, briefing_type,
        question_id, skill_id, skill_version, skill_hash, trace_id, llm_provider,
-       model_endpoint_name, citations_json, retrieved_chunk_ids_json, status_text, ready
+       model_endpoint_name, citations_json, retrieved_chunk_ids_json, status_text, ready,
+       agent_tool_calls_json, agent_skipped_tools_json, agent_route_summary_json
 FROM {self.messages_table}
 WHERE conversation_id = {sql_literal(conversation_id)}
 ORDER BY created_at ASC, CASE role WHEN 'user' THEN 0 ELSE 1 END ASC
@@ -330,7 +337,8 @@ ORDER BY created_at ASC, CASE role WHEN 'user' THEN 0 ELSE 1 END ASC
 INSERT INTO {self.messages_table} (
   conversation_id, turn_id, role, content, created_at, briefing_type, question_id,
   skill_id, skill_version, skill_hash, trace_id, llm_provider, model_endpoint_name, citations_json,
-  retrieved_chunk_ids_json, status_text, ready
+  retrieved_chunk_ids_json, status_text, ready, agent_tool_calls_json,
+  agent_skipped_tools_json, agent_route_summary_json
 ) VALUES (
   {sql_literal(message.conversation_id)},
   {sql_literal(message.turn_id)},
@@ -348,7 +356,10 @@ INSERT INTO {self.messages_table} (
   {_sql_json(message.citations)},
   {_sql_json(message.retrieved_chunk_ids)},
   {sql_literal(message.status_text)},
-  {sql_literal(message.ready)}
+  {sql_literal(message.ready)},
+  {_sql_json(message.agent_tool_calls)},
+  {_sql_json(message.agent_skipped_tools)},
+  {_sql_json(message.agent_route_summary)}
 )
 """.strip()
             )
@@ -389,6 +400,9 @@ INSERT INTO {self.feedback_table} (
             retrieved_chunk_ids=_json_loads(_row_value(row, "retrieved_chunk_ids_json"), []),
             status_text=_row_value(row, "status_text"),
             ready=bool(_row_value(row, "ready")),
+            agent_tool_calls=_json_loads(_row_value(row, "agent_tool_calls_json"), []),
+            agent_skipped_tools=_json_loads(_row_value(row, "agent_skipped_tools_json"), []),
+            agent_route_summary=_json_loads(_row_value(row, "agent_route_summary_json"), {}),
         )
 
 
@@ -474,6 +488,9 @@ def record_conversation_turn(
     retrieved_chunk_ids: list[str],
     status_text: str,
     ready: bool,
+    agent_tool_calls: list[dict[str, Any]] | None = None,
+    agent_skipped_tools: list[dict[str, Any]] | None = None,
+    agent_route_summary: dict[str, Any] | None = None,
     mode: str = "guided",
 ) -> None:
     store = get_conversation_store(settings)
@@ -524,6 +541,9 @@ def record_conversation_turn(
                 retrieved_chunk_ids=retrieved_chunk_ids,
                 status_text=status_text,
                 ready=ready,
+                agent_tool_calls=agent_tool_calls or [],
+                agent_skipped_tools=agent_skipped_tools or [],
+                agent_route_summary=agent_route_summary or {},
             ),
         ]
     )

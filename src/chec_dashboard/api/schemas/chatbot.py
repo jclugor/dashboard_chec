@@ -102,6 +102,9 @@ class ChatbotAssessmentResponse(ChatbotAPIModel):
     trace_id: str | None = None
     llm_provider: str | None = None
     model_endpoint_name: str | None = None
+    agent_tool_calls: list[dict[str, Any]] = Field(default_factory=list)
+    agent_skipped_tools: list[dict[str, Any]] = Field(default_factory=list)
+    agent_route_summary: dict[str, Any] = Field(default_factory=dict)
 
 
 class ChatbotConversationMessage(ChatbotAPIModel):
@@ -122,6 +125,9 @@ class ChatbotConversationMessage(ChatbotAPIModel):
     retrieved_chunk_ids: list[str] = Field(default_factory=list)
     status_text: str | None = None
     ready: bool = True
+    agent_tool_calls: list[dict[str, Any]] = Field(default_factory=list)
+    agent_skipped_tools: list[dict[str, Any]] = Field(default_factory=list)
+    agent_route_summary: dict[str, Any] = Field(default_factory=dict)
 
 
 class ChatbotConversationCreateRequest(ChatbotAPIModel):

@@ -130,6 +130,9 @@ def test_chatbot_assessment_callback_stores_conversation_id(monkeypatch: pytest.
             "status_text": "ok",
             "ready": True,
             "conversation_id": "conv-1",
+            "agent_tool_calls": [{"tool_name": "get_event_context", "status": "executed", "evidence_count": 1}],
+            "agent_skipped_tools": [],
+            "agent_route_summary": {"route_mode": "tool_augmented_context", "route_reason": "Evento gobernado"},
         },
     )
     monkeypatch.setattr(
@@ -147,6 +150,20 @@ def test_chatbot_assessment_callback_stores_conversation_id(monkeypatch: pytest.
                     "skill_version": "1.0",
                     "skill_hash": "hash-1",
                     "trace_id": "trace-1",
+                    "agent_tool_calls": [
+                        {
+                            "tool_name": "get_event_context",
+                            "status": "executed",
+                            "reason": "Evento gobernado",
+                            "evidence_count": 1,
+                            "context_id": "event-1",
+                        }
+                    ],
+                    "agent_skipped_tools": [],
+                    "agent_route_summary": {
+                        "route_mode": "tool_augmented_context",
+                        "route_reason": "Evento gobernado",
+                    },
                 }
             ],
         },
@@ -158,6 +175,7 @@ def test_chatbot_assessment_callback_stores_conversation_id(monkeypatch: pytest.
     assert result[4]["conversation_id"] == "conv-1"
     assert result[6]["turn_id"] == "turn-1"
     assert "Respuesta guiada" in _all_text(result[5])
+    assert "get_event_context" in _all_text(result[8])
 
 
 def test_chatbot_followup_callback_sends_existing_conversation(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -180,6 +198,15 @@ def test_chatbot_followup_callback_sends_existing_conversation(monkeypatch: pyte
                     "turn_id": "turn-2",
                     "role": "assistant",
                     "content": "Seguimiento.",
+                    "agent_tool_calls": [
+                        {
+                            "tool_name": "search_technical_documents",
+                            "status": "executed",
+                            "reason": "Documentos tecnicos",
+                            "evidence_count": 2,
+                            "context_id": "retrieval-1",
+                        }
+                    ],
                 }
             ],
         },
@@ -200,6 +227,7 @@ def test_chatbot_followup_callback_sends_existing_conversation(monkeypatch: pyte
     assert result[2] == "Respuesta de seguimiento generada."
     assert result[3] == ""
     assert result[4]["turn_id"] == "turn-2"
+    assert "search_technical_documents" in _all_text(result[6])
 
 
 def test_chatbot_followup_callback_creates_free_form_conversation(monkeypatch: pytest.MonkeyPatch) -> None:

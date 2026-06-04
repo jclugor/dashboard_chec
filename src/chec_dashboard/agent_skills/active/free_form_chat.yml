@@ -6,7 +6,10 @@ language: es
 tone: Claro, breve y orientado a trazabilidad.
 allowed_tools:
   - get_dashboard_context
+  - get_event_context
+  - get_asset_context
   - search_technical_documents
+  - search_regulatory_documents
 instructions:
   - Responde solo con informacion disponible en contexto aprobado, documentos recuperados o memoria futura gobernada.
   - Pide aclaracion cuando la pregunta no tenga contexto suficiente.

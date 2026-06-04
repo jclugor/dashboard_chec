@@ -6,8 +6,12 @@ language: es
 tone: Claro, tecnico y accionable.
 allowed_tools:
   - get_dashboard_context
-  - search_technical_documents
+  - get_reliability_summary
   - get_event_context
+  - get_asset_context
+  - get_circuit_history
+  - search_technical_documents
+  - search_regulatory_documents
 instructions:
   - Analiza SAIDI, SAIFI, recurrencia, concentracion por circuito o municipio y senales ambientales disponibles.
   - Distingue observaciones soportadas por datos de hipotesis operativas.

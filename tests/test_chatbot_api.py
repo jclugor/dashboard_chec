@@ -99,6 +99,9 @@ def test_chatbot_assess_route_unconfigured(monkeypatch: pytest.MonkeyPatch) -> N
             "skill_version": "builtin-1.0",
             "skill_hash": "abc123",
             "trace_id": "trace-1",
+            "agent_tool_calls": [{"tool_name": "get_event_context", "status": "executed"}],
+            "agent_skipped_tools": [],
+            "agent_route_summary": {"route_mode": "tool_augmented_context", "read_only": True},
         },
     )
 
@@ -116,6 +119,8 @@ def test_chatbot_assess_route_unconfigured(monkeypatch: pytest.MonkeyPatch) -> N
     assert response.conversation_id == "conv-1"
     assert response.skill_id == "cumplimiento"
     assert response.skill_hash == "abc123"
+    assert response.agent_tool_calls[0]["tool_name"] == "get_event_context"
+    assert response.agent_route_summary["read_only"] is True
     assert "Gemini no está configurado" in response.answer
 
 
@@ -136,11 +141,16 @@ def test_chatbot_assessment_schema_accepts_conversation_metadata() -> None:
         skill_version="builtin-1.0",
         skill_hash="hash-1",
         trace_id="trace-1",
+        agent_tool_calls=[{"tool_name": "search_regulatory_documents", "status": "executed"}],
+        agent_skipped_tools=[{"tool_name": "get_asset_context", "skip_reason": "blocked_by_skill_policy"}],
+        agent_route_summary={"route_mode": "tool_augmented_retrieval", "read_only": True},
     )
 
     assert response.conversation_id == "conv-existing"
     assert response.trace_id == "trace-1"
     assert response.skill_hash == "hash-1"
+    assert response.agent_tool_calls[0]["tool_name"] == "search_regulatory_documents"
+    assert response.agent_skipped_tools[0]["skip_reason"] == "blocked_by_skill_policy"
 
 
 def test_chatbot_conversation_routes(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -189,6 +199,9 @@ def test_chatbot_conversation_routes(monkeypatch: pytest.MonkeyPatch) -> None:
                     "llm_provider": "mock",
                     "model_endpoint_name": "mock",
                     "ready": True,
+                    "agent_tool_calls": [{"tool_name": "get_event_context", "status": "executed"}],
+                    "agent_skipped_tools": [],
+                    "agent_route_summary": {"route_mode": "tool_augmented_context", "read_only": True},
                 }
             ],
         },
@@ -203,6 +216,7 @@ def test_chatbot_conversation_routes(monkeypatch: pytest.MonkeyPatch) -> None:
     assert created.llm_provider == "mock"
     assert detail.messages[0].turn_id == "turn-1"
     assert detail.messages[0].skill_hash == "hash-1"
+    assert detail.messages[0].agent_tool_calls[0]["tool_name"] == "get_event_context"
 
 
 def test_chatbot_conversation_get_returns_404(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -232,6 +246,9 @@ def test_chatbot_send_message_route_and_validation(monkeypatch: pytest.MonkeyPat
             "trace_id": "trace-2",
             "llm_provider": "mock",
             "model_endpoint_name": "mock",
+            "agent_tool_calls": [{"tool_name": "search_technical_documents", "status": "executed"}],
+            "agent_skipped_tools": [],
+            "agent_route_summary": {"route_mode": "tool_augmented_retrieval", "read_only": True},
         },
     )
 
@@ -243,6 +260,7 @@ def test_chatbot_send_message_route_and_validation(monkeypatch: pytest.MonkeyPat
     assert response.answer == "Seguimiento"
     assert response.conversation_id == "conv-1"
     assert response.llm_provider == "mock"
+    assert response.agent_tool_calls[0]["tool_name"] == "search_technical_documents"
     with pytest.raises(chatbot_routes.HTTPException) as exc_info:
         chatbot_routes.chatbot_send_message("conv-1", ChatbotConversationMessageRequest(message="   "))
     assert exc_info.value.status_code == 400

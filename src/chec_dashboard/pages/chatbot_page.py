@@ -115,6 +115,69 @@ def _citations_component(citations: list[dict[str, Any]] | None):
     )
 
 
+def _tool_trace_component(trace: dict[str, Any] | None):
+    trace = trace or {}
+    calls = trace.get("agent_tool_calls") or []
+    skipped = trace.get("agent_skipped_tools") or []
+    summary = trace.get("agent_route_summary") or {}
+    if not calls and not skipped:
+        return html.Div("Sin herramientas adicionales.", className="chatbot-empty-state")
+
+    call_rows = []
+    for call in calls[:6]:
+        context_id = call.get("context_id") or call.get("context_hash") or "sin hash"
+        count = call.get("evidence_count", 0)
+        reason = call.get("reason") or "Herramienta gobernada ejecutada."
+        call_rows.append(
+            html.Div(
+                [
+                    html.Div(
+                        [
+                            html.Span(str(call.get("tool_name") or "herramienta"), className="chatbot-tool-name"),
+                            html.Span(str(call.get("status") or "executed"), className="chatbot-tool-status"),
+                        ],
+                        className="chatbot-tool-row-header",
+                    ),
+                    html.Div(str(reason)[:180], className="chatbot-tool-reason"),
+                    html.Div(f"Evidencia: {count} | {context_id}", className="chatbot-tool-meta"),
+                ],
+                className="chatbot-tool-row",
+            )
+        )
+
+    skipped_names = ", ".join(
+        str(item.get("tool_name"))
+        for item in skipped[:6]
+        if item.get("tool_name") and item.get("skip_reason") == "blocked_by_skill_policy"
+    )
+    skipped_text = f"Bloqueadas por política del skill: {skipped_names}" if skipped_names else ""
+    route_text = summary.get("route_reason") or summary.get("route_mode") or ""
+    return html.Div(
+        [
+            html.Div(str(route_text)[:220], className="chatbot-tool-summary") if route_text else None,
+            *call_rows,
+            html.Div(skipped_text, className="chatbot-tool-skipped") if skipped_text else None,
+        ],
+        className="chatbot-tool-trace",
+    )
+
+
+def _latest_tool_trace(messages: list[dict[str, Any]] | None, fallback: dict[str, Any] | None = None) -> dict[str, Any]:
+    for message in reversed(messages or []):
+        if message.get("role") == "assistant":
+            return {
+                "agent_tool_calls": message.get("agent_tool_calls") or [],
+                "agent_skipped_tools": message.get("agent_skipped_tools") or [],
+                "agent_route_summary": message.get("agent_route_summary") or {},
+            }
+    fallback = fallback or {}
+    return {
+        "agent_tool_calls": fallback.get("agent_tool_calls") or [],
+        "agent_skipped_tools": fallback.get("agent_skipped_tools") or [],
+        "agent_route_summary": fallback.get("agent_route_summary") or {},
+    }
+
+
 def _conversation_messages_component(messages: list[dict[str, Any]] | None):
     if not messages:
         return html.Div("Sin seguimiento todavía.", className="chatbot-empty-state")
@@ -301,6 +364,8 @@ def get_layout(settings: Settings) -> html.Div:
                                             html.Div(id="chatbot-answer", className="chatbot-answer"),
                                             html.H3("Citas", className="chatbot-panel-title"),
                                             html.Div(id="chatbot-citations", className="chatbot-citations"),
+                                            html.H3("Herramientas usadas", className="chatbot-panel-title"),
+                                            html.Div(id="chatbot-tool-trace", className="chatbot-tool-trace-shell"),
                                             html.H3("Seguimiento", className="chatbot-panel-title"),
                                             html.Div(id="chatbot-conversation-thread", className="chatbot-conversation-thread-shell"),
                                             dcc.Textarea(
@@ -470,6 +535,7 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
         Output("chatbot-conversation-thread", "children"),
         Output("chatbot-last-turn-store", "data"),
         Output("chatbot-followup-status", "children"),
+        Output("chatbot-tool-trace", "children"),
         Input("chatbot-assess-button", "n_clicks"),
         State("chatbot-selected-context-store", "data"),
         State("chatbot-question", "value"),
@@ -496,6 +562,7 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
                 _conversation_messages_component([]),
                 {},
                 "",
+                _tool_trace_component(None),
             )
         payload = fetch_chatbot_assessment(
             selected_context=selected_context,
@@ -518,6 +585,7 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
             _conversation_messages_component(messages),
             _last_assistant_turn(messages),
             "",
+            _tool_trace_component(_latest_tool_trace(messages, payload)),
         )
 
     @app.callback(
@@ -527,6 +595,7 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
         Output("chatbot-followup-input", "value"),
         Output("chatbot-last-turn-store", "data", allow_duplicate=True),
         Output("chatbot-conversation-id-store", "data", allow_duplicate=True),
+        Output("chatbot-tool-trace", "children", allow_duplicate=True),
         Input("chatbot-followup-button", "n_clicks"),
         State("chatbot-conversation-id-store", "data"),
         State("chatbot-conversation-store", "data"),
@@ -554,6 +623,7 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
                 "",
                 _last_assistant_turn((conversation or {}).get("messages")),
                 conversation_id,
+                _tool_trace_component(_latest_tool_trace((conversation or {}).get("messages"))),
             )
         if not conversation_id:
             if not selected_context:
@@ -564,6 +634,7 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
                     message,
                     _last_assistant_turn((conversation or {}).get("messages")),
                     conversation_id,
+                    _tool_trace_component(_latest_tool_trace((conversation or {}).get("messages"))),
                 )
             created = fetch_chatbot_create_conversation(
                 selected_context=selected_context,
@@ -588,6 +659,7 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
             "",
             _last_assistant_turn(messages),
             conversation_id,
+            _tool_trace_component(_latest_tool_trace(messages, payload)),
         )
 
     @app.callback(

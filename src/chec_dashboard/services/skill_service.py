@@ -32,6 +32,9 @@ SKILL_LIFECYCLE_DIRS = ("active", "draft", "archive")
 
 ALLOWED_TOOLS = {
     "get_dashboard_context",
+    "get_reliability_summary",
+    "get_compliance_context",
+    "get_circuit_history",
     "search_technical_documents",
     "search_regulatory_documents",
     "get_event_context",

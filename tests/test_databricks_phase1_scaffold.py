@@ -446,6 +446,10 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "CHATBOT_CONVERSATION_SCHEMA" in setup_conversation_script
     assert "llm_provider" in setup_conversation_script
     assert "model_endpoint_name" in setup_conversation_script
+    assert "agent_tool_calls_json" in setup_conversation_script
+    assert "agent_skipped_tools_json" in setup_conversation_script
+    assert "agent_route_summary_json" in setup_conversation_script
+    assert "ALTER TABLE" in setup_conversation_script
 
     setup_context_tools_script = _read(DATABRICKS_DIR / "scripts" / "setup_phase4_context_tools.py")
     assert "CREATE SCHEMA IF NOT EXISTS" in setup_context_tools_script
@@ -475,6 +479,18 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "vector-search-endpoints" in setup_ai_search_script
     assert "vector-search-indexes" in setup_ai_search_script
     assert "delta.enableChangeDataFeed" in setup_ai_search_script
+
+    deploy_app_script = _read(DATABRICKS_DIR / "scripts" / "deploy_phase35_databricks_app.sh")
+    assert "APP_CHATBOT_ENABLED=\"${APP_CHATBOT_ENABLED:-true}\"" in deploy_app_script
+    assert "export APP_CHATBOT_ENABLED" in deploy_app_script
+
+    phase7_doc = _read(ROOT / "docs" / "phase7_mcp_genie_readiness.md")
+    assert "Databricks managed MCP servers" in phase7_doc
+    assert "AI Search managed MCP server" in phase7_doc
+    assert "Unity Catalog functions managed MCP server" in phase7_doc
+    assert "Genie Space managed MCP server" in phase7_doc
+    assert "general Databricks SQL MCP server is deferred" in phase7_doc
+    assert "read/write" in phase7_doc
 
 
 def test_phase35_app_staging_uses_chatbot_volume_resource() -> None:

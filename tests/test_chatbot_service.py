@@ -27,6 +27,7 @@ from chec_dashboard.services.chatbot_service import (
     get_skill_status,
     get_chatbot_status,
     retrieve_chatbot_chunks,
+    route_agent_tools,
     send_chatbot_message,
     submit_chatbot_feedback,
 )
@@ -1217,6 +1218,126 @@ def test_databricks_conversation_store_targets_agent_schema(tmp_path: Path) -> N
     assert "`chec_dbx_demo`.`agent`.`agent_feedback`" in statements
     assert "llm_provider" in statements
     assert "model_endpoint_name" in statements
+    assert "agent_tool_calls_json" in statements
+    assert "agent_skipped_tools_json" in statements
+    assert "agent_route_summary_json" in statements
+
+
+def test_phase7_router_selects_documents_structured_tools_and_direct_mode() -> None:
+    selected_context = {"kind": "event", "cto_equi_ope": "CKT-1", "causa": "VIENTO"}
+    context_package = build_chatbot_context_package(
+        selected_context=selected_context,
+        briefing_type="reliability",
+        question_id="reliability_saidi_saifi",
+    )
+
+    candidates = route_agent_tools(
+        selected_context=selected_context,
+        context_package=context_package,
+        question="CREG 015 SAIDI SAIFI",
+        briefing_type="reliability",
+        question_id="reliability_saidi_saifi",
+    )
+    direct_candidates = route_agent_tools(
+        selected_context=selected_context,
+        context_package=context_package,
+        question="gracias",
+        briefing_type="reliability",
+        question_id=None,
+    )
+
+    tool_names = {candidate.tool_name for candidate in candidates}
+    assert "search_regulatory_documents" in tool_names
+    assert "get_reliability_summary" in tool_names
+    assert "get_event_context" in tool_names
+    assert direct_candidates == []
+
+
+def test_phase7_guided_assessment_returns_and_persists_tool_trace(tmp_path: Path) -> None:
+    reset_memory_conversation_store()
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    data_dir.mkdir()
+    _write_corpus(corpus_dir)
+    settings = _settings(tmp_path, data_dir, corpus_dir, chatbot_enabled=True)
+
+    payload = assess_chatbot_context(
+        settings,
+        selected_context={"kind": "event", "causa": "VIENTO", "cto_equi_ope": "CKT-1"},
+        question="CREG 015 SAIDI SAIFI",
+        briefing_type="reliability",
+    )
+    detail = get_chatbot_conversation(settings, payload["conversation_id"])
+
+    assert payload["ready"] is True
+    assert payload["agent_tool_calls"]
+    assert payload["agent_route_summary"]["read_only"] is True
+    assert "search_regulatory_documents" in payload["agent_route_summary"]["executed_tools"]
+    assert payload["citations"]
+    assert detail is not None
+    assistant_turn = detail["messages"][-1]
+    assert assistant_turn["agent_tool_calls"] == payload["agent_tool_calls"]
+    assert assistant_turn["agent_route_summary"]["executed_tools"] == payload["agent_route_summary"]["executed_tools"]
+
+
+def test_phase7_router_blocks_skill_disallowed_tools(tmp_path: Path) -> None:
+    reset_memory_conversation_store()
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    skill_dir = tmp_path / "skills"
+    data_dir.mkdir()
+    _write_corpus(corpus_dir)
+    _write_skill(
+        skill_dir,
+        "cumplimiento.yml",
+        """
+        skill_id: cumplimiento
+        version: "7.0"
+        status: active
+        role: Asistente restringido.
+        language: es
+        tone: Seco.
+        allowed_tools:
+          - get_dashboard_context
+        instructions:
+          - Usa solo herramientas permitidas.
+        output:
+          sections:
+            - Respuesta
+        constraints:
+          must_cite_regulatory_claims: true
+          cannot_make_legal_conclusions: true
+          forbidden_phrases:
+            - dato inventado
+        missing_evidence_behavior: Declarar datos faltantes.
+        retrieval:
+          backend: local_jsonl
+          top_k: 2
+        """,
+    )
+    settings = _settings(
+        tmp_path,
+        data_dir,
+        corpus_dir,
+        chatbot_enabled=True,
+        chatbot_skills_dir=skill_dir,
+    )
+
+    payload = assess_chatbot_context(
+        settings,
+        selected_context={"kind": "event", "causa": "VIENTO", "cto_equi_ope": "CKT-1"},
+        question="CREG 015 requisitos",
+        briefing_type="compliance",
+    )
+
+    blocked = {
+        item["tool_name"]
+        for item in payload["agent_skipped_tools"]
+        if item.get("skip_reason") == "blocked_by_skill_policy"
+    }
+    assert "search_regulatory_documents" in blocked
+    assert "get_event_context" in blocked
+    assert "search_regulatory_documents" not in payload["agent_route_summary"]["executed_tools"]
 
 
 def test_context_options_from_local_map_files(tmp_path: Path) -> None:

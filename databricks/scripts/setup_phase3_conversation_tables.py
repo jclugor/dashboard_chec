@@ -14,6 +14,13 @@ from chec_dashboard.core.config import load_settings  # noqa: E402
 from chec_dashboard.services.databricks_sql import DatabricksSQLWarehouseClient, sql_table_name  # noqa: E402
 
 
+MESSAGE_TRACE_COLUMNS = {
+    "agent_tool_calls_json": "STRING",
+    "agent_skipped_tools_json": "STRING",
+    "agent_route_summary_json": "STRING",
+}
+
+
 def _settings_with_app_defaults():
     if os.getenv("APP_WAREHOUSE_ID") and not os.getenv("DATABRICKS_SQL_WAREHOUSE_ID"):
         os.environ["DATABRICKS_SQL_WAREHOUSE_ID"] = os.environ["APP_WAREHOUSE_ID"]
@@ -68,10 +75,23 @@ CREATE TABLE IF NOT EXISTS {sql_table_name(catalog, schema, "agent_messages")} (
   citations_json STRING,
   retrieved_chunk_ids_json STRING,
   status_text STRING,
-  ready BOOLEAN
+  ready BOOLEAN,
+  agent_tool_calls_json STRING,
+  agent_skipped_tools_json STRING,
+  agent_route_summary_json STRING
 ) USING DELTA
 """.strip()
     )
+    messages_table = sql_table_name(catalog, schema, "agent_messages")
+    existing_columns = _table_columns(client, messages_table)
+    missing_columns = {
+        column_name: column_type
+        for column_name, column_type in MESSAGE_TRACE_COLUMNS.items()
+        if column_name.lower() not in existing_columns
+    }
+    if missing_columns:
+        column_sql = ", ".join(f"{column_name} {column_type}" for column_name, column_type in missing_columns.items())
+        client.fetch_dataframe(f"ALTER TABLE {messages_table} ADD COLUMNS ({column_sql})")
     client.fetch_dataframe(
         f"""
 CREATE TABLE IF NOT EXISTS {sql_table_name(catalog, schema, "agent_feedback")} (
@@ -86,6 +106,18 @@ CREATE TABLE IF NOT EXISTS {sql_table_name(catalog, schema, "agent_feedback")} (
     )
     print(f"Phase 3 conversation tables are ready in {catalog}.{schema}")
     return 0
+
+
+def _table_columns(client: DatabricksSQLWarehouseClient, table_name: str) -> set[str]:
+    frame = client.fetch_dataframe(f"DESCRIBE TABLE {table_name}")
+    if frame.empty:
+        return set()
+    column_field = "col_name" if "col_name" in frame.columns else frame.columns[0]
+    return {
+        str(value).strip().lower()
+        for value in frame[column_field].tolist()
+        if str(value).strip() and not str(value).startswith("#")
+    }
 
 
 if __name__ == "__main__":
