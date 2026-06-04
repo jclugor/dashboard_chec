@@ -102,6 +102,10 @@ def test_chatbot_assess_route_unconfigured(monkeypatch: pytest.MonkeyPatch) -> N
             "agent_tool_calls": [{"tool_name": "get_event_context", "status": "executed"}],
             "agent_skipped_tools": [],
             "agent_route_summary": {"route_mode": "tool_augmented_context", "read_only": True},
+            "structured_answer": {"estado_observado": ["Gemini no está configurado todavía."]},
+            "answer_validation": {"valid": False, "missing_sections": ["datos_faltantes"]},
+            "citation_validation": {"valid": True, "warnings": []},
+            "compliance_validation": {"valid": True, "warnings": []},
         },
     )
 
@@ -121,6 +125,10 @@ def test_chatbot_assess_route_unconfigured(monkeypatch: pytest.MonkeyPatch) -> N
     assert response.skill_hash == "abc123"
     assert response.agent_tool_calls[0]["tool_name"] == "get_event_context"
     assert response.agent_route_summary["read_only"] is True
+    assert response.structured_answer["estado_observado"][0].startswith("Gemini")
+    assert response.answer_validation["valid"] is False
+    assert response.citation_validation["valid"] is True
+    assert response.compliance_validation["valid"] is True
     assert "Gemini no está configurado" in response.answer
 
 
@@ -144,6 +152,10 @@ def test_chatbot_assessment_schema_accepts_conversation_metadata() -> None:
         agent_tool_calls=[{"tool_name": "search_regulatory_documents", "status": "executed"}],
         agent_skipped_tools=[{"tool_name": "get_asset_context", "skip_reason": "blocked_by_skill_policy"}],
         agent_route_summary={"route_mode": "tool_augmented_retrieval", "read_only": True},
+        structured_answer={"estado_observado": ["Respuesta"]},
+        answer_validation={"valid": True},
+        citation_validation={"valid": True},
+        compliance_validation={"valid": True},
     )
 
     assert response.conversation_id == "conv-existing"
@@ -151,6 +163,8 @@ def test_chatbot_assessment_schema_accepts_conversation_metadata() -> None:
     assert response.skill_hash == "hash-1"
     assert response.agent_tool_calls[0]["tool_name"] == "search_regulatory_documents"
     assert response.agent_skipped_tools[0]["skip_reason"] == "blocked_by_skill_policy"
+    assert response.structured_answer["estado_observado"] == ["Respuesta"]
+    assert response.answer_validation["valid"] is True
 
 
 def test_chatbot_conversation_routes(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -202,6 +216,10 @@ def test_chatbot_conversation_routes(monkeypatch: pytest.MonkeyPatch) -> None:
                     "agent_tool_calls": [{"tool_name": "get_event_context", "status": "executed"}],
                     "agent_skipped_tools": [],
                     "agent_route_summary": {"route_mode": "tool_augmented_context", "read_only": True},
+                    "structured_answer": {"estado_observado": ["Respuesta"]},
+                    "answer_validation": {"valid": True},
+                    "citation_validation": {"valid": True},
+                    "compliance_validation": {"valid": True},
                 }
             ],
         },
@@ -217,6 +235,7 @@ def test_chatbot_conversation_routes(monkeypatch: pytest.MonkeyPatch) -> None:
     assert detail.messages[0].turn_id == "turn-1"
     assert detail.messages[0].skill_hash == "hash-1"
     assert detail.messages[0].agent_tool_calls[0]["tool_name"] == "get_event_context"
+    assert detail.messages[0].structured_answer["estado_observado"] == ["Respuesta"]
 
 
 def test_chatbot_conversation_get_returns_404(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -249,6 +268,10 @@ def test_chatbot_send_message_route_and_validation(monkeypatch: pytest.MonkeyPat
             "agent_tool_calls": [{"tool_name": "search_technical_documents", "status": "executed"}],
             "agent_skipped_tools": [],
             "agent_route_summary": {"route_mode": "tool_augmented_retrieval", "read_only": True},
+            "structured_answer": {"estado_observado": ["Seguimiento"]},
+            "answer_validation": {"valid": True},
+            "citation_validation": {"valid": True},
+            "compliance_validation": {"valid": True},
         },
     )
 
@@ -261,6 +284,7 @@ def test_chatbot_send_message_route_and_validation(monkeypatch: pytest.MonkeyPat
     assert response.conversation_id == "conv-1"
     assert response.llm_provider == "mock"
     assert response.agent_tool_calls[0]["tool_name"] == "search_technical_documents"
+    assert response.structured_answer["estado_observado"] == ["Seguimiento"]
     with pytest.raises(chatbot_routes.HTTPException) as exc_info:
         chatbot_routes.chatbot_send_message("conv-1", ChatbotConversationMessageRequest(message="   "))
     assert exc_info.value.status_code == 400

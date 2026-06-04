@@ -105,6 +105,10 @@ class ChatbotAssessmentResponse(ChatbotAPIModel):
     agent_tool_calls: list[dict[str, Any]] = Field(default_factory=list)
     agent_skipped_tools: list[dict[str, Any]] = Field(default_factory=list)
     agent_route_summary: dict[str, Any] = Field(default_factory=dict)
+    structured_answer: dict[str, Any] = Field(default_factory=dict)
+    answer_validation: dict[str, Any] = Field(default_factory=dict)
+    citation_validation: dict[str, Any] = Field(default_factory=dict)
+    compliance_validation: dict[str, Any] = Field(default_factory=dict)
 
 
 class ChatbotConversationMessage(ChatbotAPIModel):
@@ -128,6 +132,10 @@ class ChatbotConversationMessage(ChatbotAPIModel):
     agent_tool_calls: list[dict[str, Any]] = Field(default_factory=list)
     agent_skipped_tools: list[dict[str, Any]] = Field(default_factory=list)
     agent_route_summary: dict[str, Any] = Field(default_factory=dict)
+    structured_answer: dict[str, Any] = Field(default_factory=dict)
+    answer_validation: dict[str, Any] = Field(default_factory=dict)
+    citation_validation: dict[str, Any] = Field(default_factory=dict)
+    compliance_validation: dict[str, Any] = Field(default_factory=dict)
 
 
 class ChatbotConversationCreateRequest(ChatbotAPIModel):

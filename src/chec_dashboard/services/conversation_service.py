@@ -60,6 +60,10 @@ class ConversationMessage:
     agent_tool_calls: list[dict[str, Any]] = field(default_factory=list)
     agent_skipped_tools: list[dict[str, Any]] = field(default_factory=list)
     agent_route_summary: dict[str, Any] = field(default_factory=dict)
+    structured_answer: dict[str, Any] = field(default_factory=dict)
+    answer_validation: dict[str, Any] = field(default_factory=dict)
+    citation_validation: dict[str, Any] = field(default_factory=dict)
+    compliance_validation: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -168,6 +172,10 @@ def message_payload(message: ConversationMessage) -> dict[str, Any]:
         "agent_tool_calls": message.agent_tool_calls,
         "agent_skipped_tools": message.agent_skipped_tools,
         "agent_route_summary": message.agent_route_summary,
+        "structured_answer": message.structured_answer,
+        "answer_validation": message.answer_validation,
+        "citation_validation": message.citation_validation,
+        "compliance_validation": message.compliance_validation,
     }
 
 
@@ -319,7 +327,9 @@ LIMIT 1
 SELECT conversation_id, turn_id, role, content, created_at, briefing_type,
        question_id, skill_id, skill_version, skill_hash, trace_id, llm_provider,
        model_endpoint_name, citations_json, retrieved_chunk_ids_json, status_text, ready,
-       agent_tool_calls_json, agent_skipped_tools_json, agent_route_summary_json
+       agent_tool_calls_json, agent_skipped_tools_json, agent_route_summary_json,
+       structured_answer_json, answer_validation_json, citation_validation_json,
+       compliance_validation_json
 FROM {self.messages_table}
 WHERE conversation_id = {sql_literal(conversation_id)}
 ORDER BY created_at ASC, CASE role WHEN 'user' THEN 0 ELSE 1 END ASC
@@ -338,7 +348,8 @@ INSERT INTO {self.messages_table} (
   conversation_id, turn_id, role, content, created_at, briefing_type, question_id,
   skill_id, skill_version, skill_hash, trace_id, llm_provider, model_endpoint_name, citations_json,
   retrieved_chunk_ids_json, status_text, ready, agent_tool_calls_json,
-  agent_skipped_tools_json, agent_route_summary_json
+  agent_skipped_tools_json, agent_route_summary_json, structured_answer_json,
+  answer_validation_json, citation_validation_json, compliance_validation_json
 ) VALUES (
   {sql_literal(message.conversation_id)},
   {sql_literal(message.turn_id)},
@@ -359,7 +370,11 @@ INSERT INTO {self.messages_table} (
   {sql_literal(message.ready)},
   {_sql_json(message.agent_tool_calls)},
   {_sql_json(message.agent_skipped_tools)},
-  {_sql_json(message.agent_route_summary)}
+  {_sql_json(message.agent_route_summary)},
+  {_sql_json(message.structured_answer)},
+  {_sql_json(message.answer_validation)},
+  {_sql_json(message.citation_validation)},
+  {_sql_json(message.compliance_validation)}
 )
 """.strip()
             )
@@ -403,6 +418,10 @@ INSERT INTO {self.feedback_table} (
             agent_tool_calls=_json_loads(_row_value(row, "agent_tool_calls_json"), []),
             agent_skipped_tools=_json_loads(_row_value(row, "agent_skipped_tools_json"), []),
             agent_route_summary=_json_loads(_row_value(row, "agent_route_summary_json"), {}),
+            structured_answer=_json_loads(_row_value(row, "structured_answer_json"), {}),
+            answer_validation=_json_loads(_row_value(row, "answer_validation_json"), {}),
+            citation_validation=_json_loads(_row_value(row, "citation_validation_json"), {}),
+            compliance_validation=_json_loads(_row_value(row, "compliance_validation_json"), {}),
         )
 
 
@@ -491,6 +510,10 @@ def record_conversation_turn(
     agent_tool_calls: list[dict[str, Any]] | None = None,
     agent_skipped_tools: list[dict[str, Any]] | None = None,
     agent_route_summary: dict[str, Any] | None = None,
+    structured_answer: dict[str, Any] | None = None,
+    answer_validation: dict[str, Any] | None = None,
+    citation_validation: dict[str, Any] | None = None,
+    compliance_validation: dict[str, Any] | None = None,
     mode: str = "guided",
 ) -> None:
     store = get_conversation_store(settings)
@@ -544,6 +567,10 @@ def record_conversation_turn(
                 agent_tool_calls=agent_tool_calls or [],
                 agent_skipped_tools=agent_skipped_tools or [],
                 agent_route_summary=agent_route_summary or {},
+                structured_answer=structured_answer or {},
+                answer_validation=answer_validation or {},
+                citation_validation=citation_validation or {},
+                compliance_validation=compliance_validation or {},
             ),
         ]
     )

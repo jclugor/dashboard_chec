@@ -33,7 +33,8 @@ def sql_literal(value: Any) -> str:
         if math.isnan(value) or math.isinf(value):
             raise ValueError("NaN and infinity are not valid SQL literals.")
         return repr(value)
-    return "'" + str(value).replace("'", "''") + "'"
+    escaped = str(value).replace("\\", "\\\\").replace("'", "''")
+    return f"'{escaped}'"
 
 
 @dataclass(frozen=True)

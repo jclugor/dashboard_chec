@@ -37,6 +37,18 @@ from chec_dashboard.services.agent_routing_service import (
     execute_agent_route,
     route_agent_tools,
 )
+from chec_dashboard.services.answer_quality_service import (
+    STRUCTURED_SECTION_KEYS,
+    STRUCTURED_SECTION_TITLES,
+    _build_answer_quality_metadata,
+    _normalize_structured_answer,
+    _validate_citations,
+    _validate_compliance_language,
+    build_answer_quality_metadata,
+    normalize_structured_answer,
+    validate_citations,
+    validate_compliance_language,
+)
 from chec_dashboard.services.citation_service import _citation_payload, citation_payload
 from chec_dashboard.services.llm_service import (
     DatabricksModelServingLLMClient,
@@ -81,10 +93,17 @@ __all__ = [
     "DOCUMENT_SEARCH_TOOLS",
     "RUNTIME_AGENT_TOOLS",
     "STRUCTURED_CONTEXT_TOOLS",
+    "STRUCTURED_SECTION_KEYS",
+    "STRUCTURED_SECTION_TITLES",
     "_databricks_chat_payload",
+    "_build_answer_quality_metadata",
+    "_normalize_structured_answer",
     "_parse_databricks_model_serving_response",
+    "_validate_citations",
+    "_validate_compliance_language",
     "assess_chatbot_context",
     "ai_search_configured",
+    "build_answer_quality_metadata",
     "build_chatbot_context_package",
     "build_context_tool_payload",
     "citation_payload",
@@ -104,6 +123,7 @@ __all__ = [
     "load_chatbot_corpus",
     "llm_endpoint_configured",
     "llm_endpoint_name",
+    "normalize_structured_answer",
     "retriever_runtime_diagnostics",
     "resolve_skill",
     "retrieve_chatbot_chunks",
@@ -111,4 +131,6 @@ __all__ = [
     "route_agent_tools",
     "send_chatbot_message",
     "submit_chatbot_feedback",
+    "validate_citations",
+    "validate_compliance_language",
 ]

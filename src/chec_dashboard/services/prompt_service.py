@@ -68,6 +68,19 @@ Reglas:
 - No inventes requisitos que no estén soportados por los documentos.
 - Sé conciso, orientado a las personas interesadas y accionable.
 - No uses términos en inglés cuando exista una alternativa clara en español.
+- Estructura la respuesta con estos encabezados exactos, en este orden:
+  ## Estado observado
+  ## Banderas de evidencia
+  ## Requisitos posiblemente aplicables
+  ## Datos faltantes
+  ## Riesgo posible
+  ## Recomendaciones
+  ## Limitaciones
+  ## Citas usadas
+  ## Preguntas sugeridas
+- En afirmaciones regulatorias, normativas o de cumplimiento, incluye un marcador de cita como [1].
+- Usa lenguaje de control prudente: posible riesgo, evidencia disponible, bandera de evidencia, dato faltante o recomendación de verificación.
+- No afirmes conclusiones definitivas como cumple, no cumple, incumplimiento confirmado, sanción aplicable o responsabilidad legal demostrada.
 {skill_text}
 
 Paquete de contexto estructurado:

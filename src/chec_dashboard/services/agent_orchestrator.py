@@ -10,6 +10,7 @@ from chec_dashboard.services.agent_context_service import (
 )
 from chec_dashboard.services.agent_routing_service import execute_agent_route
 from chec_dashboard.services.agent_trace_service import create_trace_id
+from chec_dashboard.services.answer_quality_service import build_answer_quality_metadata
 from chec_dashboard.services.citation_service import citation_payload
 from chec_dashboard.services.conversation_service import (
     create_conversation,
@@ -157,6 +158,7 @@ def _persist_response(
     agent_route_summary: dict[str, Any] | None = None,
     mode: str = "guided",
 ) -> None:
+    quality = build_answer_quality_metadata(answer, citations, briefing_type=briefing_type)
     record_conversation_turn(
         settings,
         conversation_id=metadata["conversation_id"],
@@ -179,6 +181,10 @@ def _persist_response(
         agent_tool_calls=agent_tool_calls or [],
         agent_skipped_tools=agent_skipped_tools or [],
         agent_route_summary=agent_route_summary or _empty_agent_route_summary(),
+        structured_answer=quality["structured_answer"],
+        answer_validation=quality["answer_validation"],
+        citation_validation=quality["citation_validation"],
+        compliance_validation=quality["compliance_validation"],
         mode=mode,
     )
 
@@ -195,6 +201,7 @@ def _assessment_payload(
     agent_skipped_tools: list[dict[str, Any]] | None = None,
     agent_route_summary: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    quality = build_answer_quality_metadata(answer, citations, briefing_type=briefing_type)
     return {
         "answer": answer,
         "citations": citations,
@@ -204,6 +211,10 @@ def _assessment_payload(
         "agent_tool_calls": agent_tool_calls or [],
         "agent_skipped_tools": agent_skipped_tools or [],
         "agent_route_summary": agent_route_summary or _empty_agent_route_summary(),
+        "structured_answer": quality["structured_answer"],
+        "answer_validation": quality["answer_validation"],
+        "citation_validation": quality["citation_validation"],
+        "compliance_validation": quality["compliance_validation"],
         **metadata,
     }
 

@@ -17,6 +17,7 @@ from chec_dashboard.services.chatbot_service import (
     _parse_ai_search_response,
     _parse_databricks_model_serving_response,
     assess_chatbot_context,
+    build_answer_quality_metadata,
     build_chatbot_context_package,
     build_context_tool_payload,
     citation_payload,
@@ -26,10 +27,13 @@ from chec_dashboard.services.chatbot_service import (
     get_chatbot_conversation,
     get_skill_status,
     get_chatbot_status,
+    normalize_structured_answer,
     retrieve_chatbot_chunks,
     route_agent_tools,
     send_chatbot_message,
     submit_chatbot_feedback,
+    validate_citations,
+    validate_compliance_language,
 )
 from chec_dashboard.services.conversation_service import (
     ConversationFeedback,
@@ -154,6 +158,98 @@ def _write_corpus(corpus_dir: Path) -> None:
 def _write_skill(skill_dir: Path, name: str, text: str) -> None:
     skill_dir.mkdir(parents=True, exist_ok=True)
     (skill_dir / name).write_text(textwrap.dedent(text).strip() + "\n", encoding="utf-8")
+
+
+def test_structured_answer_parser_handles_canonical_sections() -> None:
+    answer = """
+    ## Estado observado
+    - SAIDI alto en el circuito CKT-1 [1].
+    ## Banderas de evidencia
+    - Evidencia disponible de recurrencia.
+    ## Requisitos posiblemente aplicables
+    - CREG 015 puede ser aplicable [1].
+    ## Datos faltantes
+    - Fecha exacta de normalización.
+    ## Riesgo posible
+    - Posible riesgo de continuidad.
+    ## Recomendaciones
+    - Validar causa raíz.
+    ## Limitaciones
+    - Sin inspección de campo.
+    ## Citas usadas
+    - [1] CREG 015.
+    ## Preguntas sugeridas
+    - ¿Cuál fue la causa repetida?
+    """
+
+    structured, validation = normalize_structured_answer(textwrap.dedent(answer))
+
+    assert validation["valid"] is True
+    assert validation["missing_sections"] == []
+    assert structured["estado_observado"][0].startswith("SAIDI alto")
+    assert structured["citas_usadas"][0].startswith("[1]")
+
+
+def test_structured_answer_parser_fills_partial_and_plain_markdown() -> None:
+    partial, partial_validation = normalize_structured_answer(
+        "## Estado observado\nTexto con evidencia disponible [1]."
+    )
+    plain, plain_validation = normalize_structured_answer("Respuesta libre sin secciones.")
+
+    assert partial_validation["valid"] is False
+    assert "datos_faltantes" in partial_validation["missing_sections"]
+    assert partial["datos_faltantes"][0]
+    assert plain_validation["fallback_used"] is True
+    assert plain["estado_observado"][0] == "Respuesta libre sin secciones."
+
+
+def test_citation_validator_resolves_markers_and_flags_uncited_claims() -> None:
+    citations = [{"id": "creg-1", "title": "CREG 015"}]
+    valid = validate_citations("CREG 015 define SAIDI y SAIFI [1].", citations)
+    invalid = validate_citations(
+        "CREG 015 define SAIDI y SAIFI. Ver también [2].",
+        citations,
+    )
+
+    assert valid["valid"] is True
+    assert valid["used_citation_numbers"] == [1]
+    assert invalid["valid"] is False
+    assert invalid["unknown_citation_numbers"] == [2]
+    assert invalid["uncited_regulatory_claims"]
+
+
+def test_compliance_validator_flags_overclaims_and_allows_prudent_language() -> None:
+    flagged = validate_compliance_language(
+        "El activo no cumple y tiene incumplimiento confirmado con sanción aplicable."
+    )
+    allowed = validate_compliance_language(
+        "Hay posible riesgo, evidencia disponible y una recomendación de verificación."
+    )
+
+    assert flagged["valid"] is False
+    assert "no cumple" in flagged["flagged_phrases"]
+    assert "incumplimiento confirmado" in flagged["flagged_phrases"]
+    assert "sanción aplicable" in flagged["flagged_phrases"]
+    assert allowed["valid"] is True
+    assert "posible riesgo" in allowed["allowed_language_present"]
+
+
+def test_answer_quality_metadata_combines_sections_and_validators() -> None:
+    metadata = build_answer_quality_metadata(
+        "## Estado observado\nCREG 015 aplica al indicador SAIDI.",
+        citations=[{"id": "creg-1"}],
+        briefing_type="compliance",
+    )
+
+    assert set(metadata) == {
+        "structured_answer",
+        "answer_validation",
+        "citation_validation",
+        "compliance_validation",
+    }
+    assert metadata["answer_validation"]["valid"] is False
+    assert metadata["citation_validation"]["valid"] is False
+    assert metadata["compliance_validation"]["valid"] is True
 
 
 def test_chatbot_status_uses_mock_provider_without_credentials(tmp_path: Path) -> None:
@@ -581,7 +677,12 @@ def test_missing_ai_search_config_returns_traceable_early_answer(tmp_path: Path)
     assert result["skill_id"]
     assert result["skill_version"]
     assert result["skill_hash"]
+    assert result["structured_answer"]["estado_observado"]
+    assert result["answer_validation"]["valid"] in {True, False}
+    assert result["citation_validation"]["valid"] in {True, False}
+    assert result["compliance_validation"]["valid"] in {True, False}
     assert detail["messages"][-1]["skill_id"] == result["skill_id"]
+    assert detail["messages"][-1]["structured_answer"] == result["structured_answer"]
 
 
 def test_databricks_model_serving_failure_preserves_citations_and_metadata(
@@ -624,9 +725,12 @@ def test_databricks_model_serving_failure_preserves_citations_and_metadata(
     assert result["model_endpoint_name"] == "databricks-qwen3-next-80b-a3b-instruct"
     assert result["trace_id"]
     assert "No fue posible generar el análisis" in result["answer"]
+    assert result["structured_answer"]["estado_observado"]
+    assert result["citation_validation"]["available_citation_numbers"]
     assert detail["messages"][-1]["trace_id"] == result["trace_id"]
     assert detail["messages"][-1]["llm_provider"] == "databricks_model_serving"
     assert detail["messages"][-1]["model_endpoint_name"] == result["model_endpoint_name"]
+    assert detail["messages"][-1]["citation_validation"] == result["citation_validation"]
 
 
 def test_default_repo_skills_load_and_validate(tmp_path: Path) -> None:
@@ -995,6 +1099,8 @@ def test_assessment_with_mock_provider_returns_deterministic_answer(tmp_path: Pa
     assert payload["skill_version"] == "1.0"
     assert payload["skill_hash"]
     assert payload["trace_id"].startswith("trace-")
+    assert payload["structured_answer"]["estado_observado"]
+    assert "requisitos_posiblemente_aplicables" in payload["answer_validation"]["missing_sections"]
 
 
 def test_assessment_reuses_conversation_id(tmp_path: Path) -> None:
@@ -1037,6 +1143,8 @@ def test_missing_context_assessment_persists_skill_metadata(tmp_path: Path) -> N
     assert detail["skill_version"] == payload["skill_version"]
     assert detail["skill_hash"] == payload["skill_hash"]
     assert detail["messages"][-1]["skill_id"] == payload["skill_id"]
+    assert payload["structured_answer"]["estado_observado"]
+    assert detail["messages"][-1]["structured_answer"] == payload["structured_answer"]
 
 
 def test_followup_message_reuses_context_and_recent_history(
@@ -1081,6 +1189,8 @@ def test_followup_message_reuses_context_and_recent_history(
     assert len(detail["messages"]) == 4
     assert detail["messages"][-1]["llm_provider"] == "mock"
     assert detail["messages"][-1]["model_endpoint_name"] == "mock"
+    assert followup["structured_answer"]["estado_observado"]
+    assert detail["messages"][-1]["structured_answer"] == followup["structured_answer"]
 
 
 def test_followup_without_saved_context_persists_clear_response(tmp_path: Path) -> None:
@@ -1106,6 +1216,8 @@ def test_followup_without_saved_context_persists_clear_response(tmp_path: Path) 
     assert detail is not None
     assert detail["messages"][-1]["skill_hash"] == payload["skill_hash"]
     assert "No hay contexto guardado" in detail["messages"][-1]["content"]
+    assert payload["structured_answer"]["estado_observado"]
+    assert detail["messages"][-1]["answer_validation"] == payload["answer_validation"]
 
 
 def test_conversation_feedback_validates_rating_and_returns_traceable_payload(tmp_path: Path) -> None:
@@ -1221,6 +1333,10 @@ def test_databricks_conversation_store_targets_agent_schema(tmp_path: Path) -> N
     assert "agent_tool_calls_json" in statements
     assert "agent_skipped_tools_json" in statements
     assert "agent_route_summary_json" in statements
+    assert "structured_answer_json" in statements
+    assert "answer_validation_json" in statements
+    assert "citation_validation_json" in statements
+    assert "compliance_validation_json" in statements
 
 
 def test_phase7_router_selects_documents_structured_tools_and_direct_mode() -> None:
@@ -1278,6 +1394,8 @@ def test_phase7_guided_assessment_returns_and_persists_tool_trace(tmp_path: Path
     assistant_turn = detail["messages"][-1]
     assert assistant_turn["agent_tool_calls"] == payload["agent_tool_calls"]
     assert assistant_turn["agent_route_summary"]["executed_tools"] == payload["agent_route_summary"]["executed_tools"]
+    assert assistant_turn["structured_answer"] == payload["structured_answer"]
+    assert assistant_turn["citation_validation"] == payload["citation_validation"]
 
 
 def test_phase7_router_blocks_skill_disallowed_tools(tmp_path: Path) -> None:

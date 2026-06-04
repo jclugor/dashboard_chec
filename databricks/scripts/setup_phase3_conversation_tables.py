@@ -18,6 +18,10 @@ MESSAGE_TRACE_COLUMNS = {
     "agent_tool_calls_json": "STRING",
     "agent_skipped_tools_json": "STRING",
     "agent_route_summary_json": "STRING",
+    "structured_answer_json": "STRING",
+    "answer_validation_json": "STRING",
+    "citation_validation_json": "STRING",
+    "compliance_validation_json": "STRING",
 }
 
 
@@ -78,7 +82,11 @@ CREATE TABLE IF NOT EXISTS {sql_table_name(catalog, schema, "agent_messages")} (
   ready BOOLEAN,
   agent_tool_calls_json STRING,
   agent_skipped_tools_json STRING,
-  agent_route_summary_json STRING
+  agent_route_summary_json STRING,
+  structured_answer_json STRING,
+  answer_validation_json STRING,
+  citation_validation_json STRING,
+  compliance_validation_json STRING
 ) USING DELTA
 """.strip()
     )

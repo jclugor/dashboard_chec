@@ -449,6 +449,10 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "agent_tool_calls_json" in setup_conversation_script
     assert "agent_skipped_tools_json" in setup_conversation_script
     assert "agent_route_summary_json" in setup_conversation_script
+    assert "structured_answer_json" in setup_conversation_script
+    assert "answer_validation_json" in setup_conversation_script
+    assert "citation_validation_json" in setup_conversation_script
+    assert "compliance_validation_json" in setup_conversation_script
     assert "ALTER TABLE" in setup_conversation_script
 
     setup_context_tools_script = _read(DATABRICKS_DIR / "scripts" / "setup_phase4_context_tools.py")

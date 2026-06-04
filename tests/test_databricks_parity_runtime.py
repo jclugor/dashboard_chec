@@ -8,6 +8,16 @@ from chec_dashboard.app import create_app
 from chec_dashboard.api.main import create_api_app
 from chec_dashboard.core.config import settings as base_settings
 from chec_dashboard.dash_app import api_client
+from chec_dashboard.services.databricks_sql import sql_literal
+
+
+def test_sql_literal_escapes_quotes_and_backslashes_for_json_payloads() -> None:
+    literal = sql_literal('{"text": "usa \\"comillas\\" y O\'Brien"}')
+
+    assert literal.startswith("'")
+    assert literal.endswith("'")
+    assert "\\\\\"" in literal
+    assert "O''Brien" in literal
 
 
 def test_fetch_summary_data_inproc_uses_local_provider(

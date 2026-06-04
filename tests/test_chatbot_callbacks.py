@@ -133,6 +133,24 @@ def test_chatbot_assessment_callback_stores_conversation_id(monkeypatch: pytest.
             "agent_tool_calls": [{"tool_name": "get_event_context", "status": "executed", "evidence_count": 1}],
             "agent_skipped_tools": [],
             "agent_route_summary": {"route_mode": "tool_augmented_context", "route_reason": "Evento gobernado"},
+            "structured_answer": {
+                "estado_observado": ["Respuesta guiada."],
+                "banderas_evidencia": ["Bandera de evidencia con cita [1]."],
+                "requisitos_posiblemente_aplicables": ["CREG 015 puede aplicar."],
+                "datos_faltantes": ["Dato de inspección."],
+                "riesgo_posible": ["Posible riesgo operativo."],
+                "recomendaciones": ["Validar en campo."],
+                "limitaciones": ["Sin visita de campo."],
+                "citas_usadas": ["[1] RETIE."],
+                "preguntas_sugeridas": ["¿Hay recurrencia?"],
+            },
+            "answer_validation": {"valid": True},
+            "citation_validation": {
+                "valid": False,
+                "unknown_citation_numbers": [],
+                "uncited_regulatory_claims": ["CREG 015 puede aplicar."],
+            },
+            "compliance_validation": {"valid": True},
         },
     )
     monkeypatch.setattr(
@@ -164,6 +182,13 @@ def test_chatbot_assessment_callback_stores_conversation_id(monkeypatch: pytest.
                         "route_mode": "tool_augmented_context",
                         "route_reason": "Evento gobernado",
                     },
+                    "structured_answer": {
+                        "estado_observado": ["Respuesta guiada."],
+                        "banderas_evidencia": ["Bandera de evidencia con cita [1]."],
+                    },
+                    "answer_validation": {"valid": False},
+                    "citation_validation": {"valid": True},
+                    "compliance_validation": {"valid": True},
                 }
             ],
         },
@@ -174,6 +199,8 @@ def test_chatbot_assessment_callback_stores_conversation_id(monkeypatch: pytest.
     assert result[3] == "conv-1"
     assert result[4]["conversation_id"] == "conv-1"
     assert result[6]["turn_id"] == "turn-1"
+    assert "Estado observado" in _all_text(result[0])
+    assert "Afirmaciones regulatorias sin cita" in _all_text(result[0])
     assert "Respuesta guiada" in _all_text(result[5])
     assert "get_event_context" in _all_text(result[8])
 
@@ -198,6 +225,13 @@ def test_chatbot_followup_callback_sends_existing_conversation(monkeypatch: pyte
                     "turn_id": "turn-2",
                     "role": "assistant",
                     "content": "Seguimiento.",
+                    "structured_answer": {
+                        "estado_observado": ["Seguimiento."],
+                        "recomendaciones": ["Revisar activo seleccionado."],
+                    },
+                    "answer_validation": {"valid": False},
+                    "citation_validation": {"valid": True},
+                    "compliance_validation": {"valid": True},
                     "agent_tool_calls": [
                         {
                             "tool_name": "search_technical_documents",
@@ -227,6 +261,7 @@ def test_chatbot_followup_callback_sends_existing_conversation(monkeypatch: pyte
     assert result[2] == "Respuesta de seguimiento generada."
     assert result[3] == ""
     assert result[4]["turn_id"] == "turn-2"
+    assert "Revisar activo seleccionado" in _all_text(result[1])
     assert "search_technical_documents" in _all_text(result[6])
 
 

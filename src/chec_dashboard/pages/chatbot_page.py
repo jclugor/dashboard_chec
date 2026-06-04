@@ -17,7 +17,12 @@ from chec_dashboard.dash_app.api_client import (
     fetch_map_circuit_options,
     fetch_map_options,
 )
-from chec_dashboard.services.chatbot_service import BRIEFING_LABELS, GUIDED_QUESTIONS
+from chec_dashboard.services.chatbot_service import (
+    BRIEFING_LABELS,
+    GUIDED_QUESTIONS,
+    STRUCTURED_SECTION_KEYS,
+    STRUCTURED_SECTION_TITLES,
+)
 
 
 CHEC_GREEN = "#00782b"
@@ -94,6 +99,69 @@ def _context_summary_component(item: dict[str, Any] | None):
         if value not in {None, ""}
     ]
     return html.Div(rows, className="chatbot-context-summary")
+
+
+def _answer_component(payload: dict[str, Any] | None):
+    payload = payload or {}
+    structured = payload.get("structured_answer") or {}
+    if not structured:
+        return dcc.Markdown(
+            payload.get("answer") or payload.get("content") or "Sin respuesta.",
+            className="chatbot-answer-markdown",
+        )
+    sections = []
+    for key in STRUCTURED_SECTION_KEYS:
+        items = _structured_items(structured.get(key))
+        if not items:
+            continue
+        sections.append(
+            html.Div(
+                [
+                    html.Div(STRUCTURED_SECTION_TITLES.get(key, key.replace("_", " ").title()), className="chatbot-structured-title"),
+                    html.Ul(
+                        [html.Li(item, className="chatbot-structured-item") for item in items],
+                        className="chatbot-structured-list",
+                    ),
+                ],
+                className="chatbot-structured-section",
+            )
+        )
+    warnings = _validation_warnings_component(payload)
+    return html.Div([*sections, *(warnings or [])], className="chatbot-structured-answer")
+
+
+def _structured_items(value: Any) -> list[str]:
+    if isinstance(value, list):
+        return [str(item) for item in value if str(item).strip()]
+    if isinstance(value, str) and value.strip():
+        return [value.strip()]
+    return []
+
+
+def _validation_warnings_component(payload: dict[str, Any] | None):
+    payload = payload or {}
+    citation_validation = payload.get("citation_validation") or {}
+    compliance_validation = payload.get("compliance_validation") or {}
+    warnings: list[str] = []
+    if citation_validation and citation_validation.get("valid") is False:
+        unknown = citation_validation.get("unknown_citation_numbers") or []
+        uncited = citation_validation.get("uncited_regulatory_claims") or []
+        if unknown:
+            warnings.append(f"Citas por revisar: {', '.join(f'[{number}]' for number in unknown[:5])}.")
+        if uncited:
+            warnings.append("Afirmaciones regulatorias sin cita explícita.")
+    if compliance_validation and compliance_validation.get("valid") is False:
+        flagged = compliance_validation.get("flagged_phrases") or []
+        if flagged:
+            warnings.append(f"Lenguaje de cumplimiento por revisar: {', '.join(str(item) for item in flagged[:5])}.")
+    if not warnings:
+        return []
+    return [
+        html.Div(
+            [html.Div(warning, className="chatbot-validation-warning") for warning in warnings],
+            className="chatbot-validation-warnings",
+        )
+    ]
 
 
 def _citations_component(citations: list[dict[str, Any]] | None):
@@ -189,7 +257,7 @@ def _conversation_messages_component(messages: list[dict[str, Any]] | None):
                         "Usuario" if message.get("role") == "user" else "Asistente",
                         className="chatbot-message-role",
                     ),
-                    dcc.Markdown(str(message.get("content") or ""), className="chatbot-message-text")
+                    html.Div(_answer_component(message), className="chatbot-message-text")
                     if message.get("role") == "assistant"
                     else html.Div(str(message.get("content") or ""), className="chatbot-message-text"),
                 ],
@@ -570,7 +638,7 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
             briefing_type=briefing_type or "reliability",
             question_id=question_id,
         )
-        answer = dcc.Markdown(payload.get("answer") or "Sin respuesta.", className="chatbot-answer-markdown")
+        answer = _answer_component(payload)
         citations = _citations_component(payload.get("citations", []))
         status_text = payload.get("status_text", "")
         conversation_id = payload.get("conversation_id")
