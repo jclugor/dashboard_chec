@@ -24,10 +24,10 @@ def _render_app_yaml(template_text: str) -> str:
             f"    valueFrom: \"{gemini_secret_resource_key}\""
         )
     else:
-        gemini_api_key_env = "  - name: GEMINI_API_KEY\n    value: \"\""
+        gemini_api_key_env = ""
 
     replacements = {
-        "__WAREHOUSE_ID__": os.getenv("APP_WAREHOUSE_ID", "4437a6195e05c59c"),
+        "__WAREHOUSE_ID__": os.getenv("APP_WAREHOUSE_ID", ""),
         "__CATALOG_NAME__": os.getenv("APP_CATALOG_NAME", "chec_dbx_demo"),
         "__GOLD_SCHEMA__": os.getenv("APP_GOLD_SCHEMA", "gold"),
         "__SILVER_SCHEMA__": os.getenv("APP_SILVER_SCHEMA", "silver"),

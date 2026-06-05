@@ -94,7 +94,8 @@ def test_phase1_bundle_and_job_paths() -> None:
     assert "ingest_classic_node_type_id:" in bundle_text
     assert "default: Standard_L4aos_v4" in bundle_text
     assert "dashboard_warehouse_id:" in bundle_text
-    assert "4437a6195e05c59c" in bundle_text
+    assert 'default: ""' in bundle_text
+    assert "4437a6195e05c59c" not in bundle_text
     assert "dashboard_parent_path:" in bundle_text
     assert "/Shared/CHEC Phase2 Pilot" in bundle_text
     assert "phase2_refresh_quartz_cron:" in bundle_text
@@ -141,6 +142,85 @@ def test_phase1_bundle_and_job_paths() -> None:
         assert f"task_key: {task_key}" in jobs_text
 
 
+def test_fresh_install_template_and_orchestrator_contract() -> None:
+    template_text = _read(DATABRICKS_DIR / "fresh_install.env.example")
+    orchestrator = DATABRICKS_DIR / "scripts" / "fresh_install_databricks.sh"
+    orchestrator_text = _read(orchestrator)
+
+    for expected_text in [
+        "AZURE_SUBSCRIPTION_ID=\"fdc04a72-8109-4807-9dc4-c809f25b6f42\"",
+        "AZURE_REGION=\"eastus\"",
+        "AZURE_RESOURCE_GROUP=\"rg-chec-dashboard-dev\"",
+        "DATABRICKS_WORKSPACE_NAME=\"adb-chec-dashboard-dev\"",
+        "DATABRICKS_WORKSPACE_ID=\"\"",
+        "DATABRICKS_HOST=\"https://adb-7405611288758888.8.azuredatabricks.net\"",
+        "DATABRICKS_AUTH_TYPE=\"azure-cli\"",
+        "CATALOG_NAME=\"chec_dbx_demo\"",
+        "APP_NAME=\"chec-dash-parity\"",
+        "REVIEWER_PRINCIPAL=\"users\"",
+        "UC_MANAGED_STORAGE_ENABLED=\"true\"",
+        "UC_STORAGE_CONTAINER_NAME=\"unity-catalog\"",
+        "UC_STORAGE_CREDENTIAL_NAME=\"chec_dashboard_mi_cred\"",
+        "UC_EXTERNAL_LOCATION_NAME=\"chec_dashboard_uc_root\"",
+        "WAREHOUSE_NAME=\"CHEC Dashboard Warehouse\"",
+        "APP_WAREHOUSE_ID=\"\"",
+        "GRANT_APP_WAREHOUSE_ACCESS=\"true\"",
+        "CHECK_CLASSIC_SKU_FALLBACKS=\"false\"",
+        "FRESH_INSTALL_RESET_STALE_BUNDLE_STATE=\"true\"",
+        "USE_CLASSIC_JOBS=\"false\"",
+        "APP_SUMMARY_INTERPRETABILITY_ENABLED=\"true\"",
+        "APP_GEMINI_SECRET_RESOURCE_KEY=\"\"",
+        "FRESH_INSTALL_STAGE=\"all\"",
+    ]:
+        assert expected_text in template_text
+
+    for stage_name in [
+        "azure",
+        "foundation",
+        "dashboard",
+        "chatbot",
+        "app",
+        "permissions",
+        "validate",
+    ]:
+        assert f"selected_stage {stage_name}" in orchestrator_text
+
+    ordered_calls = [
+        "az databricks workspace create",
+        "databricks warehouses create",
+        "databricks bundle validate",
+        "databricks bundle deploy",
+        "upload_phase1_assets.sh",
+        "publish_phase2_dashboard.sh",
+        "upload_chatbot_assets.sh",
+        "deploy_phase35_databricks_app.sh",
+        "apply_phase35_app_permissions.sh",
+        "gold_timeseries_daily_attribution",
+    ]
+    positions = [orchestrator_text.index(call) for call in ordered_calls]
+    assert positions == sorted(positions)
+    assert ".env.databricks-fresh-install" in orchestrator_text
+    assert "stage_override" in orchestrator_text
+    assert "upsert_env APP_WAREHOUSE_ID" in orchestrator_text
+    assert "GRANT_APP_WAREHOUSE_ACCESS" in orchestrator_text
+    assert "No Unity Catalog metastore is attached" in orchestrator_text
+    assert "reset_stale_bundle_state" in orchestrator_text
+    assert "Moved stale local Databricks bundle state" in orchestrator_text
+    assert "provider_config" in orchestrator_text
+    assert "ensure_uc_catalog" in orchestrator_text
+    assert "derive_uc_storage_defaults" in orchestrator_text
+    assert "App /ready returned HTTP" in orchestrator_text
+    assert "Databricks App OAuth is protecting the endpoint" in orchestrator_text
+    assert "az storage account create" in orchestrator_text
+    assert "az databricks access-connector create" in orchestrator_text
+    assert "databricks storage-credentials create --json" in orchestrator_text
+    assert "databricks external-locations create" in orchestrator_text
+    assert "--storage-root" in orchestrator_text
+    assert "databricks auth token" in orchestrator_text
+
+    subprocess.run(["bash", "-n", str(orchestrator)], check=True)
+
+
 def test_phase1_notebooks_and_guardrails_exist() -> None:
     expected_files = [
         "_shared_phase1.py",
@@ -176,6 +256,9 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
 
     shared_text = _read(NOTEBOOK_DIR / "_shared_phase1.py")
     assert "def define_probability_widgets" in shared_text
+    assert '"agent_config"' in shared_text
+    assert '"agent_tools"' in shared_text
+    assert '"agent_observability"' in shared_text
     assert "def define_map_widgets" in shared_text
     assert 'dbutils_obj.widgets.dropdown(' in shared_text
     assert '"criteria"' in shared_text
@@ -202,6 +285,7 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "SHOW CATALOGS LIKE" in bootstrap_text
     assert "CREATE CATALOG IF NOT EXISTS" not in bootstrap_text
     assert "CREATE VOLUME IF NOT EXISTS {table_name(" in bootstrap_text
+    assert "'agent_config', 'skills'" in bootstrap_text
     assert "CREATE VOLUME IF NOT EXISTS {volume_path(" not in bootstrap_text
     assert "phase1_manifest_json" in bootstrap_text
     assert "phase1_source_inventory" in bootstrap_text
@@ -224,6 +308,8 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "extract_json_payload()" in preflight_script
     assert "databricks metastores current -o json" in preflight_script
     assert "databricks clusters list-node-types -o json" in preflight_script
+    assert "CHECK_CLASSIC_SKU_FALLBACKS" in preflight_script
+    assert "Skipping Azure vCPU quota and SKU restriction checks" in preflight_script
     assert 'az vm list-usage -l "${REGION}" -o json' in preflight_script
     assert 'Standard_DC4as_v5' in preflight_script
     assert 'Standard_L4aos_v4' in preflight_script
@@ -314,6 +400,8 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "APP_GEMINI_SECRET_RESOURCE_KEY" in deploy_app_script
     assert "APP_GEMINI_SECRET_SCOPE" in deploy_app_script
     assert "APP_GEMINI_SECRET_KEY" in deploy_app_script
+    assert 'APP_GEMINI_SECRET_RESOURCE_KEY="${APP_GEMINI_SECRET_RESOURCE_KEY:-}"' in deploy_app_script
+    assert "require_env APP_WAREHOUSE_ID" in deploy_app_script
     assert "READ_VOLUME" in deploy_app_script
     assert "GEMINI_API_KEY" not in deploy_app_script
     assert "databricks workspace delete" in deploy_app_script
@@ -329,6 +417,11 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "APP_SERVICE_PRINCIPAL_NAME" in app_permissions_script
     assert "APP_SERVICE_PRINCIPAL_APPLICATION_ID" in app_permissions_script
     assert "APP_UC_PRINCIPAL" in app_permissions_script
+    assert "APP_WAREHOUSE_ID" in app_permissions_script
+    assert "DATABRICKS_SQL_WAREHOUSE_ID" in app_permissions_script
+    assert "GRANT_APP_WAREHOUSE_ACCESS" in app_permissions_script
+    assert "databricks permissions update warehouses" in app_permissions_script
+    assert 'permission_level: "CAN_USE"' in app_permissions_script
     assert "databricks grants update catalog" in app_permissions_script
     assert "databricks grants update schema" in app_permissions_script
     assert "APP_CONVERSATION_SCHEMA" in app_permissions_script
@@ -583,6 +676,10 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     fresh_install_doc = _read(ROOT / "docs" / "AZURE_DATABRICKS_FRESH_INSTALL.md")
     for expected_text in [
         "Fresh Azure + Databricks Install Runbook",
+        "Quick Start: One-Command Fresh Install",
+        "databricks/fresh_install.env.example",
+        "fresh_install_databricks.sh",
+        "FRESH_INSTALL_STAGE",
         "Azure subscription",
         "Azure CLI",
         "Databricks CLI",
@@ -607,8 +704,21 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
         "databricks current-user me",
         "az login",
         "corporate proxy",
+        "gold_timeseries_daily_attribution",
+        "APP_GEMINI_SECRET_RESOURCE_KEY=\"\"",
     ]:
         assert expected_text in fresh_install_doc
+
+    for text in [
+        _read(DATABRICKS_DIR / "databricks.yml"),
+        _read(DATABRICKS_DIR / "scripts" / "deploy_phase35_databricks_app.sh"),
+        _read(DATABRICKS_DIR / "scripts" / "stage_phase35_databricks_app.py"),
+        _read(DATABRICKS_DIR / "scripts" / "publish_phase2_dashboard.sh"),
+        _read(DATABRICKS_DIR / "README.md"),
+        _read(ROOT / "docs" / "phase35_databricks_app_parity.md"),
+        _read(ROOT / "docs" / "phase2_databricks_consumption_pilot.md"),
+    ]:
+        assert "4437a6195e05c59c" not in text
 
 
 def test_phase35_app_staging_uses_chatbot_volume_resource() -> None:
@@ -845,3 +955,22 @@ def test_phase35_app_staging_can_bind_gemini_secret_resource() -> None:
 
     assert "GEMINI_API_KEY" in app_yaml
     assert "valueFrom: \"gemini_api_key\"" in app_yaml
+
+
+def test_phase35_app_staging_omits_gemini_secret_by_default() -> None:
+    env = os.environ.copy()
+    env.pop("APP_GEMINI_SECRET_RESOURCE_KEY", None)
+    env.pop("APP_GEMINI_SECRET_SCOPE", None)
+    env.pop("APP_GEMINI_SECRET_KEY", None)
+    subprocess.run(
+        [sys.executable, "databricks/scripts/stage_phase35_databricks_app.py"],
+        cwd=ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    app_yaml = _read(DATABRICKS_DIR / "build" / "chec_dash_parity" / "app.yaml")
+
+    assert "GEMINI_API_KEY" not in app_yaml

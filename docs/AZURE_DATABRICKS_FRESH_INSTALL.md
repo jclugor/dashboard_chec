@@ -87,15 +87,16 @@ Pick these values before running commands.
 
 ```bash
 export AZURE_SUBSCRIPTION_ID="<client-subscription-id>"
-export AZURE_RESOURCE_GROUP="rg-chec-databricks-demo"
+export AZURE_RESOURCE_GROUP="rg-chec-dashboard-dev"
 export AZURE_REGION="eastus"
-export DATABRICKS_WORKSPACE_NAME="dbw-chec-demo"
+export DATABRICKS_WORKSPACE_NAME="adb-chec-dashboard-dev"
 export DATABRICKS_HOST="https://adb-<workspace-id>.<region>.azuredatabricks.net"
 
 export CATALOG_NAME="chec_dbx_demo"
 export APP_CATALOG_NAME="${CATALOG_NAME}"
 export APP_NAME="chec-dash-parity"
-export APP_WAREHOUSE_ID="<sql-warehouse-id>"
+export WAREHOUSE_NAME="CHEC Dashboard Warehouse"
+export APP_WAREHOUSE_ID="<created-by-fresh-install-script>"
 export REVIEWER_PRINCIPAL="users"
 ```
 
@@ -141,7 +142,115 @@ enabled. If prompt registration returns `FEATURE_DISABLED`, the app will still
 answer by using the local governed prompt template and will report
 `mlflow_prompt_source=local` in `/chatbot/status`.
 
-## 5. Create The Azure Databricks Workspace
+## 5. Quick Start: One-Command Fresh Install
+
+Use this path for a new Azure subscription when you want the repository scripts
+to create or reuse the Azure resource group, Databricks workspace, SQL
+warehouse, Unity Catalog objects, data tables, Lakeview dashboard, chatbot
+assets, Databricks App, and permissions.
+
+From the repo root:
+
+```bash
+cd <CHEC_ROOT>/dashboard
+cp databricks/fresh_install.env.example .env.databricks-fresh-install
+```
+
+Edit `.env.databricks-fresh-install`. For this demo account the known working
+values are:
+
+```bash
+AZURE_SUBSCRIPTION_ID="fdc04a72-8109-4807-9dc4-c809f25b6f42"
+AZURE_REGION="eastus"
+AZURE_RESOURCE_GROUP="rg-chec-dashboard-dev"
+DATABRICKS_WORKSPACE_NAME="adb-chec-dashboard-dev"
+DATABRICKS_HOST="https://adb-7405611288758888.8.azuredatabricks.net"
+DATABRICKS_AUTH_TYPE="azure-cli"
+CATALOG_NAME="chec_dbx_demo"
+APP_NAME="chec-dash-parity"
+REVIEWER_PRINCIPAL="users"
+```
+
+Keep `APP_WAREHOUSE_ID=""` on the first run. The installer creates or reuses a
+small serverless warehouse named `CHEC Dashboard Warehouse`, starts it, and
+writes the discovered ID back to `.env.databricks-fresh-install`.
+
+Keep the Unity Catalog managed-storage names blank unless the client has
+pre-approved names. If the metastore has no storage root, the installer creates
+or reuses:
+
+```text
+Azure storage account: stchec<workspace-id-suffix>
+Storage container: unity-catalog
+Databricks access connector: ac-<workspace-name>
+Storage credential: chec_dashboard_mi_cred
+External location: chec_dashboard_uc_root
+Catalog managed location: abfss://unity-catalog@<storage-account>.dfs.core.windows.net/catalogs/<catalog>
+```
+
+Sign in to Azure once:
+
+```bash
+az login --use-device-code
+```
+
+Then run the full installer:
+
+```bash
+bash databricks/scripts/fresh_install_databricks.sh
+```
+
+The script is restartable. To resume a single part, set
+`FRESH_INSTALL_STAGE` to one or more comma-separated stages:
+
+```bash
+FRESH_INSTALL_STAGE=azure bash databricks/scripts/fresh_install_databricks.sh
+FRESH_INSTALL_STAGE=foundation bash databricks/scripts/fresh_install_databricks.sh
+FRESH_INSTALL_STAGE=dashboard,chatbot bash databricks/scripts/fresh_install_databricks.sh
+FRESH_INSTALL_STAGE=app,permissions,validate bash databricks/scripts/fresh_install_databricks.sh
+```
+
+Stages:
+
+```text
+azure        Azure subscription, provider registration, resource group, workspace
+foundation   SQL warehouse, preflight, bundle deploy, bootstrap, raw upload, gold build
+dashboard    Lakeview notebooks, dashboard publish, pilot permissions
+chatbot      Corpus build if needed, document/corpus/skill upload
+app          Conversation/tool/search/observability setup and Databricks App deploy
+permissions  App ACLs plus Unity Catalog, serving endpoint, and MLflow grants
+validate     Gold table checks and app readiness smoke
+all          Every stage above
+```
+
+Expected final output includes:
+
+```text
+UC managed location: abfss://...
+OK table: <catalog>.gold.gold_timeseries_event_details
+OK table: <catalog>.gold.gold_timeseries_daily_attribution
+OK table: <catalog>.gold.gold_timeseries_environment_daily
+App state: ...; compute state: ...; url: https://<app-name>-<workspace-id>.<region>.databricksapps.com
+```
+
+From a non-browser CLI session, `/ready` may return an HTTP 302 OAuth redirect
+even when the app is healthy. The installer treats that as an authenticated-app
+smoke signal and prints the URL to open in a signed-in browser.
+
+If quota is tight, keep `CHECK_CLASSIC_SKU_FALLBACKS=false` and
+`USE_CLASSIC_JOBS=false` so the deployment stays serverless-first. If the
+workspace has no Unity Catalog metastore attached, the script stops early with
+account-admin instructions instead of failing later in the bundle.
+
+The installer also checks local Databricks Asset Bundle state under
+`databricks/.databricks`. If that ignored state points at a different workspace
+ID, it is moved to `/tmp` before deploy so a previous client workspace cannot
+poison a fresh install.
+
+`FRESH_INSTALL_STAGE=...` passed on the command line overrides the local env file
+so resume commands do not accidentally fall back to `all`.
+
+## 6. Manual Reference: Create The Azure Databricks Workspace
 
 Sign in and select the client subscription:
 
@@ -178,7 +287,7 @@ Open the workspace from the Azure Portal. Confirm:
 Official reference:
 https://learn.microsoft.com/en-us/azure/databricks/admin/workspace/azure-cli
 
-## 6. Configure Unity Catalog
+## 7. Configure Unity Catalog
 
 In a new Azure account, an account admin may need to create or attach a Unity
 Catalog metastore before the project can create catalogs, schemas, and volumes.
@@ -208,7 +317,7 @@ If there is no metastore:
 Official reference:
 https://learn.microsoft.com/en-us/azure/databricks/data-governance/unity-catalog/get-started
 
-## 7. Prepare The Local Repository
+## 8. Prepare The Local Repository
 
 Clone or copy the repo so the default data paths make sense:
 
@@ -257,7 +366,39 @@ source .venv/bin/activate
 pytest -q
 ```
 
-## 8. Phase 1: Build The Databricks Data Foundation
+## 9. Phase 1: Build The Databricks Data Foundation
+
+Create or reuse a SQL Warehouse before validating/deploying the bundle. The
+quick-start script does this automatically; for a manual install:
+
+```bash
+export WAREHOUSE_NAME="CHEC Dashboard Warehouse"
+APP_WAREHOUSE_ID="$(
+  databricks warehouses list -o json \
+    | jq -r --arg name "${WAREHOUSE_NAME}" '(if type == "object" and has("warehouses") then .warehouses else . end)[]? | select(.name == $name) | .id // .warehouse_id // empty' \
+    | head -n 1
+)"
+
+if [[ -z "${APP_WAREHOUSE_ID}" ]]; then
+  APP_WAREHOUSE_ID="$(
+    databricks warehouses create \
+      --name "${WAREHOUSE_NAME}" \
+      --cluster-size Small \
+      --min-num-clusters 1 \
+      --max-num-clusters 1 \
+      --auto-stop-mins 10 \
+      --enable-serverless-compute \
+      --enable-photon \
+      --warehouse-type PRO \
+      --no-wait \
+      -o json \
+      | jq -r '.id // .warehouse_id'
+  )"
+fi
+
+databricks warehouses start "${APP_WAREHOUSE_ID}" --timeout 20m
+export DATABRICKS_SQL_WAREHOUSE_ID="${APP_WAREHOUSE_ID}"
+```
 
 Run preflight from the repo root:
 
@@ -266,6 +407,8 @@ cd <CHEC_ROOT>/dashboard
 export DATABRICKS_HOST="https://adb-<workspace-id>.<region>.azuredatabricks.net"
 export AZURE_REGION="eastus"
 export CATALOG_NAME="chec_dbx_demo"
+export CHECK_CLASSIC_SKU_FALLBACKS="false"
+export FRESH_INSTALL_RESET_STALE_BUNDLE_STATE="true"
 bash databricks/scripts/preflight_phase1_deploy.sh
 ```
 
@@ -280,9 +423,15 @@ Deploy and run the Databricks Asset Bundle:
 
 ```bash
 cd <CHEC_ROOT>/dashboard/databricks
-databricks bundle validate -t dev --var catalog_name="${CATALOG_NAME}"
-databricks bundle deploy -t dev --var catalog_name="${CATALOG_NAME}"
-databricks bundle run -t dev chec_phase1_bootstrap --var catalog_name="${CATALOG_NAME}"
+databricks bundle validate -t dev \
+  --var catalog_name="${CATALOG_NAME}" \
+  --var dashboard_warehouse_id="${APP_WAREHOUSE_ID}"
+databricks bundle deploy -t dev \
+  --var catalog_name="${CATALOG_NAME}" \
+  --var dashboard_warehouse_id="${APP_WAREHOUSE_ID}"
+databricks bundle run -t dev chec_phase1_bootstrap \
+  --var catalog_name="${CATALOG_NAME}" \
+  --var dashboard_warehouse_id="${APP_WAREHOUSE_ID}"
 ```
 
 Upload raw files and ML artifacts:
@@ -296,14 +445,20 @@ Run ingest, validation, and gold-table build:
 
 ```bash
 cd <CHEC_ROOT>/dashboard/databricks
-databricks bundle run -t dev chec_phase1_ingest_validation --var catalog_name="${CATALOG_NAME}"
+databricks bundle run -t dev chec_phase1_ingest_validation \
+  --var catalog_name="${CATALOG_NAME}" \
+  --var dashboard_warehouse_id="${APP_WAREHOUSE_ID}"
 ```
 
 If serverless jobs are not available, use the classic fallback jobs:
 
 ```bash
-databricks bundle run -t dev chec_phase1_bootstrap_classic --var catalog_name="${CATALOG_NAME}"
-databricks bundle run -t dev chec_phase1_ingest_validation_classic --var catalog_name="${CATALOG_NAME}"
+databricks bundle run -t dev chec_phase1_bootstrap_classic \
+  --var catalog_name="${CATALOG_NAME}" \
+  --var dashboard_warehouse_id="${APP_WAREHOUSE_ID}"
+databricks bundle run -t dev chec_phase1_ingest_validation_classic \
+  --var catalog_name="${CATALOG_NAME}" \
+  --var dashboard_warehouse_id="${APP_WAREHOUSE_ID}"
 ```
 
 Verify the data foundation:
@@ -328,21 +483,25 @@ gold_map_filter_index
 gold_map_event_days
 ```
 
-## 9. Phase 2: Publish Dashboard And Pilot Assets
+## 10. Phase 2: Publish Dashboard And Pilot Assets
 
 Deploy the bundle again if needed:
 
 ```bash
 cd <CHEC_ROOT>/dashboard/databricks
-databricks bundle validate -t dev --var catalog_name="${CATALOG_NAME}"
-databricks bundle deploy -t dev --var catalog_name="${CATALOG_NAME}"
+databricks bundle validate -t dev \
+  --var catalog_name="${CATALOG_NAME}" \
+  --var dashboard_warehouse_id="${APP_WAREHOUSE_ID}"
+databricks bundle deploy -t dev \
+  --var catalog_name="${CATALOG_NAME}" \
+  --var dashboard_warehouse_id="${APP_WAREHOUSE_ID}"
 ```
 
 Publish notebooks and the Lakeview dashboard:
 
 ```bash
 bash scripts/publish_phase2_notebooks.sh
-bash scripts/publish_phase2_dashboard.sh
+WAREHOUSE_ID="${APP_WAREHOUSE_ID}" bash scripts/publish_phase2_dashboard.sh
 ```
 
 Apply pilot permissions:
@@ -364,7 +523,7 @@ PILOT_REVIEWER_PRINCIPAL="<client-reviewer-group>" \
 bash scripts/apply_phase2_pilot_permissions.sh
 ```
 
-## 10. Upload Chatbot Documents, Corpus, And Skills
+## 11. Upload Chatbot Documents, Corpus, And Skills
 
 Build the local fallback corpus if it does not already exist:
 
@@ -398,13 +557,17 @@ This script:
 Runtime only uses active skills. Draft and archive are lifecycle areas for client
 editing and promotion.
 
-## 11. Prepare Databricks Compute And App Settings
+## 12. Prepare Databricks Compute And App Settings
 
-Create or identify a SQL Warehouse in the Databricks UI:
+The quick-start installer creates or reuses the `CHEC Dashboard Warehouse` SQL
+warehouse and writes `APP_WAREHOUSE_ID`, `DATABRICKS_SQL_WAREHOUSE_ID`, and
+`WAREHOUSE_ID` back to `.env.databricks-fresh-install`.
+
+For a manual deployment, create or identify a SQL Warehouse in the Databricks UI:
 
 1. Open Databricks.
 2. Go to SQL Warehouses.
-3. Create or select a warehouse.
+3. Create or select a serverless warehouse with auto-stop enabled.
 4. Copy the warehouse ID from the warehouse page or CLI output.
 
 Export app settings:
@@ -446,6 +609,15 @@ export APP_MLFLOW_PROMPT_NAME="chec_chatbot_answer_prompt"
 export APP_MLFLOW_PROMPT_ALIAS="production"
 ```
 
+Gemini is opt-in for fresh installs. Leave these unset unless a client has
+created a Databricks secret scope/key and wants that secret available to the app:
+
+```bash
+export APP_GEMINI_SECRET_RESOURCE_KEY=""
+export APP_GEMINI_SECRET_SCOPE=""
+export APP_GEMINI_SECRET_KEY=""
+```
+
 The app uses Databricks App resources and `valueFrom` for runtime-bound values:
 
 - `chatbot_corpus_volume` exposes the read-only corpus/source volume.
@@ -456,7 +628,10 @@ The app uses Databricks App resources and `valueFrom` for runtime-bound values:
 Official reference:
 https://docs.databricks.com/gcp/en/dev-tools/databricks-apps/resources
 
-## 12. Deploy The Databricks App
+## 13. Deploy The Databricks App
+
+`APP_WAREHOUSE_ID` is required. The fresh installer sets it automatically; for a
+manual run, export it before deploying.
 
 Deploy from the repo root:
 
@@ -498,7 +673,7 @@ Expected final deploy output includes the Databricks App URL:
 https://<app-name>-<workspace-id>.<region>.databricksapps.com
 ```
 
-## 13. Validate The Deployment
+## 14. Validate The Deployment
 
 Check app readiness from the Databricks App URL:
 
@@ -613,7 +788,7 @@ Expected result:
 - The evaluation report is visible in Unity Catalog telemetry and the app
   status payload.
 
-## 14. Troubleshooting
+## 15. Troubleshooting
 
 ### Azure CLI login fails
 
@@ -648,16 +823,67 @@ region as the workspace.
 
 ### Catalog creation or grants fail
 
-The deployment operator may not be a metastore admin or catalog owner. Ask a
-Unity Catalog admin to grant catalog/schema creation rights or pre-create the
-catalog with a managed location.
+If the metastore has no storage root, the fresh installer provisions an Azure
+storage account, storage container, Databricks access connector, Unity Catalog
+storage credential, external location, and catalog managed location. The
+deployment operator needs Azure rights to create those resources and assign
+`Storage Blob Data Contributor` to the access connector. They also need
+Databricks rights to create storage credentials, external locations, and
+catalogs. If any of those grants fail, ask an Azure owner plus a Databricks
+metastore admin to pre-create the catalog with a managed location, then set
+`UC_MANAGED_STORAGE_ENABLED=false` and rerun.
 
 ### Preflight reports quota or SKU failure
 
-Use serverless where possible. If classic fallback jobs are required, the Azure
-subscription must have enough regional vCPU quota and Databricks must expose the
-configured node types. Ask the client Azure admin to approve quota or choose a
-supported region/SKU.
+Use serverless where possible. The fresh installer sets
+`CHECK_CLASSIC_SKU_FALLBACKS=false` and `USE_CLASSIC_JOBS=false`, which skips
+classic VM node-type and vCPU quota checks. If classic fallback jobs are
+required, set those variables to `true`; the Azure subscription must then have
+enough regional vCPU quota and Databricks must expose the configured node types.
+Ask the client Azure admin to approve quota or choose a supported region/SKU.
+
+### SQL warehouse creation fails
+
+The installer creates a small serverless PRO warehouse. If Databricks returns a
+capacity or quota error, create a compatible warehouse manually in the workspace,
+copy its ID into `.env.databricks-fresh-install` as `APP_WAREHOUSE_ID`, and
+resume:
+
+```bash
+FRESH_INSTALL_STAGE=foundation bash databricks/scripts/fresh_install_databricks.sh
+```
+
+### App opens but stays on "Inicializando dashboard"
+
+If the Databricks App shell loads but the browser shows
+`Error during request to server`, check the SQL warehouse ACL. The app service
+principal needs `CAN_USE` on `APP_WAREHOUSE_ID` in addition to Unity Catalog
+table grants. The fresh installer grants this by default with
+`GRANT_APP_WAREHOUSE_ACCESS=true`. To repair an existing deployment:
+
+```bash
+FRESH_INSTALL_STAGE=permissions,validate bash databricks/scripts/fresh_install_databricks.sh
+```
+
+### Resume after a partial install
+
+The installer writes discovered values to `.env.databricks-fresh-install`, so a
+second run can continue from the last successful boundary. Common resumes:
+
+```bash
+FRESH_INSTALL_STAGE=azure bash databricks/scripts/fresh_install_databricks.sh
+FRESH_INSTALL_STAGE=foundation bash databricks/scripts/fresh_install_databricks.sh
+FRESH_INSTALL_STAGE=dashboard,chatbot bash databricks/scripts/fresh_install_databricks.sh
+FRESH_INSTALL_STAGE=app,permissions,validate bash databricks/scripts/fresh_install_databricks.sh
+```
+
+### Bundle deploy references a missing dashboard ID
+
+This usually means local ignored Databricks bundle state was produced against a
+different workspace. The fresh installer handles this automatically when
+`FRESH_INSTALL_RESET_STALE_BUNDLE_STATE=true`: it moves
+`databricks/.databricks` to `/tmp` if the stored workspace ID does not match the
+active workspace, then redeploys cleanly.
 
 ### Upload script reports missing files
 
@@ -674,10 +900,17 @@ Or set `CHEC_SOURCE_DATA_DIR`, `CHATBOT_SOURCE_DOCS_DIR`,
 
 ### AI Search index is not ready
 
-Run the app deploy script again; the Phase 5 setup is idempotent. Then check the
-index in Databricks UI under Catalog Explorer or AI Search/Vector Search,
-depending on the workspace UI. Exact labels vary by Databricks workspace
-release.
+Fresh endpoints can spend several minutes in endpoint provisioning and initial
+sync. The installer waits up to 30 minutes by default. If it times out, check
+that the vector search endpoint is online and rerun:
+
+```bash
+FRESH_INSTALL_STAGE=app,permissions,validate bash databricks/scripts/fresh_install_databricks.sh
+```
+
+The Phase 5 setup is idempotent. You can also check the index in Databricks UI
+under Catalog Explorer or AI Search/Vector Search, depending on the workspace
+UI. Exact labels vary by Databricks workspace release.
 
 ### Model Serving timeout
 
@@ -697,7 +930,25 @@ still records prompt metadata.
 The app deploy and permission scripts include retries for common transient EOF
 errors. Rerun the same command. The setup scripts are idempotent.
 
-## 15. Cost And Shutdown Notes
+### SAIDI/SAIFI interpretability tables missing
+
+The Summary tab's `Analizar evolución` panel expects these gold tables in the
+Databricks backend:
+
+```text
+<catalog>.gold.gold_timeseries_event_details
+<catalog>.gold.gold_timeseries_daily_attribution
+<catalog>.gold.gold_timeseries_environment_daily
+```
+
+If one is missing, rerun the foundation stage so notebook
+`03_build_silver_gold.py` rebuilds the presentation layer:
+
+```bash
+FRESH_INSTALL_STAGE=foundation bash databricks/scripts/fresh_install_databricks.sh
+```
+
+## 16. Cost And Shutdown Notes
 
 Cost drivers to discuss with the client:
 
@@ -720,7 +971,31 @@ Search endpoint should remain online outside demo windows.
 Do not delete production Unity Catalog tables unless the client has approved
 data retention and backup requirements.
 
-## 16. Repeat-Install Checklist
+For a throwaway demo teardown, delete in dependency order after confirming no
+one needs the data:
+
+```bash
+databricks apps stop "${APP_NAME}"
+databricks apps delete "${APP_NAME}"
+databricks catalogs delete "${CATALOG_NAME}" --force
+az databricks access-connector delete \
+  --resource-group "${AZURE_RESOURCE_GROUP}" \
+  --name "${UC_ACCESS_CONNECTOR_NAME}" \
+  --yes
+az storage account delete \
+  --resource-group "${AZURE_RESOURCE_GROUP}" \
+  --name "${UC_STORAGE_ACCOUNT_NAME}" \
+  --yes
+```
+
+To remove the whole demo workspace and all Azure resources created in the demo
+resource group:
+
+```bash
+az group delete --name "${AZURE_RESOURCE_GROUP}" --yes
+```
+
+## 17. Repeat-Install Checklist
 
 Copy this block for each new client.
 
@@ -747,13 +1022,17 @@ Completed:
 [ ] Local prerequisites installed
 [ ] Azure CLI authenticated
 [ ] Databricks CLI authenticated
+[ ] `.env.databricks-fresh-install` created from `databricks/fresh_install.env.example`
 [ ] Workspace created
 [ ] Unity Catalog metastore attached
+[ ] SQL warehouse created/reused and APP_WAREHOUSE_ID written to local env
+[ ] App service principal has CAN_USE on the SQL warehouse
 [ ] Preflight passed
 [ ] Bundle validated/deployed
 [ ] Phase 1 bootstrap succeeded
 [ ] Raw files uploaded
 [ ] Phase 1 ingest validation succeeded
+[ ] SAIDI/SAIFI interpretability gold tables exist
 [ ] Phase 2 dashboard published
 [ ] Chatbot assets uploaded
 [ ] Databricks App deployed

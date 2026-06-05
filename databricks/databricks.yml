@@ -34,7 +34,7 @@ variables:
     default: Standard_L4aos_v4
   dashboard_warehouse_id:
     description: SQL warehouse used by the Phase 2 AI/BI dashboard pilot.
-    default: 4437a6195e05c59c
+    default: ""
   dashboard_parent_path:
     description: Workspace folder that will contain the Phase 2 dashboard draft.
     default: /Shared/CHEC Phase2 Pilot

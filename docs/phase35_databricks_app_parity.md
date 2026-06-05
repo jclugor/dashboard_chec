@@ -21,7 +21,7 @@ This guide covers the Databricks-native parity path for the full CHEC Dash exper
 Set these values when staging or deploying the app:
 
 ```bash
-export APP_WAREHOUSE_ID=4437a6195e05c59c
+export APP_WAREHOUSE_ID="<sql-warehouse-id>"
 export APP_CATALOG_NAME=chec_dbx_demo
 export APP_GOLD_SCHEMA=gold
 export APP_SILVER_SCHEMA=silver

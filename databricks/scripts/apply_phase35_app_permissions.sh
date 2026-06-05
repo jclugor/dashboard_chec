@@ -15,6 +15,8 @@ APP_AI_SEARCH_INDEX_FULL_NAME="${APP_AI_SEARCH_INDEX_FULL_NAME:-${CATALOG_NAME}.
 APP_LLM_ENDPOINT_NAME="${APP_LLM_ENDPOINT_NAME:-databricks-qwen3-next-80b-a3b-instruct}"
 APP_LLM_ENDPOINT_ID="${APP_LLM_ENDPOINT_ID:-}"
 APP_MLFLOW_EXPERIMENT_NAME="${APP_MLFLOW_EXPERIMENT_NAME:-/Shared/chec_dash_parity/agent_observability}"
+APP_WAREHOUSE_ID="${APP_WAREHOUSE_ID:-${DATABRICKS_SQL_WAREHOUSE_ID:-${WAREHOUSE_ID:-}}}"
+GRANT_APP_WAREHOUSE_ACCESS="${GRANT_APP_WAREHOUSE_ACCESS:-true}"
 GRANT_CHATBOT_CONVERSATION_ACCESS="${GRANT_CHATBOT_CONVERSATION_ACCESS:-true}"
 GRANT_CHATBOT_CONTEXT_TOOL_ACCESS="${GRANT_CHATBOT_CONTEXT_TOOL_ACCESS:-true}"
 GRANT_CHATBOT_AI_SEARCH_ACCESS="${GRANT_CHATBOT_AI_SEARCH_ACCESS:-true}"
@@ -133,6 +135,26 @@ fi
 
 run_with_retries databricks apps set-permissions "${APP_NAME}" --json "@${ACL_FILE}"
 rm -f "${ACL_FILE}"
+
+if [[ "${GRANT_APP_WAREHOUSE_ACCESS}" == "true" ]]; then
+  if [[ -z "${APP_WAREHOUSE_ID}" ]]; then
+    echo "Set APP_WAREHOUSE_ID, DATABRICKS_SQL_WAREHOUSE_ID, or WAREHOUSE_ID before granting app SQL warehouse access." >&2
+    exit 1
+  fi
+  WAREHOUSE_PERMISSIONS_FILE="$(mktemp)"
+  jq -n \
+    --arg principal "${APP_SERVICE_PRINCIPAL_APPLICATION_ID}" \
+    '{
+      access_control_list: [
+        {
+          service_principal_name: $principal,
+          permission_level: "CAN_USE"
+        }
+      ]
+    }' >"${WAREHOUSE_PERMISSIONS_FILE}"
+  run_with_retries databricks permissions update warehouses "${APP_WAREHOUSE_ID}" --json "@${WAREHOUSE_PERMISSIONS_FILE}"
+  rm -f "${WAREHOUSE_PERMISSIONS_FILE}"
+fi
 
 CATALOG_GRANTS_FILE="$(mktemp)"
   jq -n \
@@ -312,4 +334,4 @@ if [[ "${GRANT_CHATBOT_MLFLOW_EXPERIMENT_ACCESS}" == "true" ]]; then
   fi
 fi
 
-echo "Applied app permissions for ${APP_NAME} and data grants for ${APP_SERVICE_PRINCIPAL_NAME:-$APP_UC_PRINCIPAL} (${APP_UC_PRINCIPAL})"
+echo "Applied app permissions for ${APP_NAME}, warehouse access, and data grants for ${APP_SERVICE_PRINCIPAL_NAME:-$APP_UC_PRINCIPAL} (${APP_UC_PRINCIPAL})"

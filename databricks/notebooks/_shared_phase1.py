@@ -18,7 +18,17 @@ DEFAULT_CATALOG = "chec_dbx_demo"
 DEFAULT_SOURCE_VOLUME = "source_files"
 DEFAULT_ARTIFACT_VOLUME = "artifacts"
 DEFAULT_MANIFEST_FILENAME = "phase1_assets.json"
-DEFAULT_SCHEMA_NAMES = ("raw", "bronze", "silver", "gold", "ml")
+DEFAULT_SCHEMA_NAMES = (
+    "raw",
+    "bronze",
+    "silver",
+    "gold",
+    "ml",
+    "agent",
+    "agent_config",
+    "agent_tools",
+    "agent_observability",
+)
 
 
 @dataclass(frozen=True)

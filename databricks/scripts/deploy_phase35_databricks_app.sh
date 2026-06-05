@@ -47,7 +47,7 @@ APP_MLFLOW_TRACKING_URI="${APP_MLFLOW_TRACKING_URI:-databricks}"
 APP_MLFLOW_EXPERIMENT_NAME="${APP_MLFLOW_EXPERIMENT_NAME:-/Shared/chec_dash_parity/agent_observability}"
 APP_MLFLOW_PROMPT_NAME="${APP_MLFLOW_PROMPT_NAME:-chec_chatbot_answer_prompt}"
 APP_MLFLOW_PROMPT_ALIAS="${APP_MLFLOW_PROMPT_ALIAS:-production}"
-APP_GEMINI_SECRET_RESOURCE_KEY="${APP_GEMINI_SECRET_RESOURCE_KEY:-gemini_api_key}"
+APP_GEMINI_SECRET_RESOURCE_KEY="${APP_GEMINI_SECRET_RESOURCE_KEY:-}"
 APP_GEMINI_SECRET_SCOPE="${APP_GEMINI_SECRET_SCOPE:-chec_dash_parity}"
 APP_GEMINI_SECRET_KEY="${APP_GEMINI_SECRET_KEY:-gemini_api_key}"
 APP_GEMINI_SECRET_DESCRIPTION="${APP_GEMINI_SECRET_DESCRIPTION:-Gemini API key for the CHEC technical chatbot}"
@@ -122,6 +122,15 @@ capture_with_retries() {
   done
 }
 
+require_env() {
+  local name="$1"
+  if [[ -z "${!name:-}" ]]; then
+    echo "Missing required environment variable: ${name}" >&2
+    echo "Set it directly or run databricks/scripts/fresh_install_databricks.sh to create/reuse a SQL warehouse." >&2
+    exit 1
+  fi
+}
+
 if [[ -z "${WORKSPACE_SOURCE_PATH}" ]]; then
   WORKSPACE_USER="$(capture_with_retries databricks current-user me -o json | jq -r '.userName')"
   WORKSPACE_SOURCE_PATH="/Workspace/Users/${WORKSPACE_USER}/.apps/${APP_NAME}"
@@ -138,14 +147,14 @@ setup_chatbot_conversation_tables() {
   if [[ "${APP_CHATBOT_CONVERSATION_BACKEND}" != "databricks_sql" ]]; then
     return 0
   fi
-  APP_WAREHOUSE_ID="${APP_WAREHOUSE_ID:-4437a6195e05c59c}" \
+  APP_WAREHOUSE_ID="${APP_WAREHOUSE_ID}" \
   APP_CATALOG_NAME="${APP_CATALOG_NAME:-chec_dbx_demo}" \
   APP_CHATBOT_CONVERSATION_SCHEMA="${APP_CHATBOT_CONVERSATION_SCHEMA}" \
     ./.venv/bin/python databricks/scripts/setup_phase3_conversation_tables.py
 }
 
 setup_chatbot_context_tools() {
-  APP_WAREHOUSE_ID="${APP_WAREHOUSE_ID:-4437a6195e05c59c}" \
+  APP_WAREHOUSE_ID="${APP_WAREHOUSE_ID}" \
   APP_CATALOG_NAME="${APP_CATALOG_NAME:-chec_dbx_demo}" \
   APP_CHATBOT_CONTEXT_TOOLS_SCHEMA="${APP_CHATBOT_CONTEXT_TOOLS_SCHEMA}" \
     ./.venv/bin/python databricks/scripts/setup_phase4_context_tools.py
@@ -155,7 +164,7 @@ setup_chatbot_ai_search() {
   if [[ "${APP_RETRIEVER_BACKEND}" != "databricks_ai_search" ]]; then
     return 0
   fi
-  APP_WAREHOUSE_ID="${APP_WAREHOUSE_ID:-4437a6195e05c59c}" \
+  APP_WAREHOUSE_ID="${APP_WAREHOUSE_ID}" \
   APP_CATALOG_NAME="${APP_CATALOG_NAME:-chec_dbx_demo}" \
   APP_SOURCE_VOLUME_NAME="${APP_SOURCE_VOLUME_NAME:-source_files}" \
   APP_AI_SEARCH_ENDPOINT_NAME="${APP_AI_SEARCH_ENDPOINT_NAME}" \
@@ -170,7 +179,7 @@ setup_chatbot_observability() {
   if [[ "${APP_CHATBOT_OBSERVABILITY_ENABLED}" != "true" ]]; then
     return 0
   fi
-  APP_WAREHOUSE_ID="${APP_WAREHOUSE_ID:-4437a6195e05c59c}" \
+  APP_WAREHOUSE_ID="${APP_WAREHOUSE_ID}" \
   APP_CATALOG_NAME="${APP_CATALOG_NAME:-chec_dbx_demo}" \
   APP_CHATBOT_TELEMETRY_SCHEMA="${APP_CHATBOT_TELEMETRY_SCHEMA}" \
   APP_CHATBOT_EVAL_REPORT_ONLY="${APP_CHATBOT_EVAL_REPORT_ONLY}" \
@@ -184,6 +193,13 @@ setup_chatbot_observability() {
 }
 
 cd "${REPO_ROOT}"
+require_env APP_WAREHOUSE_ID
+export DATABRICKS_SQL_WAREHOUSE_ID="${DATABRICKS_SQL_WAREHOUSE_ID:-${APP_WAREHOUSE_ID}}"
+echo "Deploying Databricks app '${APP_NAME}'"
+echo "  Host: ${DATABRICKS_HOST:-<databricks CLI profile default>}"
+echo "  Catalog: ${APP_CATALOG_NAME:-chec_dbx_demo}"
+echo "  Warehouse: ${APP_WAREHOUSE_ID}"
+echo "  Gemini secret resource: ${APP_GEMINI_SECRET_RESOURCE_KEY:-disabled}"
 ./.venv/bin/python databricks/scripts/stage_phase35_databricks_app.py
 ensure_chatbot_skill_lifecycle_dirs
 setup_chatbot_conversation_tables
@@ -288,3 +304,9 @@ run_with_retries databricks apps deploy "${APP_NAME}" \
 run_with_retries databricks apps start "${APP_NAME}"
 
 echo "Deployed Databricks app '${APP_NAME}' from ${WORKSPACE_SOURCE_PATH}"
+APP_JSON="$(capture_with_retries databricks apps get "${APP_NAME}" -o json)"
+APP_URL="$(jq -r '.url // empty' <<< "${APP_JSON}")"
+if [[ -n "${APP_URL}" ]]; then
+  echo "App URL: ${APP_URL}"
+  echo "Next smoke check: curl -sS '${APP_URL}/ready'"
+fi

@@ -145,7 +145,8 @@ What the Databricks App / RAG flow adds:
 
 ## Current Defaults
 - Catalog: `chec_dbx_demo`
-- Dashboard warehouse: `4437a6195e05c59c` (`Serverless Starter Warehouse`)
+- Dashboard warehouse: created/reused by `scripts/fresh_install_databricks.sh`
+  as `CHEC Dashboard Warehouse`, or supplied through `APP_WAREHOUSE_ID`
 - Dashboard parent path: `/Shared/CHEC Phase2 Pilot`
 - Shared notebook path: `/Shared/CHEC Phase2 Pilot/Notebooks`
 - Pilot refresh schedule: daily at `06:00` `America/Bogota`, created as `PAUSED`

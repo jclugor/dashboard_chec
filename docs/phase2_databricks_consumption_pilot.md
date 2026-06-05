@@ -54,7 +54,8 @@ PILOT_REVIEWER_PRINCIPAL="<reviewer-group>" GRANT_REVIEWER_DATA_ACCESS=true bash
 - Live draft display name after bundle deploy: `[dev <user>] CHEC Summary Pilot`
 - Dashboard parent path: `/Shared/CHEC Phase2 Pilot`
 - Notebook publish path: `/Shared/CHEC Phase2 Pilot/Notebooks`
-- Warehouse ID: `4437a6195e05c59c`
+- Warehouse ID: created/reused by `databricks/scripts/fresh_install_databricks.sh`,
+  or set explicitly with `APP_WAREHOUSE_ID` / `WAREHOUSE_ID`
 - Scheduled refresh job name suffix: `chec-phase2-pilot-refresh`
 
 ## Pilot Validation

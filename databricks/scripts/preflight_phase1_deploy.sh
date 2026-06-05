@@ -7,6 +7,7 @@ CATALOG_NAME="${CATALOG_NAME:-chec_dbx_demo}"
 BOOTSTRAP_CLASSIC_SKU="${BOOTSTRAP_CLASSIC_SKU:-Standard_DC4as_v5}"
 INGEST_CLASSIC_SKU="${INGEST_CLASSIC_SKU:-Standard_L4aos_v4}"
 LEGACY_BLOCKED_SKU="${LEGACY_BLOCKED_SKU:-Standard_D4as_v5}"
+CHECK_CLASSIC_SKU_FALLBACKS="${CHECK_CLASSIC_SKU_FALLBACKS:-true}"
 
 require_command() {
   if ! command -v "$1" >/dev/null 2>&1; then
@@ -91,51 +92,36 @@ if [[ "${CATALOG_NAME}" != "${default_catalog_name}" ]]; then
 fi
 echo
 
-node_types_json="$(extract_json_payload "$(run_with_retries 3 5 databricks clusters list-node-types -o json)")"
-enabled_small_node_types="$(
-  echo "${node_types_json}" | jq -r '
-    [.node_types[]
-      | select((.node_info.status // []) | length == 0)
-      | select(.num_cores <= 4)
-      | "\(.node_type_id)\t\(.num_cores)\t\(.memory_mb)\t\(.category)"
-    ] | .[]
-  '
-)"
+if [[ "${CHECK_CLASSIC_SKU_FALLBACKS}" == "true" ]]; then
+  node_types_json="$(extract_json_payload "$(run_with_retries 3 5 databricks clusters list-node-types -o json)")"
+  enabled_small_node_types="$(
+    echo "${node_types_json}" | jq -r '
+      [.node_types[]
+        | select((.node_info.status // []) | length == 0)
+        | select(.num_cores <= 4)
+        | "\(.node_type_id)\t\(.num_cores)\t\(.memory_mb)\t\(.category)"
+      ] | .[]
+    '
+  )"
 
-if [[ -z "${enabled_small_node_types}" ]]; then
-  echo "Databricks node type check failed: no enabled 4-core-or-smaller node types were returned." >&2
-  exit 1
-fi
-
-echo "Enabled Databricks node types with <=4 cores:"
-printf '  %s\n' "${enabled_small_node_types//$'\n'/$'\n''  '}"
-echo
-
-for approved_sku in "${BOOTSTRAP_CLASSIC_SKU}" "${INGEST_CLASSIC_SKU}"; do
-  if ! echo "${enabled_small_node_types}" | cut -f1 | grep -qx "${approved_sku}"; then
-    echo "Databricks node type check failed: ${approved_sku} is not enabled in this workspace." >&2
+  if [[ -z "${enabled_small_node_types}" ]]; then
+    echo "Databricks node type check failed: no enabled 4-core-or-smaller node types were returned." >&2
     exit 1
   fi
-done
 
-usage_json="$(extract_json_payload "$(run_with_retries 3 5 az vm list-usage -l "${REGION}" -o json)")"
-regional_limit="$(echo "${usage_json}" | jq -r 'map(select(.name.localizedValue == "Total Regional vCPUs"))[0].limit // 0')"
+  echo "Enabled Databricks node types with <=4 cores:"
+  printf '  %s\n' "${enabled_small_node_types//$'\n'/$'\n''  '}"
+  echo
 
-if [[ "${regional_limit}" -lt 4 ]]; then
-  echo "Azure quota check failed: Total Regional vCPUs in ${REGION} is ${regional_limit}, but phase 1 needs at least 4." >&2
-  exit 1
+  for approved_sku in "${BOOTSTRAP_CLASSIC_SKU}" "${INGEST_CLASSIC_SKU}"; do
+    if ! echo "${enabled_small_node_types}" | cut -f1 | grep -qx "${approved_sku}"; then
+      echo "Databricks node type check failed: ${approved_sku} is not enabled in this workspace." >&2
+      exit 1
+    fi
+  done
+else
+  echo "Skipping Databricks node type and classic fallback SKU checks because CHECK_CLASSIC_SKU_FALLBACKS=false."
 fi
-
-echo "Relevant Azure vCPU quota rows:"
-echo "${usage_json}" | jq -r '
-  map(select(
-    .name.localizedValue == "Total Regional vCPUs"
-    or (.name.localizedValue | test("DCASv5|Laosv4|NCASv3_T4"; "i"))
-  ))
-  | .[]
-  | "  \(.name.localizedValue): current=\(.currentValue) limit=\(.limit)"
-'
-echo
 
 check_sku_restrictions() {
   local sku="$1"
@@ -167,26 +153,48 @@ check_sku_restrictions() {
   echo "Approved classic SKU ${sku} is unrestricted in ${REGION}."
 }
 
-check_sku_restrictions "${BOOTSTRAP_CLASSIC_SKU}"
-check_sku_restrictions "${INGEST_CLASSIC_SKU}"
-echo
+if [[ "${CHECK_CLASSIC_SKU_FALLBACKS}" == "true" ]]; then
+  usage_json="$(extract_json_payload "$(run_with_retries 3 5 az vm list-usage -l "${REGION}" -o json)")"
+  regional_limit="$(echo "${usage_json}" | jq -r 'map(select(.name.localizedValue == "Total Regional vCPUs"))[0].limit // 0')"
 
-legacy_sku_json="$(extract_json_payload "$(
-  run_with_retries 3 5 \
-  az vm list-skus \
-    --location "${REGION}" \
-    --size "${LEGACY_BLOCKED_SKU}" \
-    --resource-type virtualMachines \
-    --all \
-    --query "[].{name:name,restrictions:restrictions}" \
-    -o json
-)")"
-legacy_restrictions="$(echo "${legacy_sku_json}" | jq '.[0].restrictions // []')"
+  if [[ "${regional_limit}" -lt 4 ]]; then
+    echo "Azure quota check failed: Total Regional vCPUs in ${REGION} is ${regional_limit}, but phase 1 needs at least 4." >&2
+    exit 1
+  fi
 
-if [[ "$(echo "${legacy_restrictions}" | jq 'length')" -gt 0 ]]; then
-  echo "Legacy D-series check: ${LEGACY_BLOCKED_SKU} remains restricted in ${REGION}, so serverless-first is still the correct default."
+  echo "Relevant Azure vCPU quota rows:"
+  echo "${usage_json}" | jq -r '
+    map(select(
+      .name.localizedValue == "Total Regional vCPUs"
+      or (.name.localizedValue | test("DCASv5|Laosv4|NCASv3_T4"; "i"))
+    ))
+    | .[]
+    | "  \(.name.localizedValue): current=\(.currentValue) limit=\(.limit)"
+  '
+  echo
+
+  check_sku_restrictions "${BOOTSTRAP_CLASSIC_SKU}"
+  check_sku_restrictions "${INGEST_CLASSIC_SKU}"
+
+  legacy_sku_json="$(extract_json_payload "$(
+    run_with_retries 3 5 \
+    az vm list-skus \
+      --location "${REGION}" \
+      --size "${LEGACY_BLOCKED_SKU}" \
+      --resource-type virtualMachines \
+      --all \
+      --query "[].{name:name,restrictions:restrictions}" \
+      -o json
+  )")"
+  legacy_restrictions="$(echo "${legacy_sku_json}" | jq '.[0].restrictions // []')"
+
+  if [[ "$(echo "${legacy_restrictions}" | jq 'length')" -gt 0 ]]; then
+    echo "Legacy D-series check: ${LEGACY_BLOCKED_SKU} remains restricted in ${REGION}, so serverless-first is still the correct default."
+  else
+    echo "Legacy D-series check: ${LEGACY_BLOCKED_SKU} is currently unrestricted in ${REGION}; rerun a bundle preflight before changing defaults."
+  fi
 else
-  echo "Legacy D-series check: ${LEGACY_BLOCKED_SKU} is currently unrestricted in ${REGION}; rerun a bundle preflight before changing defaults."
+  echo "Skipping Azure vCPU quota and SKU restriction checks for classic fallback jobs."
 fi
 echo
 

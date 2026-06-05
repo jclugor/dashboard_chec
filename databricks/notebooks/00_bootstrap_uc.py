@@ -29,6 +29,9 @@ spark.sql(
 spark.sql(
     f"CREATE VOLUME IF NOT EXISTS {table_name(context.catalog_name, 'ml', context.artifact_volume_name)}"
 )
+spark.sql(
+    f"CREATE VOLUME IF NOT EXISTS {table_name(context.catalog_name, 'agent_config', 'skills')}"
+)
 
 # COMMAND ----------
 manifest_json = json.dumps(manifest, indent=2, ensure_ascii=False)
