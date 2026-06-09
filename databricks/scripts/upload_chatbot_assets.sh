@@ -37,6 +37,7 @@ SKILL_FILES=(
   "confiabilidad.yml"
   "cumplimiento.yml"
   "mantenimiento.yml"
+  "time_series_interpretability.yml"
   "free_form_chat.yml"
   "global_policy.yml"
   "retrieval_policy.yml"

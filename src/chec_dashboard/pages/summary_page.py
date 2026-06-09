@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Any
 
-from dash import Dash, Input, Output, ctx, dcc, html, no_update
+from dash import Dash, Input, Output, State, ctx, dcc, html, no_update
 from dash.exceptions import PreventUpdate
 import pandas as pd
 import plotly.graph_objects as go
@@ -128,6 +128,20 @@ def _apply_interpretability_markers(
     points = interpretability_payload.get("critical_points") or []
     if not points:
         return figure
+    for period in interpretability_payload.get("critical_periods") or []:
+        start_date = period.get("start_date")
+        end_date = period.get("end_date")
+        if not start_date or not end_date:
+            continue
+        figure.add_vrect(
+            x0=str(start_date),
+            x1=str(end_date),
+            fillcolor="#f0b429",
+            opacity=0.12,
+            line_width=0,
+            annotation_text=str(period.get("metric") or ""),
+            annotation_position="top left",
+        )
     active_metrics = ("SAIDI", "SAIFI") if metric_mode == "BOTH" else (metric_mode,)
     marker_styles = {
         "SAIDI": {"color": "#d9471a", "symbol": "diamond"},
@@ -139,14 +153,20 @@ def _apply_interpretability_markers(
         hover_values: list[str] = []
         for point in points:
             metrics = point.get("metrics") or {}
+            aggregates = point.get("daily_aggregates") or {}
             value = metrics.get(metric)
             if value is None:
                 continue
-            x_values.append(str(point.get("fecha_dia")))
+            fecha_dia = str(point.get("fecha_dia"))
+            x_values.append(fecha_dia)
             y_values.append(float(value))
             reason_text = ", ".join(_reason_label(item) for item in point.get("criticality_types", [])[:4])
             hover_values.append(
-                f"Rango {point.get('rank')}<br>{reason_text}<br>"
+                f"Rango {point.get('rank')}<br>"
+                f"{reason_text}<br>"
+                f"SAIDI: {_format_number(metrics.get('SAIDI'))}<br>"
+                f"SAIFI: {_format_number(metrics.get('SAIFI'))}<br>"
+                f"Eventos: {aggregates.get('event_count', 0)}<br>"
                 f"Confianza: {point.get('confidence', 'medium')}"
             )
         if not x_values:
@@ -166,6 +186,7 @@ def _apply_interpretability_markers(
                 },
                 hovertemplate="%{x}<br>%{y:.4f}<br>%{text}<extra></extra>",
                 text=hover_values,
+                customdata=x_values,
             )
         )
     return figure
@@ -233,12 +254,193 @@ def _critical_point_card(point: dict[str, Any]) -> html.Div:
     )
 
 
+def _narrative_bullets(items: list[Any], class_name: str, *, limit: int = 5) -> html.Ul | html.Div:
+    cleaned = [str(item).strip() for item in (items or []) if str(item).strip()]
+    if not cleaned:
+        return html.Div("Sin informacion disponible.", className=f"{class_name} summary-muted-text")
+    return html.Ul([html.Li(item) for item in cleaned[:limit]], className=class_name)
+
+
+def _narrative_header(payload: dict[str, Any], narrative: dict[str, Any]) -> html.Div:
+    status = payload.get("status") or {}
+    trace = payload.get("interpretability_trace") or {}
+    fallback = "fallback deterministico" if trace.get("fallback_used") else "LLM validado"
+    severity = str(status.get("severity") or "ok").upper()
+    return html.Div(
+        className="summary-interpretability-header summary-interpretability-header-v2",
+        children=[
+            html.Div(
+                [
+                    html.Div("Interpretabilidad de la evolucion", className="summary-interpretability-title"),
+                    html.Div(
+                        str(narrative.get("headline") or payload.get("status_text") or ""),
+                        className="summary-interpretability-headline",
+                    ),
+                ],
+                className="summary-interpretability-heading-group",
+            ),
+            html.Div(
+                f"{severity} | {fallback}",
+                className="summary-interpretability-status",
+            ),
+        ],
+    )
+
+
+def _point_narrative_card(point: dict[str, Any], narrative_by_date: dict[str, dict[str, Any]]) -> html.Div:
+    narrative = narrative_by_date.get(str(point.get("fecha_dia"))) or {}
+    metrics = point.get("metrics") or {}
+    aggregates = point.get("daily_aggregates") or {}
+    confidence = str(narrative.get("confidence") or point.get("confidence", "medium")).upper()
+    return html.Div(
+        className="summary-critical-point-card summary-critical-point-card-v2",
+        children=[
+            html.Div(
+                [
+                    html.Span(f"#{point.get('rank')}"),
+                    html.Span(str(point.get("fecha_dia"))),
+                    html.Span(confidence),
+                ],
+                className="summary-critical-point-header",
+            ),
+            html.Div(str(narrative.get("headline") or "Punto critico"), className="summary-critical-point-title"),
+            html.Div(
+                (
+                    f"SAIDI {_format_number(metrics.get('SAIDI'))} | "
+                    f"SAIFI {_format_number(metrics.get('SAIFI'))} | "
+                    f"Eventos {aggregates.get('event_count', 0)} | "
+                    f"Duracion {aggregates.get('duration_total_h', 0)} h"
+                ),
+                className="summary-critical-point-metrics",
+            ),
+            html.Div("Por que se marco", className="summary-critical-point-section-title"),
+            _narrative_bullets(narrative.get("why_marked") or [], "summary-critical-point-list", limit=4),
+            html.Div("Posibles drivers", className="summary-critical-point-section-title"),
+            _narrative_bullets(narrative.get("likely_drivers") or [], "summary-critical-point-list", limit=4),
+            html.Div("Datos faltantes", className="summary-critical-point-section-title"),
+            _narrative_bullets(narrative.get("missing_evidence") or [], "summary-critical-point-list muted", limit=4),
+            html.Div("Revisiones", className="summary-critical-point-section-title"),
+            _narrative_bullets(narrative.get("recommended_checks") or [], "summary-critical-point-list", limit=3),
+        ],
+    )
+
+
+def _evidence_matrix(rows: list[dict[str, Any]]) -> html.Div:
+    if not rows:
+        return html.Div()
+    return html.Div(
+        className="summary-evidence-matrix",
+        children=[
+            html.Div("Matriz de evidencia", className="summary-section-title"),
+            html.Table(
+                [
+                    html.Thead(
+                        html.Tr(
+                            [
+                                html.Th("Fecha"),
+                                html.Th("Senal"),
+                                html.Th("Evidencia estructurada"),
+                                html.Th("Evidencia documental"),
+                                html.Th("Confianza"),
+                            ]
+                        )
+                    ),
+                    html.Tbody(
+                        [
+                            html.Tr(
+                                [
+                                    html.Td(str(row.get("fecha_dia") or "-")),
+                                    html.Td(str(row.get("signal") or "")),
+                                    html.Td(str(row.get("structured_evidence") or "")),
+                                    html.Td(
+                                        str(
+                                            row.get("documentary_evidence")
+                                            or "Sin soporte documental suficiente"
+                                        )
+                                    ),
+                                    html.Td(str(row.get("confidence") or "medium")),
+                                ]
+                            )
+                            for row in rows[:8]
+                        ]
+                    ),
+                ]
+            ),
+        ],
+    )
+
+
+def _citation_list(citations: list[dict[str, Any]]) -> html.Div:
+    if not citations:
+        return html.Div()
+    items = []
+    for index, citation in enumerate(citations[:6], start=1):
+        title = citation.get("title") or citation.get("document_title") or "Documento"
+        source = citation.get("source_path") or citation.get("source_uri") or citation.get("id") or ""
+        items.append(f"[{index}] {title} {source}".strip())
+    return html.Div(
+        className="summary-narrative-section",
+        children=[
+            html.Div("Citas", className="summary-section-title"),
+            _narrative_bullets(items, "summary-narrative-list", limit=6),
+        ],
+    )
+
+
+def _narrative_footer(narrative: dict[str, Any]) -> html.Div:
+    sections = []
+    for title, key in (
+        ("Datos faltantes", "data_gaps"),
+        ("Recomendaciones", "recommended_actions"),
+        ("Limitaciones", "limitations"),
+    ):
+        values = narrative.get(key) or []
+        if values:
+            sections.append(
+                html.Div(
+                    className="summary-narrative-section",
+                    children=[
+                        html.Div(title, className="summary-section-title"),
+                        _narrative_bullets(values, "summary-narrative-list"),
+                    ],
+                )
+            )
+    return html.Div(sections, className="summary-narrative-footer")
+
+
 def _interpretability_panel_from_payload(payload: dict[str, Any] | None) -> html.Div:
     if not payload:
         return _interpretability_empty_panel()
     points = payload.get("critical_points") or []
     if not points:
         return _interpretability_empty_panel(str(payload.get("status_text") or "No se detectaron puntos criticos."))
+    narrative = payload.get("narrative") or {}
+    if narrative:
+        point_narratives = {
+            str(item.get("fecha_dia")): item
+            for item in narrative.get("point_narratives") or []
+            if isinstance(item, dict)
+        }
+        return html.Div(
+            className="summary-interpretability-panel summary-interpretability-panel-v2",
+            children=[
+                _narrative_header(payload, narrative),
+                html.Div(
+                    className="summary-narrative-section",
+                    children=[
+                        html.Div("Resumen ejecutivo", className="summary-section-title"),
+                        _narrative_bullets(narrative.get("executive_summary") or [], "summary-narrative-list"),
+                    ],
+                ),
+                html.Div(
+                    [_point_narrative_card(point, point_narratives) for point in points],
+                    className="summary-critical-point-grid",
+                ),
+                _evidence_matrix(narrative.get("evidence_matrix") or []),
+                _narrative_footer(narrative),
+                _citation_list(payload.get("corpus_citations") or []),
+            ],
+        )
     return html.Div(
         className="summary-interpretability-panel",
         children=[
@@ -339,6 +541,21 @@ def _summary_visuals_from_payload(
         title,
         status_text,
     )
+
+
+def _selected_date_from_click(click_data: dict[str, Any] | None) -> str | None:
+    if not isinstance(click_data, dict):
+        return None
+    points = click_data.get("points") or []
+    if not points or not isinstance(points[0], dict):
+        return None
+    value = points[0].get("customdata") or points[0].get("x")
+    if isinstance(value, list) and value:
+        value = value[0]
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.isna(parsed):
+        return None
+    return parsed.date().isoformat()
 
 
 def get_layout(settings: Settings) -> html.Div:
@@ -512,6 +729,18 @@ def get_layout(settings: Settings) -> html.Div:
                                     "fontFamily": "'DM Sans', sans-serif",
                                     "fontWeight": "700",
                                 },
+                            ),
+                            html.Button(
+                                "Ver todos",
+                                id="summary-interpretability-reset-button",
+                                n_clicks=0,
+                                className="summary-interpretability-button summary-interpretability-reset-button",
+                                style={
+                                    "backgroundColor": "white",
+                                    "color": CHEC_GREEN,
+                                    "fontFamily": "'DM Sans', sans-serif",
+                                    "fontWeight": "700",
+                                },
                             )
                         ],
                     ),
@@ -580,6 +809,9 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
         Input("summary-circuit", "value"),
         Input("summary-metric-mode", "value"),
         Input("summary-interpretability-button", "n_clicks"),
+        Input("summary-line-chart", "clickData"),
+        Input("summary-interpretability-reset-button", "n_clicks"),
+        State("summary-interpretability-store", "data"),
         prevent_initial_call=True,
         running=[
             (Output("summary-panel-overlay", "style"), _OVERLAY_VISIBLE_STYLE, _OVERLAY_HIDDEN_STYLE),
@@ -592,6 +824,9 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
         circuito: str | None,
         metric_mode: str | None,
         interpretability_clicks: int | None,
+        chart_click_data: dict[str, Any] | None,
+        reset_clicks: int | None,
+        current_interpretability_payload: dict[str, Any] | None,
     ):
         triggered_id = ctx.triggered_id
         metric_mode = metric_mode or "BOTH"
@@ -689,7 +924,17 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
             )
             interpretability_payload = None
             interpretability_panel = _interpretability_empty_panel()
+            selected_date = None
+            should_fetch_interpretability = False
             if triggered_id == "summary-interpretability-button" and interpretability_clicks:
+                should_fetch_interpretability = True
+            elif triggered_id == "summary-line-chart" and current_interpretability_payload:
+                selected_date = _selected_date_from_click(chart_click_data)
+                should_fetch_interpretability = bool(selected_date)
+            elif triggered_id == "summary-interpretability-reset-button" and reset_clicks and current_interpretability_payload:
+                should_fetch_interpretability = True
+
+            if should_fetch_interpretability:
                 try:
                     interpretability_payload = fetch_summary_interpretability(
                         start_date_raw=start_date_raw,
@@ -698,6 +943,7 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
                         metric_mode=metric_mode,
                         max_points=settings.summary_interpretability_max_points,
                         include_agent_text=None,
+                        selected_date=selected_date,
                     )
                     figure = _apply_interpretability_markers(
                         figure,
@@ -707,6 +953,14 @@ def register_callbacks(app: Dash, settings: Settings) -> None:
                     interpretability_panel = _interpretability_panel_from_payload(interpretability_payload)
                 except Exception as exc:
                     interpretability_panel = _interpretability_error_panel(str(exc))
+            elif triggered_id == "summary-line-chart" and current_interpretability_payload:
+                interpretability_payload = current_interpretability_payload
+                figure = _apply_interpretability_markers(
+                    figure,
+                    interpretability_payload,
+                    str(interpretability_payload.get("metric_mode", metric_mode)),
+                )
+                interpretability_panel = _interpretability_panel_from_payload(interpretability_payload)
             return (
                 no_update,
                 no_update,

@@ -308,7 +308,7 @@ def test_chatbot_status_uses_mock_provider_without_credentials(tmp_path: Path) -
     assert status["gemini_configured"] is False
     assert status["ready"] is True
     assert status["skills_available"] is True
-    assert status["skills_count"] == 6
+    assert status["skills_count"] == 7
     assert status["skill_errors_count"] == 0
     assert status["chunks_path_exists"] is True
     assert "chunks.jsonl" in status["corpus_dir_entries"]
@@ -808,7 +808,7 @@ def test_default_repo_skills_load_and_validate(tmp_path: Path) -> None:
     skill = resolve_skill("compliance", settings)
 
     assert status["skills_available"] is True
-    assert status["skills_count"] == 6
+    assert status["skills_count"] == 7
     assert status["skill_errors_count"] == 0
     assert ".yml" in status["supported_file_types"]
     assert ".yaml" in status["supported_file_types"]

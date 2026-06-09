@@ -172,6 +172,10 @@ class SummaryInterpretabilityResponse(APIResponseModel):
     critical_points: list[CriticalPoint] = Field(default_factory=list)
     critical_periods: list[CriticalPeriod] = Field(default_factory=list)
     insight_text: str | None = None
+    narrative: dict[str, Any] | None = None
+    deterministic_narrative: dict[str, Any] | None = None
+    status: dict[str, Any] | None = None
+    interpretability_trace: dict[str, Any] | None = None
     corpus_citations: list[dict[str, Any]] = Field(default_factory=list)
     status_text: str
 

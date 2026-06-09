@@ -23,6 +23,9 @@ from chec_dashboard.services.retrieval_service import (
     retrieve_chatbot_chunks,
 )
 from chec_dashboard.services.skill_service import SkillResolution
+from chec_dashboard.services.timeseries_interpretability.context_tool import (
+    get_timeseries_interpretability_context_tool,
+)
 
 
 RUNTIME_AGENT_TOOLS = {
@@ -32,6 +35,7 @@ RUNTIME_AGENT_TOOLS = {
     "get_event_context",
     "get_asset_context",
     "get_circuit_history",
+    "get_timeseries_interpretability_context",
     "search_technical_documents",
     "search_regulatory_documents",
 }
@@ -137,6 +141,22 @@ _CIRCUIT_HISTORY_TERMS = {
     "recurrencia",
     "recurrente",
     "circuito",
+}
+_TIMESERIES_TERMS = {
+    "evolucion",
+    "evolución",
+    "serie",
+    "tendencia",
+    "pico",
+    "picos",
+    "anomalia",
+    "anomalía",
+    "critico",
+    "crítico",
+    "criticos",
+    "críticos",
+    "saidi",
+    "saifi",
 }
 
 
@@ -298,6 +318,13 @@ def route_agent_tools(
         candidates.append(AgentToolCandidate("get_asset_context", "La pregunta se refiere a un activo o revision de campo."))
     if _contains_any(text, _CIRCUIT_HISTORY_TERMS) and _selected_circuit(selected_context, context_package, question):
         candidates.append(AgentToolCandidate("get_circuit_history", "La pregunta pide historial o recurrencia del circuito."))
+    if context_kind == "timeseries_criticality" or _contains_any(text, _TIMESERIES_TERMS):
+        candidates.append(
+            AgentToolCandidate(
+                "get_timeseries_interpretability_context",
+                "La pregunta pide explicar la evolucion temporal SAIDI/SAIFI o un punto critico.",
+            )
+        )
 
     if _contains_any(text, _REGULATORY_TERMS):
         candidates.append(
@@ -420,6 +447,14 @@ def _execute_structured_tool(
                 circuit=circuit,
                 start_date=start_date,
                 end_date=end_date,
+            ), None
+        if tool_name == "get_timeseries_interpretability_context":
+            selected_date = _context_value(selected_context, context_package, "selected_date", "fecha_dia")
+            return get_timeseries_interpretability_context_tool(
+                settings,
+                selected_context=selected_context,
+                context_package=context_package,
+                selected_date=str(selected_date) if selected_date else None,
             ), None
     except Exception:
         return {}, "tool_execution_error"

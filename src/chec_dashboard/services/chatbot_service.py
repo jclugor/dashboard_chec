@@ -90,6 +90,9 @@ from chec_dashboard.services.retrieval_service import (
     retrieve_local_jsonl_chunks,
 )
 from chec_dashboard.services.skill_service import get_skill_status, resolve_skill
+from chec_dashboard.services.timeseries_interpretability.context_tool import (
+    get_timeseries_interpretability_context_tool,
+)
 
 
 __all__ = [
@@ -135,6 +138,7 @@ __all__ = [
     "get_event_context_tool",
     "get_skill_status",
     "get_reliability_summary_tool",
+    "get_timeseries_interpretability_context_tool",
     "load_chatbot_corpus",
     "llm_endpoint_configured",
     "llm_endpoint_name",

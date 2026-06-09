@@ -10,6 +10,7 @@ allowed_tools:
   - get_event_context
   - get_asset_context
   - get_circuit_history
+  - get_timeseries_interpretability_context
   - search_technical_documents
   - search_regulatory_documents
 instructions:

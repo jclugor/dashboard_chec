@@ -39,7 +39,7 @@ from chec_dashboard.services.summary_service import (
     load_summary_dataset,
 )
 from chec_dashboard.services.time_series_interpretability_agent import (
-    attach_interpretability_agent_text,
+    attach_interpretability_narrative,
 )
 from chec_dashboard.services.time_series_interpretability_service import CriticalityThresholds
 
@@ -554,6 +554,8 @@ def get_summary_interpretability_payload(
         str(settings.summary_interpretability_sustained_min_days),
         str(should_include_agent),
         selected_date or "",
+        "narrative_v2",
+        "schema_1",
     )
     cached = _cache_get(settings, cache_key)
     if cached is not None:
@@ -572,7 +574,7 @@ def get_summary_interpretability_payload(
         payload["critical_points"] = [
             point for point in payload.get("critical_points", []) if point.get("fecha_dia") == selected_date
         ]
-    payload = attach_interpretability_agent_text(
+    payload = attach_interpretability_narrative(
         settings,
         payload,
         include_agent_text=bool(should_include_agent and settings.summary_interpretability_enabled),

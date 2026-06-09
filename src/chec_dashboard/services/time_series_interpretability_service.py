@@ -737,27 +737,11 @@ def deterministic_insight_text(payload: dict[str, Any]) -> str:
 
 
 def build_timeseries_context_package(payload: dict[str, Any]) -> dict[str, Any]:
-    return {
-        "kind": "timeseries_criticality",
-        "context_kind": "timeseries_criticality",
-        "tool_name": "get_timeseries_interpretability_context",
-        "summary": {
-            "text": deterministic_insight_text(payload),
-            "start_date": payload.get("start_date"),
-            "end_date": payload.get("end_date"),
-            "circuit_label": payload.get("circuit_label"),
-            "metric_mode": payload.get("metric_mode"),
-        },
-        "records": payload.get("critical_points") or [],
-        "metrics": {
-            "critical_point_count": len(payload.get("critical_points") or []),
-            "critical_period_count": len(payload.get("critical_periods") or []),
-        },
-        "traceability": {
-            "claim_scope": "summary_time_series_interpretability",
-            "read_only": True,
-        },
-    }
+    from chec_dashboard.services.timeseries_interpretability.context_builder import (
+        build_timeseries_context_package_v2,
+    )
+
+    return build_timeseries_context_package_v2(payload)
 
 
 def build_summary_interpretability_payload(

@@ -675,6 +675,8 @@ body {
 
 .summary-chart-actions {
   display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
   justify-content: flex-end;
   width: 100%;
 }
@@ -724,6 +726,10 @@ body {
   font-family: "DM Sans", sans-serif;
 }
 
+.summary-interpretability-panel-v2 {
+  gap: 14px;
+}
+
 .summary-interpretability-empty,
 .summary-interpretability-error {
   min-height: 72px;
@@ -746,6 +752,41 @@ body {
   font-size: clamp(15px, 1.1vw, 18px);
   font-weight: 700;
   line-height: 1.25;
+}
+
+.summary-interpretability-heading-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: min(100%, 420px);
+}
+
+.summary-interpretability-headline {
+  color: #014719;
+  font-size: 15px;
+  font-weight: 700;
+  line-height: 1.3;
+}
+
+.summary-narrative-section {
+  background: #f7faf8;
+  border: 1px solid #e0ece4;
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+
+.summary-narrative-list,
+.summary-critical-point-list {
+  margin: 6px 0 0 18px;
+  padding: 0;
+  color: #173b22;
+  font-size: 13px;
+  line-height: 1.35;
+}
+
+.summary-muted-text,
+.summary-critical-point-list.muted {
+  color: #5d6d62;
 }
 
 .summary-interpretability-status,
@@ -776,6 +817,11 @@ body {
   background: #f8fcf8;
 }
 
+.summary-critical-point-card-v2 {
+  gap: 8px;
+  min-height: 190px;
+}
+
 .summary-critical-point-header {
   display: flex;
   align-items: center;
@@ -791,11 +837,58 @@ body {
   font-weight: 700;
 }
 
+.summary-critical-point-title,
+.summary-critical-point-section-title,
+.summary-section-title {
+  color: #014719;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.summary-critical-point-title {
+  font-size: 14px;
+}
+
+.summary-critical-point-section-title,
+.summary-section-title {
+  font-size: 13px;
+}
+
 .summary-critical-point-reasons,
 .summary-critical-point-aggregates,
 .summary-critical-point-attribution {
   font-size: 12px;
   line-height: 1.3;
+}
+
+.summary-evidence-matrix {
+  overflow-x: auto;
+}
+
+.summary-evidence-matrix table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+  min-width: 720px;
+}
+
+.summary-evidence-matrix th,
+.summary-evidence-matrix td {
+  border-bottom: 1px solid #e3e8e4;
+  padding: 8px;
+  text-align: left;
+  vertical-align: top;
+}
+
+.summary-evidence-matrix th {
+  color: #014719;
+  font-weight: 700;
+}
+
+.summary-narrative-footer {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
 }
 
 /* Tablet */

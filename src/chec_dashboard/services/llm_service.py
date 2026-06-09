@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
+import re
 import time
 from typing import Any
 
@@ -420,3 +422,52 @@ def generate_llm_answer(
     if provider == "databricks_model_serving":
         return _generate_databricks_model_serving_answer(settings, prompt, trace_id=trace_id)
     raise RuntimeError(llm_configuration_message(settings))
+
+
+def _extract_json_object(text: str) -> dict[str, Any] | None:
+    cleaned = text.strip()
+    if not cleaned:
+        return None
+    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", cleaned, flags=re.DOTALL | re.IGNORECASE)
+    if fenced:
+        cleaned = fenced.group(1).strip()
+    if not cleaned.startswith("{"):
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start >= 0 and end > start:
+            cleaned = cleaned[start : end + 1]
+    try:
+        parsed = json.loads(cleaned)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
+def generate_llm_structured_answer(
+    settings: Settings,
+    *,
+    prompt: str,
+    schema_name: str,
+    json_schema: dict[str, Any],
+    context_package: dict[str, Any],
+    question: str | None,
+    citations: list[dict[str, Any]],
+    skill_resolution: Any | None = None,
+    trace_id: str | None = None,
+) -> dict[str, Any] | None:
+    """Return a strict JSON object for structured workflows.
+
+    The current providers are text-first. Native schema enforcement can be added
+    per provider later; for now the trust boundary is strict parse + validation.
+    """
+    _ = schema_name, json_schema
+    answer = generate_llm_answer(
+        settings,
+        prompt=prompt,
+        context_package=context_package,
+        question=question,
+        citations=citations,
+        skill_resolution=skill_resolution,
+        trace_id=trace_id,
+    )
+    return _extract_json_object(answer)

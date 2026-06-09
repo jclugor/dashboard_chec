@@ -201,6 +201,10 @@ def test_post_data_summary_interpretability_route(client: TestClient, monkeypatc
             ],
             "critical_periods": [],
             "insight_text": "Texto deterministico.",
+            "narrative": {"source": "deterministic", "headline": "Resumen"},
+            "deterministic_narrative": {"source": "deterministic", "headline": "Resumen"},
+            "status": {"text": "ok", "severity": "ok", "fallback_used": True},
+            "interpretability_trace": {"mode": "deterministic", "fallback_used": True},
             "corpus_citations": [],
             "status_text": "ok",
         },
@@ -226,6 +230,8 @@ def test_post_data_summary_interpretability_route(client: TestClient, monkeypatc
     assert payload["mode"] == "summary_interpretability"
     assert payload["summary_interpretability"]["critical_points"][0]["fecha_dia"] == "2024-01-03"
     assert payload["summary_interpretability"]["insight_text"] == "Texto deterministico."
+    assert payload["summary_interpretability"]["narrative"]["headline"] == "Resumen"
+    assert payload["summary_interpretability"]["interpretability_trace"]["fallback_used"] is True
 
 
 

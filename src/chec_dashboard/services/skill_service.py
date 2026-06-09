@@ -16,12 +16,14 @@ GUIDED_SKILL_IDS = {
     "reliability": "confiabilidad",
     "compliance": "cumplimiento",
     "maintenance": "mantenimiento",
+    "timeseries_interpretability": "time_series_interpretability",
 }
 
 EXPECTED_SKILL_FILES = {
     "confiabilidad": "confiabilidad.yml",
     "cumplimiento": "cumplimiento.yml",
     "mantenimiento": "mantenimiento.yml",
+    "time_series_interpretability": "time_series_interpretability.yml",
     "free_form_chat": "free_form_chat.yml",
     "global_policy": "global_policy.yml",
     "retrieval_policy": "retrieval_policy.yml",
@@ -39,6 +41,7 @@ ALLOWED_TOOLS = {
     "search_regulatory_documents",
     "get_event_context",
     "get_asset_context",
+    "get_timeseries_interpretability_context",
 }
 
 ALLOWED_TOP_LEVEL_KEYS = {
@@ -435,6 +438,7 @@ def _builtin_skill(skill_id: str) -> SkillDefinition:
         "confiabilidad": "confiabilidad",
         "cumplimiento": "cumplimiento",
         "mantenimiento": "mantenimiento",
+        "time_series_interpretability": "interpretabilidad de evolucion SAIDI/SAIFI",
         "global_policy": "politica global",
         "retrieval_policy": "politica de recuperacion",
         "free_form_chat": "chat libre",
@@ -446,7 +450,11 @@ def _builtin_skill(skill_id: str) -> SkillDefinition:
         role=f"Asistente tecnico CHEC para {briefing_names.get(skill_id, skill_id)}.",
         language="es",
         tone="Tecnico, claro y prudente.",
-        allowed_tools=("get_dashboard_context", "search_technical_documents"),
+        allowed_tools=(
+            "get_dashboard_context",
+            "get_timeseries_interpretability_context",
+            "search_technical_documents",
+        ),
         instructions=("Usar solo contexto disponible y documentos recuperados.",),
         suggested_questions=(),
         answer_sections=("Estado observado", "Datos faltantes", "Recomendaciones", "Citas"),
