@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
+from pyspark.sql.types import LongType, StringType, StructField, StructType, TimestampType
+
 # COMMAND ----------
 # MAGIC %run ./_shared_phase1
 
@@ -53,8 +55,14 @@ spark.sql(
       relative_path STRING,
       load_mode STRING,
       bronze_table STRING,
-      required_columns ARRAY<STRING>,
-      date_columns ARRAY<STRING>
+      expected_rows BIGINT,
+      primary_key STRING,
+      natural_key STRING,
+      foreign_keys STRING,
+      required_columns STRING,
+      date_columns STRING,
+      weather_variables STRING,
+      weather_offsets STRING
     ) USING DELTA
     """
 )
@@ -138,6 +146,20 @@ spark.sql(
 )
 
 # COMMAND ----------
+artifact_inventory_schema = StructType(
+    [
+        StructField("logical_name", StringType(), True),
+        StructField("source_file_name", StringType(), True),
+        StructField("relative_path", StringType(), True),
+        StructField("target_schema", StringType(), True),
+        StructField("target_volume", StringType(), True),
+        StructField("staged_path", StringType(), True),
+        StructField("bytes", LongType(), True),
+        StructField("copy_status", StringType(), True),
+        StructField("staged_at", TimestampType(), True),
+    ]
+)
+
 manifest_row = spark.createDataFrame(
     [
         {
@@ -185,7 +207,8 @@ artifact_inventory_df = spark.createDataFrame(
             "staged_at": datetime.utcnow(),
         }
         for row in manifest_artifact_rows(manifest)
-    ]
+    ],
+    schema=artifact_inventory_schema,
 )
 artifact_inventory_df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(
     table_name(context.catalog_name, "ml", "phase1_artifact_inventory")

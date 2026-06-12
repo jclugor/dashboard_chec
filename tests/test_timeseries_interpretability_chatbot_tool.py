@@ -18,7 +18,7 @@ def test_route_agent_tools_includes_timeseries_context_for_peak_question() -> No
     candidates = route_agent_tools(
         selected_context={},
         context_package={"context_kind": "timeseries_criticality"},
-        question="Explica el pico critico de SAIDI",
+        question="Explica el pico critico de UITI",
         briefing_type="reliability",
         question_id=None,
     )
@@ -37,8 +37,8 @@ def test_timeseries_context_tool_executes_read_only(tmp_path: Path) -> None:
                 {
                     "fecha_dia": "2024-01-03",
                     "rank": 1,
-                    "criticality_types": ["saidi_high_outlier"],
-                    "metrics": {"SAIDI": 9.5, "SAIFI": 0.1},
+                    "criticality_types": ["uiti_high_outlier"],
+                    "metrics": {"UITI": 9.5, "UITI_VANO": 0.1},
                     "daily_aggregates": {"event_count": 2},
                     "confidence": "medium",
                 }

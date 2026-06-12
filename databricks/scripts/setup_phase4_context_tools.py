@@ -80,7 +80,7 @@ WITH filtered AS (
 limited_records AS (
   SELECT *
   FROM filtered
-  ORDER BY saidi_total + saifi_total DESC, event_count DESC, duration_total_h DESC
+  ORDER BY uiti_total + uiti_vano_total DESC, event_count DESC, duration_raw_total DESC
   LIMIT 25
 ),
 records_agg AS (
@@ -91,9 +91,9 @@ records_agg AS (
     'circuito', circuito,
     'event_family', event_family,
     'event_count', event_count,
-    'saidi', saidi_total,
-    'saifi', saifi_total,
-    'duration_h', duration_total_h,
+    'uiti', uiti_total,
+    'uiti_vano', uiti_vano_total,
+    'duration_raw', duration_raw_total,
     'users_affected', users_affected_total
   )) AS records
   FROM limited_records
@@ -101,9 +101,9 @@ records_agg AS (
 metrics AS (
   SELECT
     coalesce(sum(event_count), 0) AS event_count,
-    coalesce(round(sum(saidi_total), 4), 0.0D) AS saidi_total,
-    coalesce(round(sum(saifi_total), 4), 0.0D) AS saifi_total,
-    coalesce(round(sum(duration_total_h), 2), 0.0D) AS duration_total_h,
+    coalesce(round(sum(uiti_total), 4), 0.0D) AS uiti_total,
+    coalesce(round(sum(uiti_vano_total), 4), 0.0D) AS uiti_vano_total,
+    coalesce(round(sum(duration_raw_total), 2), 0.0D) AS duration_raw_total,
     coalesce(sum(users_affected_total), 0) AS users_affected_total,
     cast(min(first_event_ts) AS STRING) AS first_event_ts,
     cast(max(last_event_ts) AS STRING) AS last_event_ts
@@ -117,8 +117,8 @@ payload AS (
       coalesce(municipio_arg, ''),
       coalesce(circuits_arg, ''),
       cast(event_count AS STRING),
-      cast(saidi_total AS STRING),
-      cast(saifi_total AS STRING)
+      cast(uiti_total AS STRING),
+      cast(uiti_vano_total AS STRING)
     ), 256), 1, 16) AS context_hash,
     *
   FROM metrics
@@ -132,7 +132,7 @@ SELECT to_json(named_struct(
   'context_hash', context_hash,
   'context_id', concat('view-', context_hash),
   'summary', named_struct(
-    'text', concat('Vista ', municipio_arg, ' / ', period_arg, ' / ', coalesce(nullif(circuits_arg, ''), 'Todos'), '. Eventos: ', cast(event_count AS STRING), ', SAIDI: ', cast(saidi_total AS STRING), ', SAIFI: ', cast(saifi_total AS STRING), '.'),
+    'text', concat('Vista ', municipio_arg, ' / ', period_arg, ' / ', coalesce(nullif(circuits_arg, ''), 'Todos'), '. Eventos: ', cast(event_count AS STRING), ', UITI: ', cast(uiti_total AS STRING), ', UITI_VANO: ', cast(uiti_vano_total AS STRING), '.'),
     'selected_period', period_arg,
     'selected_municipio', municipio_arg,
     'scope_label', coalesce(nullif(circuits_arg, ''), 'Todos')
@@ -141,9 +141,9 @@ SELECT to_json(named_struct(
   'metrics', named_struct(
     'kpi_summary', named_struct(
       'event_count', event_count,
-      'saidi_total', saidi_total,
-      'saifi_total', saifi_total,
-      'duration_total_h', duration_total_h,
+      'uiti_total', uiti_total,
+      'uiti_vano_total', uiti_vano_total,
+      'duration_raw_total', duration_raw_total,
       'users_affected_total', users_affected_total
     ),
     'date_bounds', named_struct('start', first_event_ts, 'end', last_event_ts)
@@ -155,9 +155,9 @@ SELECT to_json(named_struct(
   'scope_label', coalesce(nullif(circuits_arg, ''), 'Todos'),
   'kpi_summary', named_struct(
     'event_count', event_count,
-    'saidi_total', saidi_total,
-    'saifi_total', saifi_total,
-    'duration_total_h', duration_total_h,
+    'uiti_total', uiti_total,
+    'uiti_vano_total', uiti_vano_total,
+    'duration_raw_total', duration_raw_total,
     'users_affected_total', users_affected_total
   ),
   'date_bounds', named_struct('start', first_event_ts, 'end', last_event_ts)
@@ -194,24 +194,24 @@ records_agg AS (
     'equipo_ope', equipo_ope,
     'event_family', event_family,
     'causa', causa,
-    'saidi', SAIDI,
-    'saifi', SAIFI,
-    'duration_h', duracion_h
+    'uiti', UITI,
+    'uiti_vano', UITI_VANO,
+    'duration_raw', DURACION_RAW
   )) AS records
   FROM record
 ),
 metrics AS (
   SELECT
-    coalesce(max(SAIDI), 0.0D) AS saidi,
-    coalesce(max(SAIFI), 0.0D) AS saifi,
-    coalesce(max(duracion_h), 0.0D) AS duration_h,
+    coalesce(max(UITI), 0.0D) AS uiti,
+    coalesce(max(UITI_VANO), 0.0D) AS uiti_vano,
+    coalesce(max(DURACION_RAW), 0.0D) AS duration_raw,
     max(circuito) AS circuito,
     max(equipo_ope) AS equipo_ope,
     max(causa) AS causa
   FROM record
 ),
 payload AS (
-  SELECT substr(sha2(concat_ws('|', {sql_literal(function_name)}, coalesce(event_id_arg, ''), cast(saidi AS STRING), cast(saifi AS STRING)), 256), 1, 16) AS context_hash, *
+  SELECT substr(sha2(concat_ws('|', {sql_literal(function_name)}, coalesce(event_id_arg, ''), cast(uiti AS STRING), cast(uiti_vano AS STRING)), 256), 1, 16) AS context_hash, *
   FROM metrics
 )
 SELECT to_json(named_struct(
@@ -224,16 +224,16 @@ SELECT to_json(named_struct(
   'context_id', concat('event-', context_hash),
   'summary', named_struct('text', concat('Evento ', coalesce(equipo_ope, 'N/D'), ' en circuito ', coalesce(circuito, 'N/D'), '. Causa: ', coalesce(causa, 'N/D'), '.')),
   'records', coalesce(records_agg.records, array()),
-  'metrics', named_struct('saidi', saidi, 'saifi', saifi, 'duration_h', duration_h),
+  'metrics', named_struct('uiti', uiti, 'uiti_vano', uiti_vano, 'duration_raw', duration_raw),
   'traceability', named_struct('source_view', {sql_literal(source_view)}, 'record_id', event_id_arg, 'read_only', true),
   'event_id', event_id_arg,
   'circuito', circuito,
   'cto_equi_ope', circuito,
   'equipo_ope', equipo_ope,
   'causa', causa,
-  'SAIDI', saidi,
-  'SAIFI', saifi,
-  'duracion_h', duration_h
+  'UITI', uiti,
+  'UITI_VANO', uiti_vano,
+  'DURACION_RAW', duration_raw
 ))
 FROM payload
 CROSS JOIN records_agg
@@ -343,9 +343,9 @@ records_agg AS (
     'municipio', municipio,
     'circuito', circuito,
     'event_count', event_count,
-    'saidi', saidi_total,
-    'saifi', saifi_total,
-    'duration_h', duration_total_h,
+    'uiti', uiti_total,
+    'uiti_vano', uiti_vano_total,
+    'duration_raw', duration_raw_total,
     'users_affected', users_affected_total
   )) AS records
   FROM limited_records
@@ -353,9 +353,9 @@ records_agg AS (
 metrics AS (
   SELECT
     coalesce(sum(event_count), 0) AS event_count,
-    coalesce(round(sum(saidi_total), 4), 0.0D) AS saidi_total,
-    coalesce(round(sum(saifi_total), 4), 0.0D) AS saifi_total,
-    coalesce(round(sum(duration_total_h), 2), 0.0D) AS duration_total_h,
+    coalesce(round(sum(uiti_total), 4), 0.0D) AS uiti_total,
+    coalesce(round(sum(uiti_vano_total), 4), 0.0D) AS uiti_vano_total,
+    coalesce(round(sum(duration_raw_total), 2), 0.0D) AS duration_raw_total,
     coalesce(sum(users_affected_total), 0) AS users_affected_total
   FROM filtered
 ),
@@ -373,7 +373,7 @@ SELECT to_json(named_struct(
   'context_id', concat('circuit_history-', context_hash),
   'summary', named_struct('text', concat('Historial del circuito ', circuit_arg, ' entre ', start_date_arg, ' y ', end_date_arg, '. Eventos: ', cast(event_count AS STRING), '.')),
   'records', coalesce(records_agg.records, array()),
-  'metrics', named_struct('event_count', event_count, 'saidi_total', saidi_total, 'saifi_total', saifi_total, 'duration_total_h', duration_total_h, 'users_affected_total', users_affected_total),
+  'metrics', named_struct('event_count', event_count, 'uiti_total', uiti_total, 'uiti_vano_total', uiti_vano_total, 'duration_raw_total', duration_raw_total, 'users_affected_total', users_affected_total),
   'traceability', named_struct('source_view', {sql_literal(source_view)}, 'claim_scope', 'circuit_history', 'read_only', true),
   'circuito', circuit_arg
 ))
@@ -417,7 +417,7 @@ WITH filtered AS (
 limited_records AS (
   SELECT *
   FROM filtered
-  ORDER BY fecha_dia, saidi_total + saifi_total DESC, event_count DESC, duration_total_h DESC
+  ORDER BY fecha_dia, uiti_total + uiti_vano_total DESC, event_count DESC, duration_raw_total DESC
   LIMIT 75
 ),
 records_agg AS (
@@ -430,9 +430,9 @@ records_agg AS (
     'equipo_ope', equipo_ope,
     'tipo_equi_ope', tipo_equi_ope,
     'event_count', event_count,
-    'saidi_total', saidi_total,
-    'saifi_total', saifi_total,
-    'duration_total_h', duration_total_h,
+    'uiti_total', uiti_total,
+    'uiti_vano_total', uiti_vano_total,
+    'duration_raw_total', duration_raw_total,
     'users_affected_total', users_affected_total
   )) AS records
   FROM limited_records
@@ -441,9 +441,9 @@ metrics AS (
   SELECT
     coalesce(count(DISTINCT fecha_dia), 0) AS critical_date_count,
     coalesce(sum(event_count), 0) AS event_count,
-    coalesce(round(sum(saidi_total), 4), 0.0D) AS saidi_total,
-    coalesce(round(sum(saifi_total), 4), 0.0D) AS saifi_total,
-    coalesce(round(sum(duration_total_h), 2), 0.0D) AS duration_total_h,
+    coalesce(round(sum(uiti_total), 4), 0.0D) AS uiti_total,
+    coalesce(round(sum(uiti_vano_total), 4), 0.0D) AS uiti_vano_total,
+    coalesce(round(sum(duration_raw_total), 2), 0.0D) AS duration_raw_total,
     coalesce(sum(users_affected_total), 0.0D) AS users_affected_total
   FROM filtered
 ),
@@ -459,14 +459,14 @@ SELECT to_json(named_struct(
   'parameters', named_struct('circuit', circuit_arg, 'start_date', start_date_arg, 'end_date', end_date_arg, 'dates', dates_arg),
   'context_hash', context_hash,
   'context_id', concat('timeseries-criticality-', context_hash),
-  'summary', named_struct('text', concat('Contexto de interpretabilidad SAIDI/SAIFI entre ', start_date_arg, ' y ', end_date_arg, '. Eventos: ', cast(event_count AS STRING), '.')),
+  'summary', named_struct('text', concat('Contexto de interpretabilidad UITI entre ', start_date_arg, ' y ', end_date_arg, '. Eventos: ', cast(event_count AS STRING), '.')),
   'records', coalesce(records_agg.records, array()),
   'metrics', named_struct(
     'critical_date_count', critical_date_count,
     'event_count', event_count,
-    'saidi_total', saidi_total,
-    'saifi_total', saifi_total,
-    'duration_total_h', duration_total_h,
+    'uiti_total', uiti_total,
+    'uiti_vano_total', uiti_vano_total,
+    'duration_raw_total', duration_raw_total,
     'users_affected_total', users_affected_total
   ),
   'traceability', named_struct('source_view', {sql_literal(source_view)}, 'claim_scope', 'timeseries_interpretability', 'read_only', true),
@@ -486,7 +486,7 @@ def main() -> int:
 
     client.fetch_dataframe(f"CREATE SCHEMA IF NOT EXISTS {sql_table_name(catalog, tools_schema)}")
 
-    daily_table = sql_table_name(catalog, gold_schema, "gold_saidi_saifi_daily")
+    daily_table = sql_table_name(catalog, gold_schema, "gold_impact_daily")
     event_days_table = sql_table_name(catalog, gold_schema, "gold_map_event_days")
     points_table = sql_table_name(catalog, gold_schema, "gold_map_points")
     lines_table = sql_table_name(catalog, gold_schema, "gold_map_line_segments")
@@ -499,10 +499,10 @@ SELECT
   municipio,
   circuito,
   event_family,
-  COALESCE(SUM(saidi_total), 0.0D) AS saidi_total,
-  COALESCE(SUM(saifi_total), 0.0D) AS saifi_total,
+  COALESCE(SUM(uiti_total), 0.0D) AS uiti_total,
+  COALESCE(SUM(uiti_vano_total), 0.0D) AS uiti_vano_total,
   COALESCE(SUM(event_count), 0) AS event_count,
-  COALESCE(SUM(duration_total_h), 0.0D) AS duration_total_h,
+  COALESCE(SUM(duration_raw_total), 0.0D) AS duration_raw_total,
   COALESCE(SUM(users_affected_total), 0.0D) AS users_affected_total,
   MIN(first_event_ts) AS first_event_ts,
   MAX(last_event_ts) AS last_event_ts
@@ -523,10 +523,43 @@ SELECT
     COALESCE(CAST(equipo_ope AS STRING), ''),
     COALESCE(CAST(event_family AS STRING), ''),
     COALESCE(CAST(causa AS STRING), ''),
-    COALESCE(CAST(SAIDI AS STRING), ''),
-    COALESCE(CAST(SAIFI AS STRING), '')
+    COALESCE(CAST(UITI AS STRING), ''),
+    COALESCE(CAST(UITI_VANO AS STRING), '')
   ), 256), 1, 16)) AS event_id,
-  *
+  CAST(event_id AS STRING) AS source_event_id,
+  event_detail_id,
+  row_id,
+  fecha_dia,
+  inicio_ts,
+  fin_ts,
+  causa,
+  event_family,
+  circuito,
+  municipio,
+  equipo_ope,
+  tipo_equi_ope,
+  tipo_elemento,
+  asset_id,
+  FID_VANO,
+  trafo_profile_id,
+  DURATION_RAW,
+  UITI,
+  UITI_VANO,
+  USERS,
+  latitude,
+  longitude,
+  longitude_end,
+  latitude_end,
+  criteria_group,
+  map_date,
+  map_period,
+  map_day,
+  LATITUD,
+  LONGITUD,
+  MUN,
+  cto_equi_ope,
+  DURACION_RAW,
+  cnt_usus
 FROM {event_days_table}
 """.strip()
     )
@@ -602,10 +635,10 @@ SELECT
   CAST(fecha_dia AS DATE) AS fecha_dia,
   municipio,
   circuito,
-  COALESCE(SUM(saidi_total), 0.0D) AS saidi_total,
-  COALESCE(SUM(saifi_total), 0.0D) AS saifi_total,
+  COALESCE(SUM(uiti_total), 0.0D) AS uiti_total,
+  COALESCE(SUM(uiti_vano_total), 0.0D) AS uiti_vano_total,
   COALESCE(SUM(event_count), 0) AS event_count,
-  COALESCE(SUM(duration_total_h), 0.0D) AS duration_total_h,
+  COALESCE(SUM(duration_raw_total), 0.0D) AS duration_raw_total,
   COALESCE(SUM(users_affected_total), 0.0D) AS users_affected_total,
   MIN(first_event_ts) AS first_event_ts,
   MAX(last_event_ts) AS last_event_ts

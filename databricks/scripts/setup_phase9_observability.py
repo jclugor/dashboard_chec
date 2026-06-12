@@ -23,11 +23,11 @@ DEFAULT_MLFLOW_PROMPT_ALIAS = "production"
 
 
 EVAL_EXAMPLES = [
-    ("saidi_saifi_01", "reliability", "CREG 015 SAIDI SAIFI", "SAIDI/SAIFI explanation", "needs_sme_review"),
-    ("saidi_saifi_02", "reliability", "explica SAIDI del circuito", "SAIDI/SAIFI explanation", "needs_sme_review"),
-    ("saidi_saifi_03", "reliability", "por qué SAIFI sube", "SAIDI/SAIFI explanation", "needs_sme_review"),
-    ("saidi_saifi_04", "reliability", "calidad del servicio por municipio", "SAIDI/SAIFI explanation", "needs_sme_review"),
-    ("saidi_saifi_05", "reliability", "comparar SAIDI y SAIFI", "SAIDI/SAIFI explanation", "needs_sme_review"),
+    ("uiti_impact_01", "reliability", "CREG 015 impacto UITI", "UITI impact explanation", "needs_sme_review"),
+    ("uiti_impact_02", "reliability", "explica UITI del circuito", "UITI impact explanation", "needs_sme_review"),
+    ("uiti_impact_03", "reliability", "por que UITI vano sube", "UITI impact explanation", "needs_sme_review"),
+    ("uiti_impact_04", "reliability", "calidad del servicio por municipio", "UITI impact explanation", "needs_sme_review"),
+    ("uiti_impact_05", "reliability", "comparar UITI y usuarios afectados", "UITI impact explanation", "needs_sme_review"),
     ("creg_01", "compliance", "CREG 015 requisitos aplicables", "CREG/quality-service", "needs_sme_review"),
     ("creg_02", "compliance", "RETIE y red de media tensión", "CREG/quality-service", "needs_sme_review"),
     ("creg_03", "compliance", "cumplimiento técnico posible", "CREG/quality-service", "needs_sme_review"),
@@ -115,6 +115,7 @@ CREATE TABLE IF NOT EXISTS {sql_table_name(catalog, schema, "agent_turn_traces")
   prompt_version STRING,
   prompt_hash STRING,
   llm_provider STRING,
+  llm_tier STRING,
   model_endpoint_name STRING,
   retriever_backend STRING,
   ai_search_index_name STRING,
@@ -127,6 +128,12 @@ CREATE TABLE IF NOT EXISTS {sql_table_name(catalog, schema, "agent_turn_traces")
 ) USING DELTA
 """.strip()
     )
+    try:
+        client.fetch_dataframe(
+            f"ALTER TABLE {sql_table_name(catalog, schema, 'agent_turn_traces')} ADD COLUMNS (llm_tier STRING)"
+        )
+    except Exception:
+        pass
     client.fetch_dataframe(
         f"""
 CREATE TABLE IF NOT EXISTS {sql_table_name(catalog, schema, "agent_feedback_events")} (

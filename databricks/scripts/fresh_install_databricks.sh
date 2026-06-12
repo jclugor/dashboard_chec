@@ -466,7 +466,8 @@ bundle_args() {
     --var "catalog_name=${CATALOG_NAME}" \
     --var "source_volume_name=${SOURCE_VOLUME_NAME}" \
     --var "artifact_volume_name=${ARTIFACT_VOLUME_NAME}" \
-    --var "dashboard_warehouse_id=${APP_WAREHOUSE_ID}"
+    --var "dashboard_warehouse_id=${APP_WAREHOUSE_ID}" \
+    --var "manifest_filename=${MANIFEST_FILENAME:-normalized_vano_assets.json}"
 }
 
 run_foundation() {
@@ -490,7 +491,7 @@ run_foundation() {
   fi
   (cd "${DATABRICKS_DIR}" && databricks bundle run "${args[@]}" "${bootstrap_job}")
   CATALOG_NAME="${CATALOG_NAME}" SOURCE_VOLUME_NAME="${SOURCE_VOLUME_NAME}" ARTIFACT_VOLUME_NAME="${ARTIFACT_VOLUME_NAME}" \
-    bash "${REPO_ROOT}/databricks/scripts/upload_phase1_assets.sh"
+    bash "${REPO_ROOT}/databricks/scripts/upload_normalized_vano_assets.sh"
   (cd "${DATABRICKS_DIR}" && databricks bundle run "${args[@]}" "${ingest_job}")
 }
 
@@ -558,8 +559,8 @@ run_permissions() {
 run_validation() {
   log "Deployment validation"
   local expected_tables=(
-    gold_saidi_saifi_daily
-    gold_saidi_saifi_circuit_summary
+    gold_impact_daily
+    gold_impact_circuit_summary
     gold_timeseries_event_details
     gold_timeseries_daily_attribution
     gold_timeseries_environment_daily

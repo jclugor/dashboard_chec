@@ -26,6 +26,11 @@ from chec_dashboard.services.map_service import (
     normalize_selected_circuits,
     render_base_map,
 )
+from chec_dashboard.services.impact_metrics import (
+    empty_metric_totals,
+    metric_definition,
+    normalize_metric_key,
+)
 from chec_dashboard.services.probability_service import (
     criteria_options,
     generate_probability_graph,
@@ -33,8 +38,10 @@ from chec_dashboard.services.probability_service import (
 from chec_dashboard.services.time_series_interpretability_agent import (
     attach_interpretability_narrative,
 )
+from chec_dashboard.services.event_focus_service import attach_circuit_period_context
 from chec_dashboard.services.time_series_interpretability_service import (
     CriticalityThresholds,
+    build_circuit_history_12m_payload,
     build_summary_interpretability_payload,
 )
 
@@ -42,6 +49,7 @@ from chec_dashboard.services.time_series_interpretability_service import (
 METADATA_CACHE_SECONDS = 600
 MAP_CACHE_SECONDS = 45
 SUMMARY_CACHE_SECONDS = 120
+SUMMARY_EVENT_OPTIONS_CACHE_SECONDS = 120
 PROBABILITY_META_CACHE_SECONDS = 120
 MAX_PROBABILITY_VALUE_OPTIONS = 1000
 MAX_PROBABILITY_SAMPLE_ROWS = 50000
@@ -126,7 +134,7 @@ def _summary_bounds(settings: Settings) -> tuple[date, date]:
     if cached is not None:
         return cached
 
-    table_name = _gold_table(settings, "gold_saidi_saifi_daily")
+    table_name = _gold_table(settings, "gold_impact_daily")
     frame = _warehouse_client(settings).fetch_dataframe(
         f"""
         SELECT
@@ -282,7 +290,7 @@ def get_summary_metadata(settings: Settings) -> dict[str, Any]:
     circuits_frame = _warehouse_client(settings).fetch_dataframe(
         f"""
         SELECT DISTINCT circuito
-        FROM {_gold_table(settings, 'gold_saidi_saifi_circuit_summary')}
+        FROM {_gold_table(settings, 'gold_impact_circuit_summary')}
         WHERE circuito IS NOT NULL
         ORDER BY circuito
         """
@@ -306,7 +314,7 @@ def get_summary_payload(
     start_date_raw: str | None,
     end_date_raw: str | None,
     circuito: str | None,
-    metric_mode: str,
+    metric_key: str,
 ) -> dict[str, Any]:
     min_date, max_date = _summary_bounds(settings)
     start_date, end_date = _coerce_window_from_bounds(
@@ -316,14 +324,15 @@ def get_summary_payload(
         end_date_raw,
         days=180,
     )
-    metric_mode = metric_mode or "BOTH"
+    metric_key = normalize_metric_key(metric_key)
+    metric = metric_definition(metric_key)
     circuit_label = circuito or "TODOS"
 
     cache_key = build_cache_key(
         "dbx",
         "summary",
         circuit_label,
-        metric_mode,
+        metric_key,
         start_date.isoformat(),
         end_date.isoformat(),
     )
@@ -337,14 +346,16 @@ def get_summary_payload(
     if circuito:
         where_clauses.append(f"{sql_identifier('circuito')} = {sql_literal(circuito)}")
     where_clause = " AND ".join(where_clauses)
-    table_name = _gold_table(settings, "gold_saidi_saifi_daily")
+    table_name = _gold_table(settings, "gold_impact_daily")
 
     totals_frame = _warehouse_client(settings).fetch_dataframe(
         f"""
         SELECT
-          COALESCE(SUM(COALESCE(saidi_total, 0.0)), 0.0) AS saidi_total,
-          COALESCE(SUM(COALESCE(saifi_total, 0.0)), 0.0) AS saifi_total,
-          COALESCE(SUM(COALESCE(event_count, 0)), 0) AS event_count
+          COALESCE(SUM(COALESCE(uiti_total, 0.0)), 0.0) AS UITI,
+          COALESCE(SUM(COALESCE(uiti_vano_total, 0.0)), 0.0) AS UITI_VANO,
+          COALESCE(SUM(COALESCE(event_count, 0)), 0) AS EVENT_COUNT,
+          COALESCE(SUM(COALESCE(users_affected_total, 0.0)), 0.0) AS USERS,
+          COALESCE(SUM(COALESCE(duration_raw_total, 0.0)), 0.0) AS DURATION_RAW
         FROM {table_name}
         WHERE {where_clause}
         """
@@ -353,8 +364,11 @@ def get_summary_payload(
         f"""
         SELECT
           CAST(fecha_dia AS DATE) AS fecha_dia,
-          COALESCE(SUM(COALESCE(saidi_total, 0.0)), 0.0) AS SAIDI,
-          COALESCE(SUM(COALESCE(saifi_total, 0.0)), 0.0) AS SAIFI
+          COALESCE(SUM(COALESCE(uiti_total, 0.0)), 0.0) AS UITI,
+          COALESCE(SUM(COALESCE(uiti_vano_total, 0.0)), 0.0) AS UITI_VANO,
+          COALESCE(SUM(COALESCE(event_count, 0)), 0) AS EVENT_COUNT,
+          COALESCE(SUM(COALESCE(users_affected_total, 0.0)), 0.0) AS USERS,
+          COALESCE(SUM(COALESCE(duration_raw_total, 0.0)), 0.0) AS DURATION_RAW
         FROM {table_name}
         WHERE {where_clause}
         GROUP BY CAST(fecha_dia AS DATE)
@@ -363,32 +377,30 @@ def get_summary_payload(
     )
 
     date_index = pd.date_range(start=start_date, end=end_date, freq="D")
+    metric_columns = ["UITI", "UITI_VANO", "EVENT_COUNT", "USERS", "DURATION_RAW"]
     if daily_frame.empty:
-        normalized_daily = pd.DataFrame({"fecha_dia": date_index, "SAIDI": 0.0, "SAIFI": 0.0})
+        normalized_daily = pd.DataFrame({"fecha_dia": date_index, **{column: 0.0 for column in metric_columns}})
     else:
         daily_frame["fecha_dia"] = pd.to_datetime(daily_frame["fecha_dia"], errors="coerce")
-        daily_frame["SAIDI"] = pd.to_numeric(daily_frame["SAIDI"], errors="coerce").fillna(0.0)
-        daily_frame["SAIFI"] = pd.to_numeric(daily_frame["SAIFI"], errors="coerce").fillna(0.0)
+        for column in metric_columns:
+            daily_frame[column] = pd.to_numeric(daily_frame[column], errors="coerce").fillna(0.0)
         normalized_daily = (
-            daily_frame.set_index("fecha_dia")[["SAIDI", "SAIFI"]]
+            daily_frame.set_index("fecha_dia")[metric_columns]
             .reindex(date_index, fill_value=0.0)
             .reset_index()
             .rename(columns={"index": "fecha_dia"})
         )
 
-    saidi_total = 0.0
-    saifi_total = 0.0
+    metric_totals = empty_metric_totals()
     event_count = 0
     if not totals_frame.empty:
-        saidi_total = _coerce_float(totals_frame.iloc[0]["saidi_total"])
-        saifi_total = _coerce_float(totals_frame.iloc[0]["saifi_total"])
-        event_count = _coerce_int(totals_frame.iloc[0]["event_count"])
+        metric_totals = {column: _coerce_float(totals_frame.iloc[0][column]) for column in metric_columns}
+        event_count = _coerce_int(totals_frame.iloc[0]["EVENT_COUNT"])
 
     daily_records = [
         {
             "fecha_dia": pd.to_datetime(row["fecha_dia"]).date().isoformat(),
-            "SAIDI": float(row["SAIDI"]),
-            "SAIFI": float(row["SAIFI"]),
+            "metrics": {column: float(row[column]) for column in metric_columns},
         }
         for _, row in normalized_daily.iterrows()
     ]
@@ -403,22 +415,228 @@ def get_summary_payload(
         status_text = (
             f"Circuito: {circuit_label}. "
             f"Ventana: {start_date.isoformat()} a {end_date.isoformat()}. "
-            f"Eventos: {event_count}."
+            f"Eventos: {event_count}. Métrica: {metric.label}."
         )
 
     payload = {
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
         "circuit_label": circuit_label,
-        "metric_mode": metric_mode,
-        "saidi_total": saidi_total,
-        "saifi_total": saifi_total,
+        "metric_key": metric_key,
+        "metric_totals": metric_totals,
         "event_count": event_count,
         "daily_data": daily_records,
         "status_text": status_text,
     }
     _cache_set(settings, cache_key, payload, SUMMARY_CACHE_SECONDS)
     return payload
+
+
+def _summary_event_select_sql(table_name: str, where_clause: str, limit: int) -> str:
+    return f"""
+    SELECT
+      CAST(event_id AS STRING) AS event_id,
+      MIN(CAST(fecha_dia AS DATE)) AS fecha_dia,
+      MIN(CAST(inicio_ts AS TIMESTAMP)) AS inicio_ts,
+      MAX(CAST(fin_ts AS TIMESTAMP)) AS fin_ts,
+      MAX(CAST(causa AS STRING)) AS causa,
+      MAX(CAST(event_family AS STRING)) AS event_family,
+      MAX(CAST(circuito AS STRING)) AS circuito,
+      MAX(CAST(municipio AS STRING)) AS municipio,
+      MAX(CAST(equipo_ope AS STRING)) AS equipo_ope,
+      MAX(CAST(tipo_equi_ope AS STRING)) AS tipo_equi_ope,
+      MAX(CAST(tipo_elemento AS STRING)) AS tipo_elemento,
+      COALESCE(MAX(COALESCE(CAST(DURATION_RAW AS DOUBLE), 0.0)), 0.0) AS duration_raw,
+      COALESCE(MAX(COALESCE(CAST(UITI AS DOUBLE), 0.0)), 0.0) AS uiti,
+      COALESCE(SUM(COALESCE(CAST(UITI_VANO AS DOUBLE), 0.0)), 0.0) AS uiti_vano,
+      COALESCE(SUM(COALESCE(CAST(USERS AS DOUBLE), 0.0)), 0.0) AS users_affected,
+      COUNT(*) AS detail_count
+    FROM {table_name}
+    WHERE {where_clause}
+      AND event_id IS NOT NULL
+    GROUP BY CAST(event_id AS STRING)
+    ORDER BY fecha_dia ASC, uiti_vano DESC, duration_raw DESC
+    LIMIT {int(limit)}
+    """
+
+
+def _present_value(value: Any) -> Any | None:
+    if value is None:
+        return None
+    try:
+        if pd.isna(value):
+            return None
+    except (TypeError, ValueError):
+        pass
+    text = str(value).strip()
+    return value if text else None
+
+
+def _row_text(row: pd.Series, column: str, default: str | None = None) -> str | None:
+    value = _present_value(row.get(column))
+    if value is None:
+        return default
+    return str(value)
+
+
+def _row_timestamp_iso(row: pd.Series, column: str) -> str | None:
+    value = _present_value(row.get(column))
+    if value is None:
+        return None
+    parsed = pd.to_datetime(value, errors="coerce")
+    if pd.isna(parsed):
+        return None
+    return parsed.isoformat()
+
+
+def _summary_event_record(row: pd.Series) -> dict[str, Any]:
+    event_id = _row_text(row, "event_id", "") or ""
+    inicio = _present_value(row.get("inicio_ts")) or _present_value(row.get("fecha_dia"))
+    parsed = pd.to_datetime(inicio, errors="coerce")
+    inicio_text = parsed.strftime("%Y-%m-%d %H:%M") if not pd.isna(parsed) else str(inicio or "sin fecha")
+    fecha_dia = _present_value(row.get("fecha_dia"))
+    fecha_text = None if fecha_dia is None else pd.to_datetime(fecha_dia).date().isoformat()
+    equipo = _row_text(row, "equipo_ope", "Evento") or "Evento"
+    causa = _row_text(row, "causa", "Sin causa") or "Sin causa"
+    uiti_vano = _coerce_float(row.get("uiti_vano"))
+    return {
+        "event_id": event_id,
+        "label": f"{inicio_text} | {equipo} | {causa} | UITI vano {uiti_vano:.4f} | {event_id}",
+        "fecha_dia": fecha_text,
+        "inicio_ts": None if pd.isna(parsed) else parsed.isoformat(),
+        "fin_ts": _row_timestamp_iso(row, "fin_ts"),
+        "circuito": _row_text(row, "circuito"),
+        "municipio": _row_text(row, "municipio"),
+        "causa": causa,
+        "event_family": _row_text(row, "event_family"),
+        "equipo_ope": equipo,
+        "tipo_equi_ope": _row_text(row, "tipo_equi_ope"),
+        "tipo_elemento": _row_text(row, "tipo_elemento"),
+        "duration_raw": _coerce_float(row.get("duration_raw")),
+        "uiti": _coerce_float(row.get("uiti")),
+        "uiti_vano": uiti_vano,
+        "users_affected": _coerce_float(row.get("users_affected")),
+        "detail_count": _coerce_int(row.get("detail_count")),
+    }
+
+
+def get_summary_event_options(
+    settings: Settings,
+    start_date_raw: str | None,
+    end_date_raw: str | None,
+    circuito: str | None,
+    *,
+    limit: int = 200,
+) -> dict[str, Any]:
+    min_date, max_date = _summary_bounds(settings)
+    start_date, end_date = _coerce_window_from_bounds(
+        min_date,
+        max_date,
+        start_date_raw,
+        end_date_raw,
+        days=180,
+    )
+    safe_limit = max(1, min(int(limit), 500))
+    circuit_label = circuito or "TODOS"
+    cache_key = build_cache_key(
+        "dbx",
+        "summary_event_options",
+        circuit_label,
+        start_date.isoformat(),
+        end_date.isoformat(),
+        str(safe_limit),
+    )
+    cached = _cache_get(settings, cache_key)
+    if cached is not None:
+        return cached
+
+    where_clauses = [
+        f"CAST(fecha_dia AS DATE) BETWEEN {sql_literal(start_date.isoformat())} AND {sql_literal(end_date.isoformat())}"
+    ]
+    if circuito:
+        where_clauses.append(f"{sql_identifier('circuito')} = {sql_literal(circuito)}")
+    where_clause = " AND ".join(where_clauses)
+    event_table = _gold_table(settings, "gold_timeseries_event_details")
+    frame = _warehouse_client(settings).fetch_dataframe(
+        _summary_event_select_sql(event_table, where_clause, safe_limit)
+    )
+    events = [_summary_event_record(row) for _, row in frame.iterrows()] if not frame.empty else []
+    payload = {
+        "events": events,
+        "default_event_id": None,
+        "status_text": (
+            f"Se encontraron {len(events)} eventos para la ventana y circuito seleccionados."
+            if events
+            else "No se encontraron eventos para la ventana y circuito seleccionados."
+        ),
+    }
+    _cache_set(settings, cache_key, payload, SUMMARY_EVENT_OPTIONS_CACHE_SECONDS)
+    return payload
+
+
+def _selected_summary_event(
+    settings: Settings,
+    *,
+    selected_event_id: str | None,
+    start_date: date,
+    end_date: date,
+    circuito: str | None,
+) -> dict[str, Any] | None:
+    if not selected_event_id:
+        return None
+    where_clauses = [
+        f"CAST(event_id AS STRING) = {sql_literal(str(selected_event_id))}",
+        f"CAST(fecha_dia AS DATE) BETWEEN {sql_literal(start_date.isoformat())} AND {sql_literal(end_date.isoformat())}",
+    ]
+    if circuito:
+        where_clauses.append(f"{sql_identifier('circuito')} = {sql_literal(circuito)}")
+    event_table = _gold_table(settings, "gold_timeseries_event_details")
+    frame = _safe_fetch_dataframe(
+        _warehouse_client(settings),
+        _summary_event_select_sql(event_table, " AND ".join(where_clauses), 1),
+    )
+    if frame.empty:
+        return None
+    record = _summary_event_record(frame.iloc[0])
+    record["circuit_history_12m"] = _summary_event_history_12m(settings, record)
+    return record
+
+
+def _summary_event_history_12m(settings: Settings, selected_event: dict[str, Any]) -> dict[str, Any]:
+    event_date = pd.to_datetime(selected_event.get("fecha_dia") or selected_event.get("inicio_ts"), errors="coerce")
+    circuit = selected_event.get("circuito")
+    if pd.isna(event_date) or not circuit:
+        return {"available": False, "reason": "missing_event_date_or_circuit"}
+    end_date = event_date.date()
+    start_date = end_date - timedelta(days=365)
+    history_table = _gold_table(settings, "gold_impact_daily")
+    frame = _safe_fetch_dataframe(
+        _warehouse_client(settings),
+        f"""
+        SELECT
+          COALESCE(SUM(COALESCE(event_count, 0)), 0) AS event_count,
+          COALESCE(SUM(COALESCE(uiti_total, 0.0)), 0.0) AS uiti_total,
+          COALESCE(SUM(COALESCE(uiti_vano_total, 0.0)), 0.0) AS uiti_vano_total,
+          COALESCE(SUM(COALESCE(duration_raw_total, 0.0)), 0.0) AS duration_raw_total,
+          COALESCE(SUM(COALESCE(users_affected_total, 0.0)), 0.0) AS users_affected_total
+        FROM {history_table}
+        WHERE CAST(fecha_dia AS DATE) BETWEEN {sql_literal(start_date.isoformat())} AND {sql_literal(end_date.isoformat())}
+          AND {sql_identifier('circuito')} = {sql_literal(str(circuit))}
+        """,
+    )
+    if frame.empty:
+        return {"available": False, "reason": "history_query_empty"}
+    row = frame.iloc[0]
+    return {
+        "available": True,
+        "start_date": start_date.isoformat(),
+        "end_date": end_date.isoformat(),
+        "event_count": _coerce_int(row.get("event_count")),
+        "uiti_total": _coerce_float(row.get("uiti_total")),
+        "uiti_vano_total": _coerce_float(row.get("uiti_vano_total")),
+        "duration_raw_total": _coerce_float(row.get("duration_raw_total")),
+        "users_affected_total": _coerce_float(row.get("users_affected_total")),
+    }
 
 
 def _summary_interpretability_thresholds(settings: Settings) -> CriticalityThresholds:
@@ -451,12 +669,14 @@ def get_summary_interpretability_payload(
     start_date_raw: str | None,
     end_date_raw: str | None,
     circuito: str | None,
-    metric_mode: str | None,
+    metric_key: str | None,
     *,
     max_points: int = 5,
     include_agent_text: bool = True,
     selected_date: str | None = None,
+    selected_event_id: str | None = None,
 ) -> dict[str, Any]:
+    _ = selected_event_id
     min_date, max_date = _summary_bounds(settings)
     start_date, end_date = _coerce_window_from_bounds(
         min_date,
@@ -465,14 +685,14 @@ def get_summary_interpretability_payload(
         end_date_raw,
         days=180,
     )
-    metric_mode = metric_mode or "BOTH"
+    metric_key = normalize_metric_key(metric_key)
     safe_max_points = max(1, min(int(max_points), 12))
     circuit_label = circuito or "TODOS"
     cache_key = build_cache_key(
         "dbx",
         "summary_interpretability",
         circuit_label,
-        metric_mode,
+        metric_key,
         start_date.isoformat(),
         end_date.isoformat(),
         str(safe_max_points),
@@ -484,7 +704,7 @@ def get_summary_interpretability_payload(
         str(include_agent_text),
         selected_date or "",
         "narrative_v2",
-        "schema_1",
+        "schema_3_circuit_period",
     )
     cached = _cache_get(settings, cache_key)
     if cached is not None:
@@ -496,20 +716,43 @@ def get_summary_interpretability_payload(
     if circuito:
         where_clauses.append(f"{sql_identifier('circuito')} = {sql_literal(circuito)}")
     where_clause = " AND ".join(where_clauses)
-    daily_table = _gold_table(settings, "gold_saidi_saifi_daily")
+    daily_table = _gold_table(settings, "gold_impact_daily")
     client = _warehouse_client(settings)
 
     daily_frame = client.fetch_dataframe(
         f"""
         SELECT
           CAST(fecha_dia AS DATE) AS fecha_dia,
-          COALESCE(SUM(COALESCE(saidi_total, 0.0)), 0.0) AS SAIDI,
-          COALESCE(SUM(COALESCE(saifi_total, 0.0)), 0.0) AS SAIFI,
+          COALESCE(SUM(COALESCE(uiti_total, 0.0)), 0.0) AS UITI,
+          COALESCE(SUM(COALESCE(uiti_vano_total, 0.0)), 0.0) AS UITI_VANO,
           COALESCE(SUM(COALESCE(event_count, 0)), 0) AS event_count,
-          COALESCE(SUM(COALESCE(duration_total_h, 0.0)), 0.0) AS duration_total_h,
-          COALESCE(SUM(COALESCE(users_affected_total, 0.0)), 0.0) AS users_affected_total
+          COALESCE(SUM(COALESCE(duration_raw_total, 0.0)), 0.0) AS DURATION_RAW,
+          COALESCE(SUM(COALESCE(users_affected_total, 0.0)), 0.0) AS USERS
         FROM {daily_table}
         WHERE {where_clause}
+        GROUP BY CAST(fecha_dia AS DATE)
+        ORDER BY CAST(fecha_dia AS DATE)
+        """
+    )
+
+    history_start = max(min_date, end_date - timedelta(days=365))
+    history_where_clauses = [
+        f"CAST(fecha_dia AS DATE) BETWEEN {sql_literal(history_start.isoformat())} AND {sql_literal(end_date.isoformat())}"
+    ]
+    if circuito:
+        history_where_clauses.append(f"{sql_identifier('circuito')} = {sql_literal(circuito)}")
+    history_where_clause = " AND ".join(history_where_clauses)
+    history_daily_frame = client.fetch_dataframe(
+        f"""
+        SELECT
+          CAST(fecha_dia AS DATE) AS fecha_dia,
+          COALESCE(SUM(COALESCE(uiti_total, 0.0)), 0.0) AS UITI,
+          COALESCE(SUM(COALESCE(uiti_vano_total, 0.0)), 0.0) AS UITI_VANO,
+          COALESCE(SUM(COALESCE(event_count, 0)), 0) AS event_count,
+          COALESCE(SUM(COALESCE(duration_raw_total, 0.0)), 0.0) AS DURATION_RAW,
+          COALESCE(SUM(COALESCE(users_affected_total, 0.0)), 0.0) AS USERS
+        FROM {daily_table}
+        WHERE {history_where_clause}
         GROUP BY CAST(fecha_dia AS DATE)
         ORDER BY CAST(fecha_dia AS DATE)
         """
@@ -520,7 +763,7 @@ def get_summary_interpretability_payload(
         start_date=start_date.isoformat(),
         end_date=end_date.isoformat(),
         circuit_label=circuit_label,
-        metric_mode=metric_mode,
+        metric_key=metric_key,
         generated_at=datetime.now(timezone.utc).isoformat(),
         max_points=safe_max_points,
         thresholds=_summary_interpretability_thresholds(settings),
@@ -539,7 +782,7 @@ def get_summary_interpretability_payload(
         FROM {_gold_table(settings, "gold_timeseries_daily_attribution")}
         WHERE {date_clause}
         {circuit_clause}
-        ORDER BY fecha_dia, COALESCE(saidi_total, 0.0) + COALESCE(saifi_total, 0.0) DESC
+        ORDER BY fecha_dia, COALESCE(uiti_total, 0.0) DESC, event_count DESC
         """,
     )
     event_frame = _safe_fetch_dataframe(
@@ -551,9 +794,9 @@ def get_summary_interpretability_payload(
         {circuit_clause}
         ORDER BY
           fecha_dia,
-          COALESCE(severity_saidi, 0.0) + COALESCE(severity_saifi, 0.0) DESC,
-          COALESCE(duration_hours, 0.0) DESC,
-          COALESCE(cnt_usus, 0.0) DESC
+          COALESCE(UITI_VANO, 0.0) DESC,
+          COALESCE(DURATION_RAW, 0.0) DESC,
+          COALESCE(USERS, 0.0) DESC
         LIMIT {safe_max_points * 25}
         """,
     )
@@ -566,13 +809,31 @@ def get_summary_interpretability_payload(
         ORDER BY fecha_dia
         """,
     )
+    history_attribution_frame = _safe_fetch_dataframe(
+        client,
+        f"""
+        SELECT *
+        FROM {_gold_table(settings, "gold_timeseries_daily_attribution")}
+        WHERE {history_where_clause}
+        ORDER BY fecha_dia, COALESCE(uiti_total, 0.0) DESC, event_count DESC
+        """,
+    )
+    history_environment_frame = _safe_fetch_dataframe(
+        client,
+        f"""
+        SELECT *
+        FROM {_gold_table(settings, "gold_timeseries_environment_daily")}
+        WHERE CAST(fecha_dia AS DATE) BETWEEN {sql_literal(history_start.isoformat())} AND {sql_literal(end_date.isoformat())}
+        ORDER BY fecha_dia
+        """,
+    )
 
     payload = build_summary_interpretability_payload(
         daily_frame=daily_frame,
         start_date=start_date.isoformat(),
         end_date=end_date.isoformat(),
         circuit_label=circuit_label,
-        metric_mode=metric_mode,
+        metric_key=metric_key,
         generated_at=datetime.now(timezone.utc).isoformat(),
         max_points=safe_max_points,
         thresholds=_summary_interpretability_thresholds(settings),
@@ -580,10 +841,24 @@ def get_summary_interpretability_payload(
         event_frame=event_frame,
         environment_frame=environment_frame,
     )
+    payload["circuit_history_12m"] = build_circuit_history_12m_payload(
+        daily_frame=history_daily_frame,
+        start_date=history_start.isoformat(),
+        end_date=end_date.isoformat(),
+        circuit_label=circuit_label,
+        metric_key=metric_key,
+        max_points=safe_max_points,
+        thresholds=_summary_interpretability_thresholds(settings),
+        attribution_frame=history_attribution_frame,
+        event_frame=None,
+        environment_frame=history_environment_frame,
+    )
     if selected_date:
         payload["critical_points"] = [
             point for point in payload.get("critical_points", []) if point.get("fecha_dia") == selected_date
         ]
+    payload["selected_event"] = None
+    payload = attach_circuit_period_context(settings, payload)
     payload = attach_interpretability_narrative(
         settings,
         payload,
@@ -908,6 +1183,52 @@ def _build_map_where_clause(
     return " AND ".join(clauses)
 
 
+def _build_map_static_asset_where_clause(
+    *,
+    selected_municipio: str,
+    selected_circuits: list[str] | None,
+) -> str:
+    clauses = [f"municipio = {sql_literal(selected_municipio)}"]
+    if selected_circuits is not None:
+        if not selected_circuits:
+            clauses.append("1 = 0")
+        elif len(selected_circuits) == 1:
+            clauses.append(f"circuito = {sql_literal(selected_circuits[0])}")
+        else:
+            literals = ", ".join(sql_literal(circuit) for circuit in selected_circuits)
+            clauses.append(f"circuito IN ({literals})")
+    return " AND ".join(clauses)
+
+
+def _ensure_column_alias(frame: pd.DataFrame, target: str, candidates: tuple[str, ...]) -> pd.DataFrame:
+    result = frame.copy()
+    if target not in result.columns:
+        result[target] = pd.NA
+    for candidate in candidates:
+        if candidate in result.columns:
+            result[target] = result[target].where(result[target].notna(), result[candidate])
+    return result
+
+
+def _normalize_map_line_segments(frame: pd.DataFrame) -> pd.DataFrame:
+    if frame.empty:
+        return frame
+    result = frame.copy()
+    aliases = {
+        "LATITUD": ("latitude",),
+        "LONGITUD": ("longitude",),
+        "LATITUD2": ("latitude_end",),
+        "LONGITUD2": ("longitude_end",),
+        "latitude": ("LATITUD",),
+        "longitude": ("LONGITUD",),
+        "latitude_end": ("LATITUD2",),
+        "longitude_end": ("LONGITUD2",),
+    }
+    for target, candidates in aliases.items():
+        result = _ensure_column_alias(result, target, candidates)
+    return result
+
+
 def get_map_payload(
     settings: Settings,
     selected_period: str,
@@ -955,6 +1276,10 @@ def get_map_payload(
         selected_municipio=selected_municipio,
         selected_circuits=normalized_circuits,
     )
+    static_asset_where_clause = _build_map_static_asset_where_clause(
+        selected_municipio=selected_municipio,
+        selected_circuits=normalized_circuits,
+    )
 
     points_table = _gold_table(settings, "gold_map_points")
     lines_table = _gold_table(settings, "gold_map_line_segments")
@@ -965,7 +1290,7 @@ def get_map_payload(
         f"""
         SELECT *
         FROM {points_table}
-        WHERE point_kind = 'asset' AND {where_clause}
+        WHERE point_kind = 'asset' AND {static_asset_where_clause}
         """
     )
     if normalized_circuits is not None:
@@ -978,9 +1303,10 @@ def get_map_payload(
         f"""
         SELECT *
         FROM {lines_table}
-        WHERE {where_clause}
+        WHERE {static_asset_where_clause}
         """
     )
+    redmt = _normalize_map_line_segments(redmt)
     day_events = client.fetch_dataframe(
         f"""
         SELECT *
@@ -1025,8 +1351,8 @@ def get_map_payload(
 
 def databricks_data_readiness_check(settings: Settings) -> tuple[bool, str]:
     required_tables = [
-        "gold_saidi_saifi_daily",
-        "gold_saidi_saifi_circuit_summary",
+        "gold_impact_daily",
+        "gold_impact_circuit_summary",
         "gold_timeseries_event_details",
         "gold_timeseries_daily_attribution",
         "gold_timeseries_environment_daily",

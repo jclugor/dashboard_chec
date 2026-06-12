@@ -1,0 +1,76 @@
+schema_version: 1
+source_document: ContextoProyectoSimuladorCHEC.md
+source_section: "3.1 Tabla Descriptiva de Conexiones Clave"
+rules:
+  - rule_id: clima_riesgo_acumulacion
+    origin_group: "Series Climaticas"
+    origin_variables: ["TEMP_*", "PREP_*", "CLOUDS_*", "VIS_*", "WIND_SPD_*", "WIND_GUST_SPD_*"]
+    destination_group: "Nodos de Riesgo"
+    destination_variables: ["NR_T", "DDT"]
+    relation_type: "Acumulacion Ambiental"
+    weight: 0.85
+    rationale: "Las variables climaticas previas representan estres ambiental acumulado que puede saturar suelo, contaminar aisladores e interactuar con conductores."
+  - rule_id: entorno_riesgo_causa_directa
+    origin_group: "Entorno y Riesgo"
+    origin_variables: ["NR_T", "DDT", "WIND_GUST_*", "WIND_GUST_SPD_*"]
+    destination_group: "Eventos / Causa"
+    destination_variables: ["COD_CAUSA", "DESC_CAUSA"]
+    relation_type: "Causa Directa"
+    weight: 0.90
+    rationale: "Riesgo vegetal, descargas directas y rafagas pueden coincidir operacionalmente con ruptura de aislamiento dielectrico o mecanico."
+  - rule_id: fisicas_electricas_susceptibilidad
+    origin_group: "Fisicas y Electricas"
+    origin_variables: ["CONDUCTOR", "LONGITUD", "NG_RED", "CNT_FASES", "CALIBRE_NEUTRO", "TIPO_TAX"]
+    destination_group: "Eventos / Causa"
+    destination_variables: ["COD_CAUSA", "DESC_CAUSA"]
+    relation_type: "Susceptibilidad Material"
+    weight: 0.80
+    rationale: "La configuracion constructiva del vano modifica su susceptibilidad ante vegetacion, rayos y esfuerzos mecanicos."
+  - rule_id: topologia_proteccion_propagacion
+    origin_group: "Topologia"
+    origin_variables: ["LVSW", "CNT_VN", "CIRCUITO", "FID_VANO"]
+    destination_group: "Proteccion"
+    destination_variables: ["FID_SW", "COD_EQ_PROTEGE"]
+    relation_type: "Propagacion de Falla"
+    weight: 0.95
+    rationale: "La distancia y cantidad de vanos determinan el equipo que debe operar para aislar una falla."
+  - rule_id: activos_entorno_vulnerabilidad
+    origin_group: "Activos Finales"
+    origin_variables: ["VAL_CRIT_APOYO", "ALTURA", "CLASE", "ELEMENTO", "NORMA", "LONG_CRUCETA", "CANTIDAD_TIERRA"]
+    destination_group: "Entorno y Riesgo"
+    destination_variables: ["NR_T"]
+    relation_type: "Vulnerabilidad Estructural"
+    weight: 0.75
+    rationale: "Las condiciones mecanicas y normativas del apoyo interactuan con vegetacion y esfuerzos externos."
+  - rule_id: carga_consumo_impacto
+    origin_group: "Carga y Consumo"
+    origin_variables: ["CAPACIDAD_NOMINAL", "CNT_USUS", "PROMEDIO_KWH_TRF", "PROMEDIO_KWH_VANO"]
+    destination_group: "Impacto"
+    destination_variables: ["TOT_USUS", "CNT_TRF", "USERS"]
+    relation_type: "Impacto Demografico"
+    weight: 0.85
+    rationale: "Usuarios conectados, transformadores y consumo promedio condicionan la magnitud del corte."
+  - rule_id: proteccion_tiempos_impacto
+    origin_group: "Proteccion"
+    origin_variables: ["TIPO", "T_USUS_EQ_PROT", "FID_SW", "COD_EQ_PROTEGE"]
+    destination_group: "Impacto"
+    destination_variables: ["DURACION", "DURATION_RAW", "TOT_USUS", "USERS"]
+    relation_type: "Aislamiento y Tiempos"
+    weight: 0.80
+    rationale: "El equipo operado condiciona el tiempo de reposicion y el conjunto de usuarios desconectados."
+  - rule_id: eventos_indicadores_regulatorio
+    origin_group: "Eventos"
+    origin_variables: ["DURACION", "DURATION_RAW", "TOT_USUS", "USERS"]
+    destination_group: "Indicadores"
+    destination_variables: ["UITI", "UITI_VANO"]
+    relation_type: "Calculo Regulatorio"
+    weight: 1.00
+    rationale: "UiTI se calcula de forma proporcional a duracion y usuarios afectados."
+  - rule_id: atributos_espaciales_topologia
+    origin_group: "Atributos Espaciales"
+    origin_variables: ["X1", "Y1", "X2", "Y2", "latitude", "longitude", "latitude_end", "longitude_end"]
+    destination_group: "Topologia"
+    destination_variables: ["FID_VANO"]
+    relation_type: "Geometria de Red"
+    weight: 1.00
+    rationale: "Las coordenadas definen existencia fisica, trazado y longitud del tramo."

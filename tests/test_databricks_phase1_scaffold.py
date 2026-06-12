@@ -17,22 +17,20 @@ def _read(path: Path) -> str:
 
 
 def test_phase1_manifest_contract() -> None:
-    manifest = json.loads(_read(DATABRICKS_DIR / "manifests" / "phase1_assets.json"))
+    manifest = json.loads(_read(DATABRICKS_DIR / "manifests" / "normalized_vano_assets.json"))
 
     assert manifest["bundle_name"] == "chec_phase1"
     assert manifest["catalog_name"] == "chec_dbx_demo"
+    assert manifest["source_sha256"] == "7d4efade8c78a6d364ed68e0228439693a533626bde8a247c5e6e0b4ab89d354"
+    assert "full_reconstruction ok" in manifest["reconstruction_guarantee"]
     assert manifest["workspace_root_path"] == (
         "/Workspace/Users/${workspace.current_user.userName}/.bundle/chec_phase1/dev/files"
     )
-    assert manifest["reference_notebook_folders"] == [
-        "references/legacy_notebooks",
-        "references/legacy_preprocessing",
-    ]
 
     raw_sources = manifest["raw_sources"]
-    assert len(raw_sources) == 17
-    assert sum(1 for entry in raw_sources if entry["load_mode"] == "pickle") == 10
-    assert sum(1 for entry in raw_sources if entry["load_mode"] == "copy_only") == 7
+    assert len(raw_sources) == 8
+    assert sum(1 for entry in raw_sources if entry["load_mode"] == "parquet") == 8
+    assert sum(int(entry["expected_rows"]) for entry in raw_sources) == 373474
 
     bronze_tables = {
         entry["bronze_table"]
@@ -40,39 +38,36 @@ def test_phase1_manifest_contract() -> None:
         if entry.get("bronze_table")
     }
     assert bronze_tables == {
-        "bronze_trafos",
+        "bronze_causas",
+        "bronze_equipos_proteccion",
         "bronze_apoyos",
-        "bronze_switches",
-        "bronze_redmt",
-        "bronze_super_eventos",
-        "bronze_eventos_interruptor",
-        "bronze_eventos_tramo_linea",
-        "bronze_eventos_transformador",
-        "bronze_vegetacion",
-        "bronze_rayos",
+        "bronze_vanos",
+        "bronze_transformador_profiles",
+        "bronze_eventos",
+        "bronze_evento_vano_trafo",
+        "bronze_clima_vano_fecha",
     }
-
-    sensitive_files = manifest["sensitive_files"]
-    assert sensitive_files == [
-        {
-            "relative_path": "OPENAI_API_Key.txt",
-            "disposition": "exclude_from_sync",
-            "reason": "move_to_secret_scope",
-        }
-    ]
-
-    ml_artifacts = {entry["relative_path"] for entry in manifest["ml_artifacts"]}
-    assert ml_artifacts == {"model.pth", "mask.npy"}
+    assert {entry["logical_name"]: entry["expected_rows"] for entry in raw_sources}["evento_vano_trafo"] == 159470
+    assert manifest["central_fact"]["logical_name"] == "evento_vano_trafo"
+    assert manifest["central_fact"]["row_count"] == 159470
+    raw_by_name = {entry["logical_name"]: entry for entry in raw_sources}
+    assert "municipio" in raw_by_name["vanos"]["required_columns"]
+    assert "municipio_source" in raw_by_name["vanos"]["required_columns"]
+    assert "municipio_confidence" in raw_by_name["vanos"]["required_columns"]
+    assert "municipio" in raw_by_name["transformador_profiles"]["required_columns"]
 
     gold_tables = {entry["table_name"] for entry in manifest["gold_tables"]}
     assert gold_tables == {
-        "gold_saidi_saifi_daily",
-        "gold_saidi_saifi_circuit_summary",
+        "gold_impact_daily",
+        "gold_impact_circuit_summary",
         "gold_timeseries_event_details",
         "gold_timeseries_daily_attribution",
         "gold_timeseries_environment_daily",
         "gold_probability_inputs",
         "gold_map_points",
+        "gold_map_line_segments",
+        "gold_map_filter_index",
+        "gold_map_event_days",
     }
 
 
@@ -93,6 +88,9 @@ def test_phase1_bundle_and_job_paths() -> None:
     assert "default: Standard_DC4as_v5" in bundle_text
     assert "ingest_classic_node_type_id:" in bundle_text
     assert "default: Standard_L4aos_v4" in bundle_text
+    assert "manifest_filename:" in bundle_text
+    assert "default: normalized_vano_assets.json" in bundle_text
+    assert "manifest_filename: ${var.manifest_filename}" in jobs_text
     assert "dashboard_warehouse_id:" in bundle_text
     assert 'default: ""' in bundle_text
     assert "4437a6195e05c59c" not in bundle_text
@@ -107,7 +105,6 @@ def test_phase1_bundle_and_job_paths() -> None:
         "../notebooks/01_stage_bronze_tables.py",
         "../notebooks/02_validate_ingest.py",
         "../notebooks/03_build_silver_gold.py",
-        "../notebooks/05_stage_ml_assets.py",
     ]
     for notebook_path in expected_notebooks:
         assert notebook_path in jobs_text
@@ -137,7 +134,6 @@ def test_phase1_bundle_and_job_paths() -> None:
         "stage_bronze_tables",
         "validate_ingest",
         "build_silver_gold",
-        "stage_ml_assets",
     ]:
         assert f"task_key: {task_key}" in jobs_text
 
@@ -190,7 +186,7 @@ def test_fresh_install_template_and_orchestrator_contract() -> None:
         "databricks warehouses create",
         "databricks bundle validate",
         "databricks bundle deploy",
-        "upload_phase1_assets.sh",
+        "upload_normalized_vano_assets.sh",
         "publish_phase2_dashboard.sh",
         "upload_chatbot_assets.sh",
         "deploy_phase35_databricks_app.sh",
@@ -245,6 +241,8 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "family_group" in map_text
 
     build_gold_text = _read(NOTEBOOK_DIR / "03_build_silver_gold.py")
+    assert '.withColumn("municipio", F.lit("Sin municipio"))' not in build_gold_text
+    assert 'F.coalesce(F.col("municipio_vano"), F.col("municipio_trafo"), F.lit("Sin municipio"))' in build_gold_text
     assert "gold_map_line_segments" in build_gold_text
     assert "gold_map_filter_index" in build_gold_text
     assert "gold_map_event_days" in build_gold_text
@@ -295,13 +293,17 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     bronze_text = _read(NOTEBOOK_DIR / "01_stage_bronze_tables.py")
     assert "AVAILABLE_IN_VOLUME" in bronze_text
     assert "Upload raw phase 1 assets to the source volume" in bronze_text
+    assert '"parquet"' in bronze_text
+    assert 'if load_mode == "parquet"' in bronze_text
     assert "write_pandas_frame_to_delta(spark, normalized_frame, bronze_table_name)" in bronze_text
 
     validate_text = _read(NOTEBOOK_DIR / "02_validate_ingest.py")
-    assert "observed_date_columns" in validate_text
-    assert 'F.min(F.col(column)).alias(f"{column}_min")' in validate_text
-    assert 'F.max(F.col(column)).alias(f"{column}_max")' in validate_text
-    assert '"Combined date bounds across "' in validate_text
+    assert "primary_key" in validate_text
+    assert "foreign_key_" in validate_text
+    assert "weather_feature_columns" in validate_text
+    assert "central_fact_row_count" in validate_text
+    assert "source_hash" in validate_text
+    assert "full_reconstruction" in validate_text
 
     preflight_script = _read(DATABRICKS_DIR / "scripts" / "preflight_phase1_deploy.sh")
     assert "run_with_retries()" in preflight_script
@@ -316,15 +318,16 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert 'Standard_D4as_v5' in preflight_script
     assert 'Target catalog: ${CATALOG_NAME}' in preflight_script
 
-    upload_script = _read(DATABRICKS_DIR / "scripts" / "upload_phase1_assets.sh")
+    upload_script = _read(DATABRICKS_DIR / "scripts" / "upload_normalized_vano_assets.sh")
     assert "run_with_retries()" in upload_script
     assert "extract_json_payload()" in upload_script
     assert "OPENAI_API_Key.txt" not in upload_script
     assert "databricks fs cp" in upload_script
     assert "databricks fs ls" in upload_script
     assert "Skipping ${relative_path}; already uploaded" in upload_script
-    assert "TRAFOS.pkl" in upload_script
-    assert "model.pth" in upload_script
+    assert "evento_vano_trafo.parquet" in upload_script
+    assert "normalization_manifest.json" in upload_script
+    assert "municipio_enrichment/municipio_lookup_manifest.json" in upload_script
     assert 'CATALOG_NAME="${CATALOG_NAME:-chec_dbx_demo}"' in upload_script
 
     publish_notebooks_script = _read(DATABRICKS_DIR / "scripts" / "publish_phase2_notebooks.sh")
@@ -397,6 +400,11 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "APP_CHATBOT_SKILLS_VOLUME_PATH" in deploy_app_script
     assert "ensure_chatbot_skill_lifecycle_dirs()" in deploy_app_script
     assert "active draft archive" in deploy_app_script
+    assert "APP_WAREHOUSE_ID=\"${APP_WAREHOUSE_ID}\"" in deploy_app_script
+    assert "APP_CHATBOT_ENABLED=\"${APP_CHATBOT_ENABLED}\"" in deploy_app_script
+    assert "APP_LLM_PROVIDER=\"${APP_LLM_PROVIDER}\"" in deploy_app_script
+    assert "APP_RETRIEVER_BACKEND=\"${APP_RETRIEVER_BACKEND}\"" in deploy_app_script
+    assert "stage_phase35_databricks_app.py" in deploy_app_script
     assert "APP_GEMINI_SECRET_RESOURCE_KEY" in deploy_app_script
     assert "APP_GEMINI_SECRET_SCOPE" in deploy_app_script
     assert "APP_GEMINI_SECRET_KEY" in deploy_app_script
@@ -527,7 +535,7 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "Eventos totales" in dashboard_text
     assert "Usuarios afectados" in dashboard_text
     assert "Tendencia mensual de eventos" in dashboard_text
-    assert "Tendencia mensual de SAIDI" in dashboard_text
+    assert "Tendencia mensual de UITI" in dashboard_text
     assert "Date Range" not in dashboard_text
     assert "Event Family" not in dashboard_text
     assert "Total Events" not in dashboard_text
@@ -535,7 +543,8 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "filter-date-range-picker" in dashboard_text
     assert '"widgetType": "counter"' in dashboard_text
     assert '"widgetType": "bar"' in dashboard_text
-    assert "sum(saidi_total)" in dashboard_text
+    assert "gold_impact_daily" in dashboard_text
+    assert "sum(uiti_total)" in dashboard_text
     assert '"name": "main_query"' in dashboard_text
 
     readme_text = _read(DATABRICKS_DIR / "README.md")
@@ -559,6 +568,12 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert '"active"' in upload_chatbot_assets_script
     assert '"draft"' in upload_chatbot_assets_script
     assert '"archive"' in upload_chatbot_assets_script
+    assert '"knowledge"' in upload_chatbot_assets_script
+    assert "KNOWLEDGE_SOURCE_DIR" in upload_chatbot_assets_script
+    assert "variable_context.yml" in upload_chatbot_assets_script
+    assert "variable_context.md" in upload_chatbot_assets_script
+    assert "variable_interactions.yml" in upload_chatbot_assets_script
+    assert "variable_interactions.md" in upload_chatbot_assets_script
 
     validate_chatbot_skills_script = _read(DATABRICKS_DIR / "scripts" / "validate_chatbot_skills.py")
     assert "get_skill_status" in validate_chatbot_skills_script
@@ -630,7 +645,7 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "MLflow experiment parent directory" in setup_observability_script
     assert "chec_chatbot_answer_prompt" in setup_observability_script
     assert "needs_sme_review" in setup_observability_script
-    assert "saidi_saifi_01" in setup_observability_script
+    assert "uiti_impact_01" in setup_observability_script
     assert "memory_05" in setup_observability_script
 
     run_eval_script = _read(DATABRICKS_DIR / "scripts" / "run_phase9_evaluation.py")
@@ -685,7 +700,7 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
         "Databricks CLI",
         "Unity Catalog",
         "Databricks Asset Bundle",
-        "upload_phase1_assets.sh",
+        "upload_normalized_vano_assets.sh",
         "upload_chatbot_assets.sh",
         "deploy_phase35_databricks_app.sh",
         "apply_phase35_app_permissions.sh",
@@ -932,6 +947,37 @@ def test_phase35_app_staging_renders_model_serving_env() -> None:
     assert "value: \"1200\"" in app_yaml
     assert "LLM_TEMPERATURE" in app_yaml
     assert "value: \"0.2\"" in app_yaml
+
+
+def test_phase35_app_staging_defaults_to_agentic_databricks_runtime() -> None:
+    env = os.environ.copy()
+    for key in (
+        "APP_CHATBOT_ENABLED",
+        "APP_LLM_PROVIDER",
+        "APP_RETRIEVER_BACKEND",
+        "APP_WAREHOUSE_ID",
+    ):
+        env.pop(key, None)
+
+    subprocess.run(
+        [sys.executable, "databricks/scripts/stage_phase35_databricks_app.py"],
+        cwd=ROOT,
+        env=env,
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+
+    app_yaml = _read(DATABRICKS_DIR / "build" / "chec_dash_parity" / "app.yaml")
+
+    assert "CHATBOT_ENABLED" in app_yaml
+    assert "value: \"true\"" in app_yaml
+    assert "LLM_PROVIDER" in app_yaml
+    assert "value: \"databricks_model_serving\"" in app_yaml
+    assert "RETRIEVER_BACKEND" in app_yaml
+    assert "value: \"databricks_ai_search\"" in app_yaml
+    assert "LLM_PROVIDER\n    value: \"mock\"" not in app_yaml
+    assert "CHATBOT_ENABLED\n    value: \"false\"" not in app_yaml
 
 
 def test_phase35_app_staging_can_bind_gemini_secret_resource() -> None:

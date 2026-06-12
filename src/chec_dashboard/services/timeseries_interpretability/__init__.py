@@ -1,4 +1,4 @@
-"""Structured SAIDI/SAIFI time-series interpretability workflow."""
+"""Structured UITI impact time-series interpretability workflow."""
 
 from chec_dashboard.services.timeseries_interpretability.contracts import (
     EvidenceMatrixRow,

@@ -69,10 +69,10 @@ def _observed_values(point: dict[str, Any]) -> list[str]:
     metrics = point.get("metrics") or {}
     aggregates = point.get("daily_aggregates") or {}
     return [
-        f"SAIDI={_round_text(metrics.get('SAIDI'))}",
-        f"SAIFI={_round_text(metrics.get('SAIFI'))}",
+        f"UITI={_round_text(metrics.get('UITI'))}",
+        f"UITI_VANO={_round_text(metrics.get('UITI_VANO'))}",
         f"Eventos={aggregates.get('event_count', 0)}",
-        f"Duracion_h={_round_text(aggregates.get('duration_total_h'), 2)}",
+        f"Duracion_fuente={_round_text(aggregates.get('duration_raw_total'), 2)}",
         f"Usuarios_afectados={_round_text(aggregates.get('users_affected_total'), 0)}",
     ]
 
@@ -106,8 +106,8 @@ def _evidence_rows(point: dict[str, Any]) -> list[EvidenceMatrixRow]:
             fecha_dia=fecha_dia,
             signal="Indicadores diarios",
             structured_evidence=(
-                f"SAIDI={_round_text(metrics.get('SAIDI'))}; "
-                f"SAIFI={_round_text(metrics.get('SAIFI'))}; "
+                f"UITI={_round_text(metrics.get('UITI'))}; "
+                f"UITI_VANO={_round_text(metrics.get('UITI_VANO'))}; "
                 f"eventos={aggregates.get('event_count', 0)}."
             ),
             documentary_evidence="Sin soporte documental suficiente en narrativa deterministica.",

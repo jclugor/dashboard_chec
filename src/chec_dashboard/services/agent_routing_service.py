@@ -56,8 +56,8 @@ _REGULATORY_TERMS = {
     "requisito",
     "cumplimiento",
     "calidad",
-    "saidi",
-    "saifi",
+    "uiti",
+    "impacto",
 }
 _TECHNICAL_DOC_TERMS = {
     "documento",
@@ -95,8 +95,8 @@ _DASHBOARD_TERMS = {
 }
 _RELIABILITY_TERMS = {
     "confiabilidad",
-    "saidi",
-    "saifi",
+    "uiti",
+    "impacto",
     "recurrencia",
     "recurrente",
     "historico",
@@ -155,8 +155,8 @@ _TIMESERIES_TERMS = {
     "crítico",
     "criticos",
     "críticos",
-    "saidi",
-    "saifi",
+    "uiti",
+    "impacto",
 }
 
 
@@ -322,7 +322,7 @@ def route_agent_tools(
         candidates.append(
             AgentToolCandidate(
                 "get_timeseries_interpretability_context",
-                "La pregunta pide explicar la evolucion temporal SAIDI/SAIFI o un punto critico.",
+                "La pregunta pide explicar la evolucion temporal del impacto UITI o un punto critico.",
             )
         )
 

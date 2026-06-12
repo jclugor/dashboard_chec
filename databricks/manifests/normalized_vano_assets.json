@@ -1,0 +1,137 @@
+{
+  "bundle_name": "chec_phase1",
+  "catalog_name": "chec_dbx_demo",
+  "workspace_root_path": "/Workspace/Users/${workspace.current_user.userName}/.bundle/chec_phase1/dev/files",
+  "dataset_name": "Indicadores_vano_v3_normalized",
+  "dataset_version": "wide_weather_parquet",
+  "source_sha256": "7d4efade8c78a6d364ed68e0228439693a533626bde8a247c5e6e0b4ab89d354",
+  "source_rows": 159470,
+  "source_columns": 273,
+  "central_fact": {
+    "logical_name": "evento_vano_trafo",
+    "row_count": 159470,
+    "grain": "one row per source row: event_id + FID_VANO + trafo_profile_id",
+    "primary_key": ["row_id"],
+    "natural_key": ["event_id", "FID_VANO", "trafo_profile_id"]
+  },
+  "reconstruction_guarantee": "full_reconstruction ok over 159470 rows and 273 original columns",
+  "source_root_folder": "Indicadores_vano_v3_normalized",
+  "reference_notebook_folders": [
+    "references/legacy_notebooks",
+    "references/legacy_preprocessing"
+  ],
+  "sensitive_files": [
+    {
+      "relative_path": "OPENAI_API_Key.txt",
+      "disposition": "exclude_from_sync",
+      "reason": "move_to_secret_scope"
+    }
+  ],
+  "raw_sources": [
+    {
+      "logical_name": "causas",
+      "relative_path": "Indicadores_vano_v3_normalized/causas.parquet",
+      "bronze_table": "bronze_causas",
+      "load_mode": "parquet",
+      "expected_rows": 25,
+      "primary_key": ["COD_CAUSA"],
+      "required_columns": ["COD_CAUSA", "DESC_CAUSA"]
+    },
+    {
+      "logical_name": "equipos_proteccion",
+      "relative_path": "Indicadores_vano_v3_normalized/equipos_proteccion.parquet",
+      "bronze_table": "bronze_equipos_proteccion",
+      "load_mode": "parquet",
+      "expected_rows": 2208,
+      "primary_key": ["FID_SW"],
+      "required_columns": ["FID_SW", "COD_EQ_PROTEGE", "CIRCUITO", "T_USUS_EQ_PROT", "CNT_VN_SW", "TIPO"]
+    },
+    {
+      "logical_name": "apoyos",
+      "relative_path": "Indicadores_vano_v3_normalized/apoyos.parquet",
+      "bronze_table": "bronze_apoyos",
+      "load_mode": "parquet",
+      "expected_rows": 26746,
+      "primary_key": ["FID_APOYO_FIN"],
+      "required_columns": ["FID_APOYO_FIN", "COD_APOYO_FIN", "ALTURA", "CANTIDAD_TIERRA", "PROPIETARIO", "CLASE", "ELEMENTO", "VAL_CRIT_APOYO"]
+    },
+    {
+      "logical_name": "vanos",
+      "relative_path": "Indicadores_vano_v3_normalized/vanos.parquet",
+      "bronze_table": "bronze_vanos",
+      "load_mode": "parquet",
+      "expected_rows": 27390,
+      "primary_key": ["FID_VANO"],
+      "foreign_keys": [
+        {"columns": ["FID_SW"], "references": "equipos_proteccion", "reference_columns": ["FID_SW"]},
+        {"columns": ["FID_APOYO_FIN"], "references": "apoyos", "reference_columns": ["FID_APOYO_FIN"]}
+      ],
+      "required_columns": ["FID_VANO", "FID_SW", "LVSW", "CNT_VN", "PORC_APORTE_VANO", "LONGITUD", "CNT_FASES", "CONDUCTOR", "CALIBRE_NEUTRO", "NG_RED", "FECHA_OPERACION_VANO", "X1", "Y1", "X2", "Y2", "FID_APOYO_FIN", "NORMA", "TIPO_TAX", "NR_T", "LONG_CRUCETA", "PROMEDIO_KWH_VANO", "DDT", "municipio", "municipio_source", "municipio_confidence"]
+    },
+    {
+      "logical_name": "transformador_profiles",
+      "relative_path": "Indicadores_vano_v3_normalized/transformador_profiles.parquet",
+      "bronze_table": "bronze_transformador_profiles",
+      "load_mode": "parquet",
+      "expected_rows": 8398,
+      "primary_key": ["trafo_profile_id"],
+      "required_columns": ["trafo_profile_id", "FID_TRAFO", "CODIGO", "CAPACIDAD_NOMINAL", "CNT_USUS", "FECHA_OPERACION_TRF", "PROMEDIO_KWH_TRF", "municipio", "municipio_source", "municipio_confidence"]
+    },
+    {
+      "logical_name": "eventos",
+      "relative_path": "Indicadores_vano_v3_normalized/eventos.parquet",
+      "bronze_table": "bronze_eventos",
+      "load_mode": "parquet",
+      "expected_rows": 7079,
+      "primary_key": ["event_id"],
+      "foreign_keys": [
+        {"columns": ["COD_CAUSA"], "references": "causas", "reference_columns": ["COD_CAUSA"]}
+      ],
+      "required_columns": ["event_id", "FECHA", "DURACION", "UITI", "TOT_USUS", "CNT_TRF", "COD_CAUSA"],
+      "date_columns": ["FECHA"]
+    },
+    {
+      "logical_name": "evento_vano_trafo",
+      "relative_path": "Indicadores_vano_v3_normalized/evento_vano_trafo.parquet",
+      "bronze_table": "bronze_evento_vano_trafo",
+      "load_mode": "parquet",
+      "expected_rows": 159470,
+      "primary_key": ["row_id"],
+      "natural_key": ["event_id", "FID_VANO", "trafo_profile_id"],
+      "foreign_keys": [
+        {"columns": ["event_id"], "references": "eventos", "reference_columns": ["event_id"]},
+        {"columns": ["FID_VANO"], "references": "vanos", "reference_columns": ["FID_VANO"]},
+        {"columns": ["trafo_profile_id"], "references": "transformador_profiles", "reference_columns": ["trafo_profile_id"]}
+      ],
+      "required_columns": ["row_id", "event_id", "FID_VANO", "trafo_profile_id", "UITI_VANO"]
+    },
+    {
+      "logical_name": "clima_vano_fecha",
+      "relative_path": "Indicadores_vano_v3_normalized/clima_vano_fecha.parquet",
+      "bronze_table": "bronze_clima_vano_fecha",
+      "load_mode": "parquet",
+      "expected_rows": 142158,
+      "primary_key": ["FID_VANO", "FECHA"],
+      "foreign_keys": [
+        {"columns": ["FID_VANO"], "references": "vanos", "reference_columns": ["FID_VANO"]}
+      ],
+      "required_columns": ["FID_VANO", "FECHA"],
+      "weather_variables": ["prep", "pres", "sp", "rh", "solar_rad", "temp", "wind_gust_spd", "wind_spd", "clouds"],
+      "weather_offsets": [0, 24],
+      "date_columns": ["FECHA"]
+    }
+  ],
+  "ml_artifacts": [],
+  "gold_tables": [
+    {"table_name": "gold_impact_daily", "description": "Daily normalized interruption impact metrics centered on UITI."},
+    {"table_name": "gold_impact_circuit_summary", "description": "Circuit-level normalized impact summary for dashboarding."},
+    {"table_name": "gold_timeseries_event_details", "description": "Event/detail grain for generic impact time-series interpretability."},
+    {"table_name": "gold_timeseries_daily_attribution", "description": "Daily attribution groups for critical impact dates."},
+    {"table_name": "gold_timeseries_environment_daily", "description": "Daily weather context derived from normalized wide weather features."},
+    {"table_name": "gold_probability_inputs", "description": "Exploratory probability input table built from normalized fact rows."},
+    {"table_name": "gold_map_points", "description": "Lat/lon-ready points for normalized assets and events."},
+    {"table_name": "gold_map_line_segments", "description": "Lat/lon-ready normalized span line segments."},
+    {"table_name": "gold_map_filter_index", "description": "Map filter index by period, municipality, and circuit."},
+    {"table_name": "gold_map_event_days", "description": "Day-indexed normalized event points for the map and chatbot context."}
+  ]
+}

@@ -75,8 +75,7 @@ class DataMetadataResponse(APIResponseModel):
 
 class SummaryDailyPoint(APIResponseModel):
     fecha_dia: str
-    SAIDI: float
-    SAIFI: float
+    metrics: dict[str, float] = Field(default_factory=dict)
 
 
 class MapDataResponse(APIResponseModel):
@@ -89,17 +88,42 @@ class SummaryDataResponse(APIResponseModel):
     start_date: str
     end_date: str
     circuit_label: str
-    metric_mode: str
-    saidi_total: float
-    saifi_total: float
+    metric_key: str
+    metric_totals: dict[str, float] = Field(default_factory=dict)
     event_count: int
     daily_data: list[SummaryDailyPoint]
     status_text: str
 
 
+class SummaryEventOption(APIResponseModel):
+    event_id: str
+    label: str
+    fecha_dia: str | None = None
+    inicio_ts: str | None = None
+    fin_ts: str | None = None
+    circuito: str | None = None
+    municipio: str | None = None
+    causa: str | None = None
+    event_family: str | None = None
+    equipo_ope: str | None = None
+    tipo_equi_ope: str | None = None
+    tipo_elemento: str | None = None
+    duration_raw: float = 0.0
+    uiti: float = 0.0
+    uiti_vano: float = 0.0
+    users_affected: float = 0.0
+    detail_count: int | None = None
+
+
+class SummaryEventOptionsResponse(APIResponseModel):
+    events: list[SummaryEventOption] = Field(default_factory=list)
+    default_event_id: str | None = None
+    status_text: str
+
+
 class CriticalityReason(APIResponseModel):
     reason_type: str
-    metric: Literal["SAIDI", "SAIFI", "BOTH", "DATA_QUALITY"]
+    metric: str
     score: float
     value: float | None = None
     baseline: float | None = None
@@ -110,9 +134,9 @@ class CriticalityReason(APIResponseModel):
 class AttributionItem(APIResponseModel):
     label: str
     event_count: int = 0
-    saidi_total: float = 0.0
-    saifi_total: float = 0.0
-    duration_total_h: float = 0.0
+    metric_totals: dict[str, float] = Field(default_factory=dict)
+    impact_total: float = 0.0
+    duration_raw_total: float = 0.0
     users_affected_total: float = 0.0
     contribution_pct: float | None = None
 
@@ -129,10 +153,10 @@ class CriticalEvent(APIResponseModel):
     equipo_ope: str | None = None
     tipo_equi_ope: str | None = None
     tipo_elemento: str | None = None
-    duration_hours: float = 0.0
-    severity_saidi: float = 0.0
-    severity_saifi: float = 0.0
-    cnt_usus: float = 0.0
+    duration_raw: float = 0.0
+    uiti: float = 0.0
+    uiti_vano: float = 0.0
+    users_affected: float = 0.0
 
 
 class CriticalPoint(APIResponseModel):
@@ -156,7 +180,7 @@ class CriticalPoint(APIResponseModel):
 class CriticalPeriod(APIResponseModel):
     start_date: str
     end_date: str
-    metric: Literal["SAIDI", "SAIFI"]
+    metric: str
     period_type: str
     score: float
     days: int
@@ -167,7 +191,7 @@ class SummaryInterpretabilityResponse(APIResponseModel):
     start_date: str
     end_date: str
     circuit_label: str
-    metric_mode: str
+    metric_key: str
     generated_at: str
     critical_points: list[CriticalPoint] = Field(default_factory=list)
     critical_periods: list[CriticalPeriod] = Field(default_factory=list)
@@ -177,6 +201,11 @@ class SummaryInterpretabilityResponse(APIResponseModel):
     status: dict[str, Any] | None = None
     interpretability_trace: dict[str, Any] | None = None
     corpus_citations: list[dict[str, Any]] = Field(default_factory=list)
+    analysis_focus: str | None = None
+    selected_event: dict[str, Any] | None = None
+    agent_workflow: list[dict[str, Any]] = Field(default_factory=list)
+    variable_context: dict[str, Any] = Field(default_factory=dict)
+    variable_interactions: dict[str, Any] = Field(default_factory=dict)
     status_text: str
 
 
@@ -192,6 +221,7 @@ class DataResponse(APIResponseModel):
         "map",
         "map_metadata",
         "summary",
+        "summary_event_options",
         "summary_interpretability",
         "probability",
         "probability_metadata",
@@ -199,6 +229,7 @@ class DataResponse(APIResponseModel):
     map: MapDataResponse | None = None
     map_metadata: MapMetadataResponse | None = None
     summary: SummaryDataResponse | None = None
+    summary_event_options: SummaryEventOptionsResponse | None = None
     summary_interpretability: SummaryInterpretabilityResponse | None = None
     probability: ProbabilityDataResponse | None = None
     probability_metadata: ProbabilityMetadataResponse | None = None

@@ -620,6 +620,11 @@ body {
   min-width: 220px;
 }
 
+.summary-filter-event {
+  flex: 1.4 1 320px;
+  min-width: 260px;
+}
+
 .summary-filter-metric {
   flex: 0 1 180px;
   min-width: 160px;

@@ -23,6 +23,7 @@ from chec_dashboard.services.data_service import (
     get_probability_metadata,
     get_probability_payload,
     get_summary_interpretability_payload,
+    get_summary_event_options,
     get_summary_metadata,
     get_summary_payload,
 )
@@ -109,9 +110,21 @@ def post_data(request: DataRequest) -> DataResponse:
             start_date_raw=request.summary.start_date,
             end_date_raw=request.summary.end_date,
             circuito=request.summary.circuito,
-            metric_mode=request.summary.metric_mode,
+            metric_key=request.summary.metric_key,
         )
         return DataResponse(mode="summary", summary=payload)
+
+    if request.mode == "summary_event_options":
+        if request.summary_event_options is None:
+            raise ValueError("summary_event_options payload is required when mode='summary_event_options'")
+        payload = get_summary_event_options(
+            settings=settings,
+            start_date_raw=request.summary_event_options.start_date,
+            end_date_raw=request.summary_event_options.end_date,
+            circuito=request.summary_event_options.circuito,
+            limit=request.summary_event_options.limit,
+        )
+        return DataResponse(mode="summary_event_options", summary_event_options=payload)
 
     if request.mode == "summary_interpretability":
         if request.summary_interpretability is None:
@@ -123,10 +136,11 @@ def post_data(request: DataRequest) -> DataResponse:
             start_date_raw=request.summary_interpretability.start_date,
             end_date_raw=request.summary_interpretability.end_date,
             circuito=request.summary_interpretability.circuito,
-            metric_mode=request.summary_interpretability.metric_mode,
+            metric_key=request.summary_interpretability.metric_key,
             max_points=request.summary_interpretability.max_points,
             include_agent_text=request.summary_interpretability.include_agent_text,
             selected_date=request.summary_interpretability.selected_date,
+            selected_event_id=request.summary_interpretability.selected_event_id,
         )
         return DataResponse(mode="summary_interpretability", summary_interpretability=payload)
 

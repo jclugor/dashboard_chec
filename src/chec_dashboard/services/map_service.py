@@ -320,20 +320,49 @@ def _safe_coordinates(row: pd.Series, lat_col: str, lon_col: str) -> tuple[float
         return None
 
 
+def _safe_coordinates_any(row: pd.Series, column_pairs: tuple[tuple[str, str], ...]) -> tuple[float, float] | None:
+    for lat_col, lon_col in column_pairs:
+        point = _safe_coordinates(row, lat_col, lon_col)
+        if point is not None:
+            return point
+    return None
+
+
+def _frame_coordinate_mean(
+    frame: pd.DataFrame,
+    column_pairs: tuple[tuple[str, str], ...],
+) -> list[float] | None:
+    lat_parts: list[pd.Series] = []
+    lon_parts: list[pd.Series] = []
+    for lat_col, lon_col in column_pairs:
+        if lat_col not in frame.columns or lon_col not in frame.columns:
+            continue
+        lat_parts.append(pd.to_numeric(frame[lat_col], errors="coerce"))
+        lon_parts.append(pd.to_numeric(frame[lon_col], errors="coerce"))
+    if not lat_parts or not lon_parts:
+        return None
+
+    lat = pd.concat(lat_parts).dropna()
+    lon = pd.concat(lon_parts).dropna()
+    if lat.empty or lon.empty:
+        return None
+    return [float(lat.mean()), float(lon.mean())]
+
+
 def _map_center(filtered: FilteredMapDataset, day_events: pd.DataFrame) -> list[float]:
     candidates = [
-        (filtered.switches, "LATITUD", "LONGITUD"),
-        (filtered.apoyos, "LATITUD", "LONGITUD"),
-        (filtered.trafos, "LATITUD", "LONGITUD"),
-        (day_events, "LATITUD", "LONGITUD"),
+        (filtered.redmt, (("LATITUD", "LONGITUD"), ("LATITUD2", "LONGITUD2"), ("latitude", "longitude"), ("latitude_end", "longitude_end"))),
+        (filtered.switches, (("LATITUD", "LONGITUD"), ("latitude", "longitude"))),
+        (filtered.apoyos, (("LATITUD", "LONGITUD"), ("latitude", "longitude"))),
+        (filtered.trafos, (("LATITUD", "LONGITUD"), ("latitude", "longitude"))),
+        (day_events, (("LATITUD", "LONGITUD"), ("latitude", "longitude"))),
     ]
-    for frame, lat_col, lon_col in candidates:
+    for frame, column_pairs in candidates:
         if frame.empty:
             continue
-        lat = pd.to_numeric(frame[lat_col], errors="coerce").dropna()
-        lon = pd.to_numeric(frame[lon_col], errors="coerce").dropna()
-        if not lat.empty and not lon.empty:
-            return [float(lat.mean()), float(lon.mean())]
+        center = _frame_coordinate_mean(frame, column_pairs)
+        if center is not None:
+            return center
     return [5.0, -75.5]
 
 
@@ -389,8 +418,8 @@ def render_base_map(filtered: FilteredMapDataset, day: int) -> str:
     map_view.get_root().html.add_child(folium.Element(legend_html))
 
     for _, row in filtered.redmt.iterrows():
-        p1 = _safe_coordinates(row, "LATITUD", "LONGITUD")
-        p2 = _safe_coordinates(row, "LATITUD2", "LONGITUD2")
+        p1 = _safe_coordinates_any(row, (("LATITUD", "LONGITUD"), ("latitude", "longitude")))
+        p2 = _safe_coordinates_any(row, (("LATITUD2", "LONGITUD2"), ("latitude_end", "longitude_end")))
         if p1 is None or p2 is None:
             continue
         _append_bounds(bounds, p1)
@@ -492,10 +521,11 @@ def render_base_map(filtered: FilteredMapDataset, day: int) -> str:
             f"Tipo equipo: {_format_value(row.get('tipo_equi_ope'))}\n"
             f"Circuito operó: {_format_value(row.get('cto_equi_ope'))}\n"
             f"Tipo elemento: {_format_value(row.get('tipo_elemento'))}\n"
-            f"Duración: {_format_value(row.get('duracion_h'))}\n"
+            f"Duración fuente: {_format_value(row.get('DURACION_RAW') or row.get('duracion_h'))}\n"
             f"Causa: {_format_value(row.get('causa'))}\n"
-            f"Usuarios afectados: {_format_value(row.get('cnt_usus'))}\n"
-            f"SAIDI: {_format_value(row.get('SAIDI'))}\n"
+            f"Usuarios afectados: {_format_value(row.get('USERS') or row.get('cnt_usus'))}\n"
+            f"UITI: {_format_value(row.get('UITI'))}\n"
+            f"UITI vano: {_format_value(row.get('UITI_VANO'))}\n"
             f"Inicio: {_format_value(row.get('inicio'))}\n"
             f"Fin: {_format_value(row.get('fin'))}"
         )

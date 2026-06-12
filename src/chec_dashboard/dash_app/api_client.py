@@ -16,6 +16,7 @@ from chec_dashboard.services.data_service import (
     get_probability_filter_options_metadata,
     get_probability_metadata,
     get_probability_payload,
+    get_summary_event_options,
     get_summary_interpretability_payload,
     get_summary_metadata,
     get_summary_payload,
@@ -361,7 +362,7 @@ def fetch_summary_data(
     start_date_raw: str | None,
     end_date_raw: str | None,
     circuito: str | None,
-    metric_mode: str | None,
+    metric_key: str | None,
 ) -> dict[str, Any]:
     if _use_inproc_transport():
         return get_summary_payload(
@@ -369,7 +370,7 @@ def fetch_summary_data(
             start_date_raw=start_date_raw,
             end_date_raw=end_date_raw,
             circuito=circuito,
-            metric_mode=metric_mode or "BOTH",
+            metric_key=metric_key or "UITI",
         )
     payload = _request_json(
         "POST",
@@ -380,22 +381,54 @@ def fetch_summary_data(
                 "start_date": start_date_raw,
                 "end_date": end_date_raw,
                 "circuito": circuito,
-                "metric_mode": metric_mode or "BOTH",
+                "metric_key": metric_key or "UITI",
             },
         },
     )
     return payload.get("summary", {})
 
 
+def fetch_summary_event_options(
+    start_date_raw: str | None,
+    end_date_raw: str | None,
+    circuito: str | None,
+    *,
+    limit: int = 200,
+) -> dict[str, Any]:
+    if _use_inproc_transport():
+        return get_summary_event_options(
+            settings=settings,
+            start_date_raw=start_date_raw,
+            end_date_raw=end_date_raw,
+            circuito=circuito,
+            limit=limit,
+        )
+    payload = _request_json(
+        "POST",
+        "/data",
+        json_body={
+            "mode": "summary_event_options",
+            "summary_event_options": {
+                "start_date": start_date_raw,
+                "end_date": end_date_raw,
+                "circuito": circuito,
+                "limit": limit,
+            },
+        },
+    )
+    return payload.get("summary_event_options", {})
+
+
 def fetch_summary_interpretability(
     start_date_raw: str | None,
     end_date_raw: str | None,
     circuito: str | None,
-    metric_mode: str | None,
+    metric_key: str | None,
     *,
     max_points: int = 5,
     include_agent_text: bool | None = None,
     selected_date: str | None = None,
+    selected_event_id: str | None = None,
 ) -> dict[str, Any]:
     if _use_inproc_transport():
         return get_summary_interpretability_payload(
@@ -403,10 +436,11 @@ def fetch_summary_interpretability(
             start_date_raw=start_date_raw,
             end_date_raw=end_date_raw,
             circuito=circuito,
-            metric_mode=metric_mode or "BOTH",
+            metric_key=metric_key or "UITI",
             max_points=max_points,
             include_agent_text=include_agent_text,
             selected_date=selected_date,
+            selected_event_id=selected_event_id,
         )
     payload = _request_json(
         "POST",
@@ -417,10 +451,11 @@ def fetch_summary_interpretability(
                 "start_date": start_date_raw,
                 "end_date": end_date_raw,
                 "circuito": circuito,
-                "metric_mode": metric_mode or "BOTH",
+                "metric_key": metric_key or "UITI",
                 "max_points": max_points,
                 "include_agent_text": include_agent_text,
                 "selected_date": selected_date,
+                "selected_event_id": selected_event_id,
             },
         },
     )

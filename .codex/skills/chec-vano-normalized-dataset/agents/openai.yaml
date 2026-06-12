@@ -1,0 +1,4 @@
+interface:
+  display_name: "CHEC Vano Dataset"
+  short_description: "Use CHEC vano schema and ML workflow."
+  default_prompt: "Use $chec-vano-normalized-dataset to answer schema, join, validation, or ML feature assembly questions."

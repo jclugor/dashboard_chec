@@ -20,6 +20,34 @@ SUPPORTED_LLM_PROVIDERS = {
     "azure_openai",
     "openai",
 }
+LLM_TIERS = {"cheap", "medium", "best"}
+DEFAULT_DATABRICKS_SYSTEM_MESSAGE = (
+    "Eres un asistente técnico para análisis de confiabilidad eléctrica de CHEC. "
+    "Responde en español, usa las citas disponibles y evita conclusiones legales definitivas."
+)
+STRUCTURED_DATABRICKS_SYSTEM_MESSAGE = (
+    DEFAULT_DATABRICKS_SYSTEM_MESSAGE
+    + " Para esta solicitud, devuelve exclusivamente un objeto JSON válido. "
+    "No incluyas Markdown, explicaciones, etiquetas, ni texto antes o después del JSON."
+)
+STRUCTURED_JSON_SUFFIX = (
+    "\n\nRESTRICCION ESTRICTA DE SALIDA:\n"
+    "- Devuelve solo un objeto JSON valido.\n"
+    "- El primer caracter de la respuesta debe ser { y el ultimo debe ser }.\n"
+    "- No uses Markdown, bloques ```json, comentarios, ni texto explicativo.\n"
+    "- Todos los campos tipo arreglo deben ser arreglos JSON aunque tengan un solo elemento.\n"
+    "- Maximo 2 point_narratives, maximo 2 evidence_matrix y maximo 2 strings por arreglo.\n"
+    "- Cada string debe ser corto, idealmente menos de 160 caracteres.\n"
+)
+STRUCTURED_JSON_REPAIR_SUFFIX = (
+    "\n\nREINTENTO COMPACTO OBLIGATORIO:\n"
+    "- Devuelve solo un objeto JSON valido y cerrado.\n"
+    "- Maximo 1 point_narratives y maximo 1 evidence_matrix.\n"
+    "- Maximo 1 string por arreglo, excepto missing_evidence que puede tener 2.\n"
+    "- Cada string debe ser muy corto, menos de 140 caracteres.\n"
+    "- No copies una respuesta truncada; resume solo la evidencia mas importante.\n"
+)
+STRUCTURED_REPAIR_MAX_CHARS = 6000
 
 
 @dataclass(frozen=True)
@@ -52,7 +80,36 @@ def llm_provider(settings: Settings) -> str:
     return provider
 
 
-def llm_endpoint_name(settings: Settings) -> str | None:
+def normalize_llm_tier(settings: Settings, tier: str | None = None) -> str:
+    candidate = (tier or settings.llm_default_tier or "medium").strip().lower()
+    if candidate not in LLM_TIERS:
+        candidate = "medium"
+    if candidate == "best" and (not settings.llm_allow_best_tier or settings.llm_max_expensive_calls_per_request < 1):
+        return "medium"
+    return candidate
+
+
+def select_llm_tier(settings: Settings, *, prompt: str | None = None, requested_tier: str | None = None) -> str:
+    if not settings.llm_routing_enabled:
+        return normalize_llm_tier(settings, requested_tier or settings.llm_default_tier)
+    if requested_tier:
+        return normalize_llm_tier(settings, requested_tier)
+    prompt_length = len(prompt or "")
+    if settings.llm_route_simple_to_cheap and prompt_length < 2500 and settings.llm_cheap_endpoint_name:
+        return "cheap"
+    return normalize_llm_tier(settings, settings.llm_default_tier)
+
+
+def llm_endpoint_name(settings: Settings, tier: str | None = None) -> str | None:
+    selected_tier = normalize_llm_tier(settings, tier)
+    if settings.llm_routing_enabled:
+        tier_endpoint = {
+            "cheap": settings.llm_cheap_endpoint_name,
+            "medium": settings.llm_medium_endpoint_name,
+            "best": settings.llm_best_endpoint_name,
+        }.get(selected_tier)
+        if tier_endpoint:
+            return tier_endpoint
     return settings.llm_endpoint_name or settings.databricks_model_endpoint
 
 
@@ -111,7 +168,7 @@ def _mock_answer(
     descriptor = _context_descriptor(context_package)
     metrics = context_package.get("metrics") or {}
     metric_bits = []
-    for label, key in (("SAIDI", "saidi"), ("SAIFI", "saifi"), ("duración h", "duration_h")):
+    for label, key in (("UITI", "uiti"), ("UITI vano", "uiti_vano"), ("duración fuente", "duration_raw")):
         if key in metrics:
             metric_bits.append(f"{label}: {metrics[key]}")
     metric_text = ", ".join(metric_bits) if metric_bits else "sin métricas numéricas destacadas en el contexto"
@@ -166,25 +223,31 @@ def _generate_gemini_answer(settings: Settings, prompt: str) -> str:
     raise RuntimeError("Gemini no devolvió texto utilizable.")
 
 
-def _databricks_chat_payload(settings: Settings, prompt: str) -> dict[str, Any]:
-    return {
+def _databricks_chat_payload(
+    settings: Settings,
+    prompt: str,
+    *,
+    system_message: str | None = None,
+    response_format: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    payload = {
         "messages": [
             {
                 "role": "system",
-                "content": (
-                    "Eres un asistente técnico para análisis de confiabilidad eléctrica de CHEC. "
-                    "Responde en español, usa las citas disponibles y evita conclusiones legales definitivas."
-                ),
+                "content": system_message or DEFAULT_DATABRICKS_SYSTEM_MESSAGE,
             },
             {"role": "user", "content": prompt},
         ],
         "max_tokens": settings.llm_max_tokens,
         "temperature": settings.llm_temperature,
     }
+    if response_format:
+        payload["response_format"] = response_format
+    return payload
 
 
-def _databricks_model_serving_url(settings: Settings) -> str:
-    endpoint = llm_endpoint_name(settings)
+def _databricks_model_serving_url(settings: Settings, tier: str | None = None) -> str:
+    endpoint = llm_endpoint_name(settings, tier=tier)
     if not endpoint:
         raise DatabricksModelServingConfigurationError(
             "Databricks Model Serving no está configurado. Define LLM_ENDPOINT_NAME."
@@ -193,11 +256,13 @@ def _databricks_model_serving_url(settings: Settings) -> str:
     if endpoint.startswith(("http://", "https://")):
         return endpoint
 
-    host = databricks_host()
-    if not host and settings.databricks_host:
+    host = None
+    if settings.databricks_host:
         host = settings.databricks_host.strip().rstrip("/")
         if host and not host.startswith(("http://", "https://")):
             host = f"https://{host}"
+    if not host:
+        host = databricks_host()
     if not host:
         raise DatabricksModelServingConfigurationError(
             "DATABRICKS_HOST no está configurado para consultar Databricks Model Serving."
@@ -209,9 +274,11 @@ def _databricks_model_serving_url(settings: Settings) -> str:
 
 
 def _databricks_model_serving_headers(settings: Settings, trace_id: str | None) -> dict[str, str]:
-    headers = databricks_api_auth_headers()
-    if not headers and settings.databricks_token:
+    headers = None
+    if settings.databricks_token:
         headers = {"Authorization": f"Bearer {settings.databricks_token}"}
+    if not headers:
+        headers = databricks_api_auth_headers()
     if not headers:
         raise DatabricksModelServingConfigurationError(
             "No hay credenciales Databricks para consultar Model Serving."
@@ -316,14 +383,28 @@ class DatabricksModelServingLLMClient:
         self._sleep = sleep
         self._logger = get_logger(__name__, settings.log_level)
 
-    def generate(self, prompt: str, *, trace_id: str | None = None) -> DatabricksModelServingResult:
-        url = _databricks_model_serving_url(self.settings)
+    def generate(
+        self,
+        prompt: str,
+        *,
+        trace_id: str | None = None,
+        llm_tier: str | None = None,
+        system_message: str | None = None,
+        response_format: dict[str, Any] | None = None,
+    ) -> DatabricksModelServingResult:
+        selected_tier = select_llm_tier(self.settings, prompt=prompt, requested_tier=llm_tier)
+        url = _databricks_model_serving_url(self.settings, tier=selected_tier)
         headers = _databricks_model_serving_headers(self.settings, trace_id)
-        payload = _databricks_chat_payload(self.settings, prompt)
+        payload = _databricks_chat_payload(
+            self.settings,
+            prompt,
+            system_message=system_message,
+            response_format=response_format,
+        )
         retries = max(self.settings.inference_http_retries, 0)
         timeout = max(self.settings.request_timeout_seconds, 1)
         backoff = max(self.settings.inference_retry_backoff_ms, 0) / 1000.0
-        endpoint = llm_endpoint_name(self.settings)
+        endpoint = llm_endpoint_name(self.settings, tier=selected_tier)
 
         last_error: Exception | None = None
         for attempt in range(retries + 1):
@@ -338,6 +419,7 @@ class DatabricksModelServingLLMClient:
                         "trace_id": trace_id,
                         "llm_provider": "databricks_model_serving",
                         "model_endpoint_name": endpoint,
+                        "llm_tier": selected_tier,
                         "attempt": attempt + 1,
                         "latency_ms": round(latency_ms, 2),
                         "prompt_tokens": result.usage.get("prompt_tokens"),
@@ -394,9 +476,18 @@ def _generate_databricks_model_serving_answer(
     prompt: str,
     *,
     trace_id: str | None = None,
+    llm_tier: str | None = None,
+    system_message: str | None = None,
+    response_format: dict[str, Any] | None = None,
 ) -> str:
     client = DatabricksModelServingLLMClient(settings)
-    return client.generate(prompt, trace_id=trace_id).text
+    return client.generate(
+        prompt,
+        trace_id=trace_id,
+        llm_tier=llm_tier,
+        system_message=system_message,
+        response_format=response_format,
+    ).text
 
 
 def generate_llm_answer(
@@ -408,6 +499,7 @@ def generate_llm_answer(
     citations: list[dict[str, Any]],
     skill_resolution: Any | None = None,
     trace_id: str | None = None,
+    llm_tier: str | None = None,
 ) -> str:
     provider = llm_provider(settings)
     if provider == "mock":
@@ -420,7 +512,7 @@ def generate_llm_answer(
     if provider == "gemini":
         return _generate_gemini_answer(settings, prompt)
     if provider == "databricks_model_serving":
-        return _generate_databricks_model_serving_answer(settings, prompt, trace_id=trace_id)
+        return _generate_databricks_model_serving_answer(settings, prompt, trace_id=trace_id, llm_tier=llm_tier)
     raise RuntimeError(llm_configuration_message(settings))
 
 
@@ -428,19 +520,68 @@ def _extract_json_object(text: str) -> dict[str, Any] | None:
     cleaned = text.strip()
     if not cleaned:
         return None
-    fenced = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", cleaned, flags=re.DOTALL | re.IGNORECASE)
+    fenced = re.search(r"```(?:json)?\s*(.*?)\s*```", cleaned, flags=re.DOTALL | re.IGNORECASE)
     if fenced:
         cleaned = fenced.group(1).strip()
-    if not cleaned.startswith("{"):
-        start = cleaned.find("{")
-        end = cleaned.rfind("}")
-        if start >= 0 and end > start:
-            cleaned = cleaned[start : end + 1]
+    start = cleaned.find("{")
+    end = cleaned.rfind("}")
+    if start >= 0 and end > start:
+        cleaned = cleaned[start : end + 1]
     try:
         parsed = json.loads(cleaned)
     except json.JSONDecodeError:
         return None
     return parsed if isinstance(parsed, dict) else None
+
+
+def _structured_prompt(prompt: str, *, schema_name: str, json_schema: dict[str, Any]) -> str:
+    _ = json_schema
+    return f"{prompt}\n\nEsquema objetivo: {schema_name}.{STRUCTURED_JSON_SUFFIX}"
+
+
+def _structured_repair_prompt(
+    *,
+    schema_name: str,
+    json_schema: dict[str, Any],
+    previous_answer: str,
+    original_prompt: str | None = None,
+) -> str:
+    _ = json_schema
+    prompt_prefix = f"{original_prompt}\n\n" if original_prompt else ""
+    return (
+        f"{prompt_prefix}"
+        f"La respuesta anterior para `{schema_name}` no fue un objeto JSON valido o completo.\n"
+        "Reintenta desde el paquete estructurado original con una salida mucho mas corta.\n"
+        "Si falta evidencia para un campo, usa arreglos vacios o textos breves de limitacion; no inventes datos.\n"
+        f"{STRUCTURED_JSON_REPAIR_SUFFIX}\n"
+        "RESPUESTA_ANTERIOR:\n"
+        f"{previous_answer[:1200]}"
+    )
+
+
+def _generate_structured_databricks_answer(
+    settings: Settings,
+    *,
+    prompt: str,
+    trace_id: str | None,
+    llm_tier: str | None,
+) -> str | None:
+    logger = get_logger(__name__, settings.log_level)
+    try:
+        return _generate_databricks_model_serving_answer(
+            settings,
+            prompt,
+            trace_id=trace_id,
+            llm_tier=llm_tier,
+            system_message=STRUCTURED_DATABRICKS_SYSTEM_MESSAGE,
+            response_format={"type": "json_object"},
+        )
+    except (DatabricksModelServingRequestError, DatabricksModelServingResponseError) as exc:
+        logger.warning(
+            "Databricks structured JSON response_format failed; retrying without response_format",
+            extra={"trace_id": trace_id, "error": str(exc)},
+        )
+        return None
 
 
 def generate_llm_structured_answer(
@@ -454,20 +595,77 @@ def generate_llm_structured_answer(
     citations: list[dict[str, Any]],
     skill_resolution: Any | None = None,
     trace_id: str | None = None,
+    llm_tier: str | None = None,
 ) -> dict[str, Any] | None:
-    """Return a strict JSON object for structured workflows.
+    """Return a strict JSON object for structured workflows."""
+    logger = get_logger(__name__, settings.log_level)
+    provider = llm_provider(settings)
+    prompt_with_constraints = _structured_prompt(prompt, schema_name=schema_name, json_schema=json_schema)
+    previous_answer: str | None = None
 
-    The current providers are text-first. Native schema enforcement can be added
-    per provider later; for now the trust boundary is strict parse + validation.
-    """
-    _ = schema_name, json_schema
-    answer = generate_llm_answer(
-        settings,
-        prompt=prompt,
-        context_package=context_package,
-        question=question,
-        citations=citations,
-        skill_resolution=skill_resolution,
-        trace_id=trace_id,
+    if provider == "databricks_model_serving":
+        previous_answer = _generate_structured_databricks_answer(
+            settings,
+            prompt=prompt_with_constraints,
+            trace_id=trace_id,
+            llm_tier=llm_tier,
+        )
+        if previous_answer:
+            parsed = _extract_json_object(previous_answer)
+            if parsed is not None:
+                return parsed
+            logger.warning(
+                "Structured Databricks response was not valid JSON",
+                extra={"trace_id": trace_id, "schema_name": schema_name, "response_chars": len(previous_answer)},
+            )
+
+    if previous_answer is None:
+        previous_answer = generate_llm_answer(
+            settings,
+            prompt=prompt_with_constraints,
+            context_package=context_package,
+            question=question,
+            citations=citations,
+            skill_resolution=skill_resolution,
+            trace_id=trace_id,
+            llm_tier=llm_tier,
+        )
+        parsed = _extract_json_object(previous_answer)
+        if parsed is not None:
+            return parsed
+
+    if provider == "mock":
+        return None
+
+    repair_prompt = _structured_repair_prompt(
+        schema_name=schema_name,
+        json_schema=json_schema,
+        previous_answer=previous_answer,
+        original_prompt=prompt,
     )
-    return _extract_json_object(answer)
+    if provider == "databricks_model_serving":
+        repair_answer = _generate_databricks_model_serving_answer(
+            settings,
+            repair_prompt,
+            trace_id=trace_id,
+            llm_tier=llm_tier,
+            system_message=STRUCTURED_DATABRICKS_SYSTEM_MESSAGE,
+        )
+    else:
+        repair_answer = generate_llm_answer(
+            settings,
+            prompt=repair_prompt,
+            context_package=context_package,
+            question=question,
+            citations=citations,
+            skill_resolution=skill_resolution,
+            trace_id=trace_id,
+            llm_tier=llm_tier,
+        )
+    parsed = _extract_json_object(repair_answer)
+    if parsed is None:
+        logger.warning(
+            "Structured LLM repair response was not valid JSON",
+            extra={"trace_id": trace_id, "schema_name": schema_name, "response_chars": len(repair_answer)},
+        )
+    return parsed

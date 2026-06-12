@@ -40,11 +40,16 @@ for entry in manifest.get("raw_sources", []):
         }
     )
 
-    if entry.get("load_mode") != "pickle" or not entry.get("bronze_table"):
+    load_mode = entry.get("load_mode")
+    if load_mode not in {"pickle", "parquet"} or not entry.get("bronze_table"):
         continue
 
-    source_frame = load_source_frame(staged_path, "pickle")
-    normalized_frame = normalize_pandas_frame(source_frame, entry.get("date_columns", []))
+    source_frame = load_source_frame(staged_path, load_mode)
+    if load_mode == "parquet":
+        normalized_frame = source_frame.copy()
+        normalized_frame.columns = [str(column).strip() for column in normalized_frame.columns]
+    else:
+        normalized_frame = normalize_pandas_frame(source_frame, entry.get("date_columns", []))
     normalized_frame["source_logical_name"] = entry["logical_name"]
     normalized_frame["source_relative_path"] = relative_path
     normalized_frame["source_file_name"] = Path(relative_path).name
@@ -64,6 +69,7 @@ for entry in manifest.get("raw_sources", []):
             "column_count": len(source_frame.columns),
             "min_date": bounds["min_date"],
             "max_date": bounds["max_date"],
+            "load_mode": load_mode,
             "load_status": "STAGED",
             "ingested_at": datetime.utcnow(),
         }

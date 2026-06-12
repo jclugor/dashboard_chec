@@ -12,6 +12,7 @@ resources:
               catalog_name: ${var.catalog_name}
               source_volume_name: ${var.source_volume_name}
               artifact_volume_name: ${var.artifact_volume_name}
+              manifest_filename: ${var.manifest_filename}
 
     chec_phase1_ingest_validation:
       name: chec-phase1-ingest-validation
@@ -25,6 +26,7 @@ resources:
               catalog_name: ${var.catalog_name}
               source_volume_name: ${var.source_volume_name}
               artifact_volume_name: ${var.artifact_volume_name}
+              manifest_filename: ${var.manifest_filename}
         - task_key: validate_ingest
           depends_on:
             - task_key: stage_bronze_tables
@@ -35,6 +37,7 @@ resources:
               catalog_name: ${var.catalog_name}
               source_volume_name: ${var.source_volume_name}
               artifact_volume_name: ${var.artifact_volume_name}
+              manifest_filename: ${var.manifest_filename}
         - task_key: build_silver_gold
           depends_on:
             - task_key: validate_ingest
@@ -45,16 +48,7 @@ resources:
               catalog_name: ${var.catalog_name}
               source_volume_name: ${var.source_volume_name}
               artifact_volume_name: ${var.artifact_volume_name}
-        - task_key: stage_ml_assets
-          depends_on:
-            - task_key: build_silver_gold
-          notebook_task:
-            notebook_path: ../notebooks/05_stage_ml_assets.py
-            base_parameters:
-              workspace_root_path: ${workspace.file_path}
-              catalog_name: ${var.catalog_name}
-              source_volume_name: ${var.source_volume_name}
-              artifact_volume_name: ${var.artifact_volume_name}
+              manifest_filename: ${var.manifest_filename}
 
     chec_phase1_bootstrap_classic:
       name: chec-phase1-bootstrap-classic
@@ -84,6 +78,7 @@ resources:
               catalog_name: ${var.catalog_name}
               source_volume_name: ${var.source_volume_name}
               artifact_volume_name: ${var.artifact_volume_name}
+              manifest_filename: ${var.manifest_filename}
 
     chec_phase1_ingest_validation_classic:
       name: chec-phase1-ingest-validation-classic
@@ -113,6 +108,7 @@ resources:
               catalog_name: ${var.catalog_name}
               source_volume_name: ${var.source_volume_name}
               artifact_volume_name: ${var.artifact_volume_name}
+              manifest_filename: ${var.manifest_filename}
         - task_key: validate_ingest
           depends_on:
             - task_key: stage_bronze_tables
@@ -127,6 +123,7 @@ resources:
               catalog_name: ${var.catalog_name}
               source_volume_name: ${var.source_volume_name}
               artifact_volume_name: ${var.artifact_volume_name}
+              manifest_filename: ${var.manifest_filename}
         - task_key: build_silver_gold
           depends_on:
             - task_key: validate_ingest
@@ -141,17 +138,4 @@ resources:
               catalog_name: ${var.catalog_name}
               source_volume_name: ${var.source_volume_name}
               artifact_volume_name: ${var.artifact_volume_name}
-        - task_key: stage_ml_assets
-          depends_on:
-            - task_key: build_silver_gold
-          job_cluster_key: ingest_job_cluster
-          max_retries: 2
-          min_retry_interval_millis: 600000
-          retry_on_timeout: true
-          notebook_task:
-            notebook_path: ../notebooks/05_stage_ml_assets.py
-            base_parameters:
-              workspace_root_path: ${workspace.file_path}
-              catalog_name: ${var.catalog_name}
-              source_volume_name: ${var.source_volume_name}
-              artifact_volume_name: ${var.artifact_volume_name}
+              manifest_filename: ${var.manifest_filename}

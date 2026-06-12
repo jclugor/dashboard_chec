@@ -22,6 +22,22 @@ env:
     value: "__LLM_PROVIDER__"
   - name: LLM_ENDPOINT_NAME
     valueFrom: "__LLM_ENDPOINT_RESOURCE_KEY__"
+  - name: LLM_ROUTING_ENABLED
+    value: "__LLM_ROUTING_ENABLED__"
+  - name: LLM_DEFAULT_TIER
+    value: "__LLM_DEFAULT_TIER__"
+  - name: LLM_CHEAP_ENDPOINT_NAME
+    value: "__LLM_CHEAP_ENDPOINT_NAME__"
+  - name: LLM_MEDIUM_ENDPOINT_NAME
+    value: "__LLM_MEDIUM_ENDPOINT_NAME__"
+  - name: LLM_BEST_ENDPOINT_NAME
+    value: "__LLM_BEST_ENDPOINT_NAME__"
+  - name: LLM_ALLOW_BEST_TIER
+    value: "__LLM_ALLOW_BEST_TIER__"
+  - name: LLM_MAX_EXPENSIVE_CALLS_PER_REQUEST
+    value: "__LLM_MAX_EXPENSIVE_CALLS_PER_REQUEST__"
+  - name: LLM_ROUTE_SIMPLE_TO_CHEAP
+    value: "__LLM_ROUTE_SIMPLE_TO_CHEAP__"
   - name: LLM_MAX_TOKENS
     value: "__LLM_MAX_TOKENS__"
   - name: LLM_TEMPERATURE

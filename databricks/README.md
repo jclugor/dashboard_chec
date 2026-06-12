@@ -47,13 +47,13 @@ bash scripts/preflight_phase1_deploy.sh
 databricks bundle validate -t dev
 databricks bundle deploy -t dev
 databricks bundle run -t dev chec_phase1_bootstrap
-bash scripts/upload_phase1_assets.sh
+bash scripts/upload_normalized_vano_assets.sh
 databricks bundle run -t dev chec_phase1_ingest_validation
 ```
 
 The default workflow is intentionally split in two:
 - `chec_phase1_bootstrap` creates the catalog, schemas, volumes, and registry tables.
-- `upload_phase1_assets.sh` uploads the local raw files and ML artifacts into Unity Catalog volumes.
+- `upload_normalized_vano_assets.sh` uploads the normalized Parquet dataset into the source Unity Catalog volume.
 - `chec_phase1_ingest_validation` reads from those volumes, builds bronze/silver/gold tables, and validates the result.
 
 ## Phase 2 Flow
@@ -130,7 +130,7 @@ What the Databricks App / RAG flow adds:
   - `gold_map_line_segments`
   - `gold_map_filter_index`
   - `gold_map_event_days`
-- New gold presentation tables for same-tab SAIDI/SAIFI time-series
+- New gold presentation tables for same-tab UITI impact time-series
   interpretability:
   - `gold_timeseries_event_details`
   - `gold_timeseries_daily_attribution`
@@ -156,7 +156,7 @@ If a workload later proves incompatible with serverless, the bundle also defines
 
 ```bash
 databricks bundle run -t dev chec_phase1_bootstrap_classic
-bash scripts/upload_phase1_assets.sh
+bash scripts/upload_normalized_vano_assets.sh
 databricks bundle run -t dev chec_phase1_ingest_validation_classic
 ```
 
@@ -174,9 +174,8 @@ Each classic fallback task retries up to 3 total attempts with a 10-minute backo
 - Promoted notebooks under `/Shared/CHEC Phase2 Pilot/Notebooks`.
 
 ## Source, Secrets, And Sharing
-- Raw data files are uploaded directly into Unity Catalog volumes instead of being synced through workspace files.
+- Normalized Parquet data files are uploaded directly into Unity Catalog volumes instead of being synced through workspace files.
 - `OPENAI_API_Key.txt` is intentionally excluded from sync and must be moved to a secret scope or Key Vault-backed secret store.
-- `model.pth` and `mask.npy` are uploaded into the ML artifacts volume and registered by the validation workflow.
 - `publish_phase2_dashboard.sh` publishes the draft dashboard and can optionally embed publisher credentials for a broader pilot review path.
 - `sync_phase2_dashboard_from_workspace.sh` pulls the current Lakeview draft back into `dashboards/chec_summary_pilot.lvdash.json` after UI-side widget repairs.
 - `apply_phase2_pilot_permissions.sh` resolves the live permission levels Databricks supports before applying dashboard, notebook-folder, job, and optional UC read grants for the pilot.

@@ -31,6 +31,7 @@ class PointNarrative(InterpretabilityModel):
     why_marked: list[str] = Field(default_factory=list)
     observed_values: list[str] = Field(default_factory=list)
     likely_drivers: list[str] = Field(default_factory=list)
+    domain_support: list[str] = Field(default_factory=list)
     documentary_support: list[str] = Field(default_factory=list)
     missing_evidence: list[str] = Field(default_factory=list)
     recommended_checks: list[str] = Field(default_factory=list)
@@ -41,6 +42,7 @@ class EvidenceMatrixRow(InterpretabilityModel):
     fecha_dia: str | None = None
     signal: str
     structured_evidence: str
+    domain_evidence: str | None = None
     documentary_evidence: str | None = None
     confidence: Confidence = "medium"
     citations_used: list[int] = Field(default_factory=list)

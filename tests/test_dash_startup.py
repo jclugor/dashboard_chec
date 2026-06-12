@@ -80,6 +80,7 @@ def test_summary_layout_does_not_call_api_metadata(monkeypatch: pytest.MonkeyPat
 
     assert _find_by_id(layout, "summary-initial-load-interval") is not None
     assert _find_by_id(layout, "summary-circuit").options == []
+    assert _find_by_id(layout, "summary-event") is None
     assert _find_by_id(layout, "summary-date-window").start_date is None
     assert _find_by_id(layout, "summary-interpretability-store") is not None
     assert _find_by_id(layout, "summary-interpretability-button") is not None
@@ -90,28 +91,27 @@ def test_summary_interpretability_markers_are_added_to_existing_chart() -> None:
     daily = pd.DataFrame(
         {
             "fecha_dia": pd.to_datetime(["2024-01-01", "2024-01-02"]),
-            "SAIDI": [0.2, 5.0],
-            "SAIFI": [0.1, 0.2],
+            "UITI": [0.2, 5.0],
+            "UITI_VANO": [0.1, 0.2],
         }
     )
-    figure = summary_page._build_line_figure(daily, "BOTH")
+    figure = summary_page._build_line_figure(daily, "UITI")
     payload = {
         "critical_points": [
             {
                 "fecha_dia": "2024-01-02",
                 "rank": 1,
-                "metrics": {"SAIDI": 5.0, "SAIFI": 0.2},
-                "criticality_types": ["saidi_high_outlier"],
+                "metrics": {"UITI": 5.0, "UITI_VANO": 0.2},
+                "criticality_types": ["uiti_high_outlier"],
                 "confidence": "high",
             }
         ]
     }
 
-    marked = summary_page._apply_interpretability_markers(figure, payload, "BOTH")
+    marked = summary_page._apply_interpretability_markers(figure, payload, "UITI")
 
-    assert len(marked.data) == 4
-    assert marked.data[2].name == "Puntos criticos SAIDI"
-    assert marked.data[3].name == "Puntos criticos SAIFI"
+    assert len(marked.data) == 2
+    assert marked.data[1].name == "Puntos criticos UITI"
 
 
 def test_probability_layout_does_not_call_api_metadata(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -132,9 +132,11 @@ def test_dashboard_app_copy_is_spanish_and_accented() -> None:
     probability_layout_component = probability_page.get_layout()
     map_layout_component = map_page.get_layout(base_settings)
 
-    assert "MÉTRICA" in _all_text(summary_layout)
-    assert "Resumen rápido SAIDI/SAIFI por circuito" in _all_text(summary_layout)
-    assert {"label": "Ambos", "value": "BOTH"} in _find_by_id(summary_layout, "summary-metric-mode").options
+    assert "MÉTRICA" not in _all_text(summary_layout)
+    assert "Total UITI" in _all_text(summary_layout)
+    assert "Resumen rápido de impacto por circuito" in _all_text(summary_layout)
+    assert _find_by_id(summary_layout, "summary-metric-mode") is None
+    assert summary_page.DEFAULT_SUMMARY_METRIC_KEY == "UITI"
     assert "Generando gráfica..." in _all_text(probability_layout_component)
     assert "SALIDA" in _all_text(map_layout_component)
     assert _find_by_id(map_layout_component, "map-select-output").options == [{"label": "Base", "value": "BASE"}]

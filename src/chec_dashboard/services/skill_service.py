@@ -438,7 +438,7 @@ def _builtin_skill(skill_id: str) -> SkillDefinition:
         "confiabilidad": "confiabilidad",
         "cumplimiento": "cumplimiento",
         "mantenimiento": "mantenimiento",
-        "time_series_interpretability": "interpretabilidad de evolucion SAIDI/SAIFI",
+        "time_series_interpretability": "interpretabilidad de evolucion de impacto UITI",
         "global_policy": "politica global",
         "retrieval_policy": "politica de recuperacion",
         "free_form_chat": "chat libre",

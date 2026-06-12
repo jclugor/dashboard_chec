@@ -27,19 +27,41 @@ def build_timeseries_retrieval_query(context_package: dict[str, Any]) -> str:
     terms: list[str] = []
 
     for base in [
-        "SAIDI",
-        "SAIFI",
+        "UITI",
+        "UITI_VANO",
+        "impacto",
         "confiabilidad",
         "calidad del servicio",
         "interrupciones",
-        "duracion",
+        "duracion fuente",
         "usuarios afectados",
         "mantenimiento",
     ]:
         _append_unique(terms, base)
 
-    _append_unique(terms, selected.get("metric_mode"))
+    _append_unique(terms, selected.get("metric_key"))
     _append_unique(terms, selected.get("circuito"))
+
+    selected_event = context_package.get("selected_event")
+    if isinstance(selected_event, dict):
+        for key in (
+            "event_id",
+            "causa",
+            "event_family",
+            "circuito",
+            "municipio",
+            "equipo_ope",
+            "tipo_equi_ope",
+        ):
+            _append_unique(terms, selected_event.get(key))
+
+    interactions = context_package.get("variable_interactions")
+    if isinstance(interactions, dict):
+        for rule in interactions.get("matched_rules") or []:
+            if not isinstance(rule, dict):
+                continue
+            for key in ("relation_type", "origin_group", "destination_group"):
+                _append_unique(terms, rule.get(key))
 
     for value in hints.get("criticality_types") or []:
         _append_unique(terms, value)

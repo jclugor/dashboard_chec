@@ -4,7 +4,7 @@
       "name": "summary_daily",
       "displayName": "summary_daily",
       "queryLines": [
-        "SELECT CAST(fecha_dia AS DATE) AS fecha_dia, COALESCE(circuito, 'Sin circuito') AS circuito, COALESCE(municipio, 'Sin municipio') AS municipio, COALESCE(event_family, 'Sin criterio') AS event_family, COALESCE(saidi_total, 0.0) AS saidi_total, COALESCE(saifi_total, 0.0) AS saifi_total, COALESCE(event_count, 0) AS event_count, COALESCE(users_affected_total, 0.0) AS users_affected_total FROM chec_dbx_demo.gold.gold_saidi_saifi_daily WHERE fecha_dia IS NOT NULL"
+        "SELECT CAST(fecha_dia AS DATE) AS fecha_dia, COALESCE(circuito, 'Sin circuito') AS circuito, COALESCE(municipio, 'Sin municipio') AS municipio, COALESCE(event_family, 'Sin criterio') AS event_family, COALESCE(uiti_total, 0.0) AS uiti_total, COALESCE(uiti_vano_total, 0.0) AS uiti_vano_total, COALESCE(event_count, 0) AS event_count, COALESCE(users_affected_total, 0.0) AS users_affected_total FROM chec_dbx_demo.gold.gold_impact_daily WHERE fecha_dia IS NOT NULL"
       ],
       "catalog": "chec_dbx_demo",
       "schema": "gold"
@@ -222,7 +222,7 @@
         },
         {
           "widget": {
-            "name": "saidi_counter_widget",
+            "name": "uiti_counter_widget",
             "queries": [
               {
                 "name": "main_query",
@@ -230,8 +230,8 @@
                   "datasetName": "summary_daily",
                   "fields": [
                     {
-                      "name": "sum(saidi_total)",
-                      "expression": "SUM(`saidi_total`)"
+                      "name": "sum(uiti_total)",
+                      "expression": "SUM(`uiti_total`)"
                     }
                   ],
                   "disaggregated": false
@@ -242,12 +242,12 @@
               "version": 2,
               "frame": {
                 "showTitle": true,
-                "title": "SAIDI total"
+                "title": "UITI total"
               },
               "widgetType": "counter",
               "encodings": {
                 "value": {
-                  "fieldName": "sum(saidi_total)"
+                  "fieldName": "sum(uiti_total)"
                 }
               }
             }
@@ -261,7 +261,7 @@
         },
         {
           "widget": {
-            "name": "saifi_counter_widget",
+            "name": "uiti_vano_counter_widget",
             "queries": [
               {
                 "name": "main_query",
@@ -269,8 +269,8 @@
                   "datasetName": "summary_daily",
                   "fields": [
                     {
-                      "name": "sum(saifi_total)",
-                      "expression": "SUM(`saifi_total`)"
+                      "name": "sum(uiti_vano_total)",
+                      "expression": "SUM(`uiti_vano_total`)"
                     }
                   ],
                   "disaggregated": false
@@ -281,12 +281,12 @@
               "version": 2,
               "frame": {
                 "showTitle": true,
-                "title": "SAIFI total"
+                "title": "UITI vano total"
               },
               "widgetType": "counter",
               "encodings": {
                 "value": {
-                  "fieldName": "sum(saifi_total)"
+                  "fieldName": "sum(uiti_vano_total)"
                 }
               }
             }
@@ -430,7 +430,7 @@
         },
         {
           "widget": {
-            "name": "daily_saidi_widget",
+            "name": "daily_uiti_widget",
             "queries": [
               {
                 "name": "main_query",
@@ -442,8 +442,8 @@
                       "expression": "DATE_TRUNC(\"MONTH\", `fecha_dia`)"
                     },
                     {
-                      "name": "sum(saidi_total)",
-                      "expression": "SUM(`saidi_total`)"
+                      "name": "sum(uiti_total)",
+                      "expression": "SUM(`uiti_total`)"
                     }
                   ],
                   "disaggregated": false
@@ -454,7 +454,7 @@
               "version": 3,
               "frame": {
                 "showTitle": true,
-                "title": "Tendencia mensual de SAIDI"
+                "title": "Tendencia mensual de UITI"
               },
               "widgetType": "bar",
               "encodings": {
@@ -465,7 +465,7 @@
                   }
                 },
                 "y": {
-                  "fieldName": "sum(saidi_total)",
+                  "fieldName": "sum(uiti_total)",
                   "scale": {
                     "type": "quantitative"
                   }
@@ -549,8 +549,8 @@
                       "expression": "`circuito`"
                     },
                     {
-                      "name": "sum(saidi_total)",
-                      "expression": "SUM(`saidi_total`)"
+                      "name": "sum(uiti_total)",
+                      "expression": "SUM(`uiti_total`)"
                     }
                   ],
                   "disaggregated": false
@@ -561,12 +561,12 @@
               "version": 3,
               "frame": {
                 "showTitle": true,
-                "title": "Ranking de circuitos por SAIDI"
+                "title": "Ranking de circuitos por UITI"
               },
               "widgetType": "bar",
               "encodings": {
                 "x": {
-                  "fieldName": "sum(saidi_total)",
+                  "fieldName": "sum(uiti_total)",
                   "scale": {
                     "type": "quantitative"
                   }

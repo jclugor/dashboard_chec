@@ -28,17 +28,25 @@ class SummaryDataPayload(APIRequestModel):
     start_date: str | None = None
     end_date: str | None = None
     circuito: str | None = None
-    metric_mode: Literal["SAIDI", "SAIFI", "BOTH"] = "BOTH"
+    metric_key: str = "UITI"
 
 
 class SummaryInterpretabilityPayload(APIRequestModel):
     start_date: str | None = None
     end_date: str | None = None
     circuito: str | None = None
-    metric_mode: Literal["SAIDI", "SAIFI", "BOTH"] = "BOTH"
+    metric_key: str = "UITI"
     max_points: int = Field(default=5, ge=1, le=12)
     include_agent_text: bool | None = None
     selected_date: str | None = None
+    selected_event_id: str | None = None
+
+
+class SummaryEventOptionsPayload(APIRequestModel):
+    start_date: str | None = None
+    end_date: str | None = None
+    circuito: str | None = None
+    limit: int = Field(default=200, ge=1, le=500)
 
 
 class ProbabilityDataPayload(APIRequestModel):
@@ -59,6 +67,7 @@ class DataRequest(APIRequestModel):
         "map",
         "map_metadata",
         "summary",
+        "summary_event_options",
         "summary_interpretability",
         "probability",
         "probability_metadata",
@@ -66,6 +75,7 @@ class DataRequest(APIRequestModel):
     map: MapDataPayload | None = None
     map_metadata: MapMetadataPayload | None = None
     summary: SummaryDataPayload | None = None
+    summary_event_options: SummaryEventOptionsPayload | None = None
     summary_interpretability: SummaryInterpretabilityPayload | None = None
     probability: ProbabilityDataPayload | None = None
     probability_metadata: ProbabilityMetadataPayload | None = None

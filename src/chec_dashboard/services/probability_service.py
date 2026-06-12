@@ -65,16 +65,24 @@ def load_probability_dataset(data_dir_raw: str) -> ProbabilityDataset:
 def criteria_options() -> list[dict[str, str]]:
     return [
         {"label": "", "value": ""},
-        {"label": "Eventos Interruptor", "value": "Eventos Interruptor"},
-        {"label": "Eventos Tramo", "value": "Eventos Tramo"},
-        {"label": "Eventos Transformador", "value": "Eventos Transformador"},
+        {"label": "Eventos Vano", "value": "Eventos Vano"},
     ]
 
 
 def get_dataframe_by_criteria(
     dataset: ProbabilityDataset, criteria: str
 ) -> pd.DataFrame | None:
+    combined = pd.concat(
+        [
+            dataset.interruptor.assign(criteria_group="Eventos Vano"),
+            dataset.tramo.assign(criteria_group="Eventos Vano"),
+            dataset.transformador.assign(criteria_group="Eventos Vano"),
+        ],
+        ignore_index=True,
+        sort=False,
+    )
     mapping = {
+        "Eventos Vano": combined,
         "Eventos Interruptor": dataset.interruptor,
         "Eventos Tramo": dataset.tramo,
         "Eventos Transformador": dataset.transformador,

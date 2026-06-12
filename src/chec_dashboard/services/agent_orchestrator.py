@@ -28,6 +28,7 @@ from chec_dashboard.services.llm_service import (
     llm_endpoint_configured,
     llm_endpoint_name,
     llm_provider,
+    select_llm_tier,
 )
 from chec_dashboard.services.observability_service import (
     context_hash,
@@ -119,6 +120,7 @@ def _response_metadata(
 ) -> dict[str, Any]:
     conversation_turn = resolve_conversation_turn(conversation_id)
     prompt_metadata = resolve_prompt_metadata(settings, ANSWER_PROMPT_TEMPLATE)
+    llm_tier = select_llm_tier(settings)
     return {
         "conversation_id": conversation_turn.conversation_id,
         "turn_id": conversation_turn.turn_id,
@@ -127,7 +129,8 @@ def _response_metadata(
         "skill_hash": skill_resolution.skill_hash,
         "trace_id": create_trace_id(),
         "llm_provider": llm_provider(settings),
-        "model_endpoint_name": _model_endpoint_name(settings),
+        "llm_tier": llm_tier,
+        "model_endpoint_name": _model_endpoint_name(settings, llm_tier=llm_tier),
         "prompt_name": prompt_metadata.prompt_name,
         "prompt_alias": prompt_metadata.prompt_alias,
         "prompt_version": prompt_metadata.prompt_version,
@@ -142,8 +145,8 @@ def _response_metadata(
     }
 
 
-def _model_endpoint_name(settings: Settings) -> str | None:
-    endpoint_name = llm_endpoint_name(settings)
+def _model_endpoint_name(settings: Settings, *, llm_tier: str | None = None) -> str | None:
+    endpoint_name = llm_endpoint_name(settings, tier=llm_tier)
     if endpoint_name:
         return endpoint_name
     if settings.llm_provider == "gemini":
@@ -205,6 +208,7 @@ def _persist_response(
             "prompt_hash": metadata.get("prompt_hash"),
             "prompt_source": metadata.get("prompt_source"),
             "llm_provider": metadata.get("llm_provider"),
+            "llm_tier": metadata.get("llm_tier"),
             "model_endpoint_name": metadata.get("model_endpoint_name"),
             "retriever_backend": settings.retriever_backend,
             "ai_search_index_name": settings.ai_search_index_name,
@@ -511,6 +515,9 @@ def assess_chatbot_context(
         skill_resolution=skill_resolution,
         settings=settings,
     )
+    llm_tier = select_llm_tier(settings, prompt=prompt)
+    metadata["llm_tier"] = llm_tier
+    metadata["model_endpoint_name"] = _model_endpoint_name(settings, llm_tier=llm_tier)
     try:
         answer = generate_llm_answer(
             settings,
@@ -520,6 +527,7 @@ def assess_chatbot_context(
             citations=citations,
             skill_resolution=skill_resolution,
             trace_id=metadata.get("trace_id"),
+            llm_tier=llm_tier,
         )
     except Exception as exc:
         answer = f"No fue posible generar el análisis con el proveedor LLM '{status['llm_provider']}': {exc}"
@@ -734,6 +742,9 @@ def send_chatbot_message(
             conversation_history=history,
             settings=settings,
         )
+        llm_tier = select_llm_tier(settings, prompt=prompt)
+        metadata["llm_tier"] = llm_tier
+        metadata["model_endpoint_name"] = _model_endpoint_name(settings, llm_tier=llm_tier)
         try:
             answer = generate_llm_answer(
                 settings,
@@ -743,6 +754,7 @@ def send_chatbot_message(
                 citations=citations,
                 skill_resolution=skill_resolution,
                 trace_id=metadata.get("trace_id"),
+                llm_tier=llm_tier,
             )
             if chunks:
                 status_text = "Respuesta de seguimiento generada con memoria y documentos recuperados."

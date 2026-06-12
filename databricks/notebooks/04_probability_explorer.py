@@ -26,7 +26,7 @@ start_date_value = widget_value("start_date", "")
 end_date_value = widget_value("end_date", "")
 selected_circuit_value = widget_value("selected_circuit", "Todos")
 selected_municipio_value = widget_value("selected_municipio", "Todos")
-target_column_value = widget_value("target_column", "SAIDI")
+target_column_value = widget_value("target_column", "UITI")
 
 frame = spark.table(table_name(context.catalog_name, "gold", "gold_probability_inputs"))
 
@@ -34,9 +34,9 @@ if criteria_value != "Todos" and "criteria_group" in frame.columns:
     frame = frame.filter(F.trim(F.col("criteria_group")) == F.lit(criteria_value))
 
 if start_date_value:
-    frame = frame.filter(F.to_date(F.col("inicio_ts")) >= F.to_date(F.lit(start_date_value)))
+    frame = frame.filter(F.to_date(F.col("source_date")) >= F.to_date(F.lit(start_date_value)))
 if end_date_value:
-    frame = frame.filter(F.to_date(F.col("inicio_ts")) <= F.to_date(F.lit(end_date_value)))
+    frame = frame.filter(F.to_date(F.col("source_date")) <= F.to_date(F.lit(end_date_value)))
 if selected_circuit_value and selected_circuit_value != "Todos" and "circuito" in frame.columns:
     frame = frame.filter(F.trim(F.col("circuito")) == F.lit(selected_circuit_value))
 if selected_municipio_value and selected_municipio_value != "Todos" and "municipio" in frame.columns:
@@ -44,15 +44,15 @@ if selected_municipio_value and selected_municipio_value != "Todos" and "municip
 
 resolved_target = resolve_column_name(frame.columns, target_column_value)
 if resolved_target is None:
-    resolved_target = resolve_column_name(frame.columns, "SAIDI") or frame.columns[0]
+    resolved_target = resolve_column_name(frame.columns, "UITI") or frame.columns[0]
 
 target_field = next((field for field in frame.schema.fields if field.name == resolved_target), None)
 target_type = target_field.dataType.simpleString() if target_field is not None else "string"
 
 if not start_date_value or not end_date_value:
     bounds = frame.select(
-        F.min(F.to_date(F.col("inicio_ts"))).alias("min_date"),
-        F.max(F.to_date(F.col("inicio_ts"))).alias("max_date"),
+        F.min(F.to_date(F.col("source_date"))).alias("min_date"),
+        F.max(F.to_date(F.col("source_date"))).alias("max_date"),
     ).collect()[0]
     start_date_value = start_date_value or (str(bounds["min_date"]) if bounds["min_date"] else "")
     end_date_value = end_date_value or (str(bounds["max_date"]) if bounds["max_date"] else "")

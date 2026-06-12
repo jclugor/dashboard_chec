@@ -79,6 +79,14 @@ class Settings:
     inference_retry_backoff_ms: int
     llm_provider: str
     llm_endpoint_name: str | None
+    llm_routing_enabled: bool
+    llm_default_tier: str
+    llm_cheap_endpoint_name: str | None
+    llm_medium_endpoint_name: str | None
+    llm_best_endpoint_name: str | None
+    llm_allow_best_tier: bool
+    llm_max_expensive_calls_per_request: int
+    llm_route_simple_to_cheap: bool
     llm_max_tokens: int
     llm_temperature: float
     chatbot_enabled: bool
@@ -190,6 +198,14 @@ def load_settings() -> Settings:
         inference_retry_backoff_ms=max(_to_int(os.getenv("INFERENCE_RETRY_BACKOFF_MS"), 250), 0),
         llm_provider=os.getenv("LLM_PROVIDER", "mock").strip().lower(),
         llm_endpoint_name=_env_value("LLM_ENDPOINT_NAME"),
+        llm_routing_enabled=_to_bool(os.getenv("LLM_ROUTING_ENABLED"), False),
+        llm_default_tier=os.getenv("LLM_DEFAULT_TIER", "medium").strip().lower() or "medium",
+        llm_cheap_endpoint_name=_env_value("LLM_CHEAP_ENDPOINT_NAME"),
+        llm_medium_endpoint_name=_env_value("LLM_MEDIUM_ENDPOINT_NAME"),
+        llm_best_endpoint_name=_env_value("LLM_BEST_ENDPOINT_NAME"),
+        llm_allow_best_tier=_to_bool(os.getenv("LLM_ALLOW_BEST_TIER"), False),
+        llm_max_expensive_calls_per_request=max(_to_int(os.getenv("LLM_MAX_EXPENSIVE_CALLS_PER_REQUEST"), 1), 0),
+        llm_route_simple_to_cheap=_to_bool(os.getenv("LLM_ROUTE_SIMPLE_TO_CHEAP"), True),
         llm_max_tokens=max(_to_int(os.getenv("LLM_MAX_TOKENS"), 1200), 1),
         llm_temperature=max(0.0, min(_to_float(os.getenv("LLM_TEMPERATURE"), 0.2), 2.0)),
         chatbot_enabled=_to_bool(os.getenv("CHATBOT_ENABLED"), False),

@@ -49,10 +49,29 @@ AI_SEARCH_COLUMNS = [
 def databricks_host() -> str | None:
     host = os.getenv("DATABRICKS_HOST", "").strip().rstrip("/")
     if not host:
+        try:
+            from databricks.sdk.core import Config
+
+            host = str(Config().host or "").strip().rstrip("/")
+        except Exception:
+            host = ""
+    if not host:
         return None
     if not host.startswith(("http://", "https://")):
         host = f"https://{host}"
     return host
+
+
+def databricks_sdk_auth_headers() -> dict[str, str] | None:
+    try:
+        from databricks.sdk.core import Config
+
+        headers = Config().authenticate()
+    except Exception:
+        return None
+    if not headers:
+        return None
+    return {str(key): str(value) for key, value in headers.items() if value}
 
 
 def is_volume_path(path: Path) -> bool:
@@ -64,7 +83,7 @@ def databricks_api_auth_headers() -> dict[str, str] | None:
     client_id = os.getenv("DATABRICKS_CLIENT_ID")
     client_secret = os.getenv("DATABRICKS_CLIENT_SECRET")
     if not host or not client_id or not client_secret:
-        return None
+        return databricks_sdk_auth_headers()
 
     now = time.time()
     cached_token = _DATABRICKS_TOKEN_CACHE.get("access_token")

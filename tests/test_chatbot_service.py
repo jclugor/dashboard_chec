@@ -47,7 +47,14 @@ from chec_dashboard.services.conversation_service import (
     recent_conversation_messages,
     reset_memory_conversation_store,
 )
+from chec_dashboard.services.llm_service import (
+    DatabricksModelServingRequestError,
+    DatabricksModelServingResponseError,
+    _extract_json_object,
+    generate_llm_structured_answer,
+)
 from chec_dashboard.services.prompt_service import build_prompt
+from chec_dashboard.services import retrieval_service
 from chec_dashboard.services.skill_service import resolve_skill
 
 
@@ -115,8 +122,11 @@ def _write_map_files(data_dir: Path) -> None:
             "duracion_h": [2.0],
             "causa": ["VIENTO"],
             "cnt_usus": [10],
-            "SAIDI": [0.5],
-            "SAIFI": [0.3],
+            "UITI": [0.5],
+            "UITI_VANO": [0.3],
+            "EVENT_COUNT": [1],
+            "USERS": [10],
+            "DURATION_RAW": [2.0],
         }
     )
     trafos.to_pickle(data_dir / "TRAFOS.pkl")
@@ -615,6 +625,29 @@ def test_databricks_model_serving_payload_is_bounded(tmp_path: Path) -> None:
     assert payload["messages"][1] == {"role": "user", "content": "Prompt técnico con citas [1]."}
 
 
+def test_databricks_model_serving_payload_supports_structured_json_mode(tmp_path: Path) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    data_dir.mkdir()
+    settings = _settings(
+        tmp_path,
+        data_dir,
+        corpus_dir,
+        llm_provider="databricks_model_serving",
+        llm_endpoint_name="databricks-qwen3-next-80b-a3b-instruct",
+    )
+
+    payload = _databricks_chat_payload(
+        settings,
+        "Devuelve JSON.",
+        system_message="Solo JSON.",
+        response_format={"type": "json_object"},
+    )
+
+    assert payload["messages"][0]["content"] == "Solo JSON."
+    assert payload["response_format"] == {"type": "json_object"}
+
+
 def test_databricks_model_serving_response_parser_reads_text_and_usage() -> None:
     result = _parse_databricks_model_serving_response(
         {
@@ -625,6 +658,24 @@ def test_databricks_model_serving_response_parser_reads_text_and_usage() -> None
 
     assert result.text == "Respuesta técnica con citas [1]."
     assert result.usage["total_tokens"] == 120
+
+
+def test_extract_json_object_handles_nested_fenced_json() -> None:
+    parsed = _extract_json_object(
+        """```json
+        {
+          "headline": "Resumen",
+          "point_narratives": [
+            {"fecha_dia": "2025-11-11", "rank": 1}
+          ]
+        }
+        ```"""
+    )
+
+    assert parsed == {
+        "headline": "Resumen",
+        "point_narratives": [{"fecha_dia": "2025-11-11", "rank": 1}],
+    }
 
 
 def test_databricks_model_serving_client_sends_trace_headers_and_parses_response(tmp_path: Path) -> None:
@@ -652,7 +703,12 @@ def test_databricks_model_serving_client_sends_trace_headers_and_parses_response
         }
 
     client = DatabricksModelServingLLMClient(settings, post_json=fake_post_json)
-    result = client.generate("Genera análisis.", trace_id="trace-123")
+    result = client.generate(
+        "Genera análisis.",
+        trace_id="trace-123",
+        system_message="Sistema estructurado.",
+        response_format={"type": "json_object"},
+    )
 
     assert result.text == "Análisis gobernado desde Databricks."
     assert calls[0]["url"] == (
@@ -661,8 +717,199 @@ def test_databricks_model_serving_client_sends_trace_headers_and_parses_response
     )
     assert calls[0]["headers"]["Authorization"] == "Bearer local-token"
     assert calls[0]["headers"]["X-Request-ID"] == "trace-123"
+    assert calls[0]["payload"]["messages"][0]["content"] == "Sistema estructurado."
     assert calls[0]["payload"]["messages"][1]["content"] == "Genera análisis."
+    assert calls[0]["payload"]["response_format"] == {"type": "json_object"}
     assert calls[0]["timeout"] == 12
+
+
+def test_generate_llm_structured_answer_uses_databricks_json_mode(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    data_dir.mkdir()
+    settings = _settings(
+        tmp_path,
+        data_dir,
+        corpus_dir,
+        llm_provider="databricks_model_serving",
+        llm_endpoint_name="databricks-qwen3-next-80b-a3b-instruct",
+    )
+    calls: list[dict[str, object]] = []
+
+    def fake_generate(settings, prompt, **kwargs):
+        calls.append({"prompt": prompt, **kwargs})
+        return '{"headline": "Resumen", "executive_summary": []}'
+
+    monkeypatch.setattr(
+        "chec_dashboard.services.llm_service._generate_databricks_model_serving_answer",
+        fake_generate,
+    )
+
+    parsed = generate_llm_structured_answer(
+        settings,
+        prompt="Genera un resumen.",
+        schema_name="ExampleSchema",
+        json_schema={"type": "object", "properties": {"headline": {"type": "string"}}},
+        context_package={},
+        question=None,
+        citations=[],
+    )
+
+    assert parsed == {"headline": "Resumen", "executive_summary": []}
+    assert calls[0]["response_format"] == {"type": "json_object"}
+    assert "primer caracter" in str(calls[0]["prompt"])
+
+
+def test_generate_llm_structured_answer_retries_when_json_mode_is_rejected(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    data_dir.mkdir()
+    settings = _settings(
+        tmp_path,
+        data_dir,
+        corpus_dir,
+        llm_provider="databricks_model_serving",
+        llm_endpoint_name="databricks-qwen3-next-80b-a3b-instruct",
+    )
+    calls: list[dict[str, object]] = []
+
+    def fake_generate(settings, prompt, **kwargs):
+        calls.append({"prompt": prompt, **kwargs})
+        if kwargs.get("response_format"):
+            raise DatabricksModelServingRequestError("response_format unsupported")
+        return '{"headline": "Resumen recuperado"}'
+
+    monkeypatch.setattr(
+        "chec_dashboard.services.llm_service._generate_databricks_model_serving_answer",
+        fake_generate,
+    )
+
+    parsed = generate_llm_structured_answer(
+        settings,
+        prompt="Genera un resumen.",
+        schema_name="ExampleSchema",
+        json_schema={"type": "object"},
+        context_package={},
+        question=None,
+        citations=[],
+    )
+
+    assert parsed == {"headline": "Resumen recuperado"}
+    assert len(calls) == 2
+    assert calls[0]["response_format"] == {"type": "json_object"}
+    assert "response_format" not in calls[1]
+
+
+def test_generate_llm_structured_answer_retries_when_json_mode_response_shape_is_unusable(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    data_dir.mkdir()
+    settings = _settings(
+        tmp_path,
+        data_dir,
+        corpus_dir,
+        llm_provider="databricks_model_serving",
+        llm_endpoint_name="databricks-qwen3-next-80b-a3b-instruct",
+    )
+    calls: list[dict[str, object]] = []
+
+    def fake_generate(settings, prompt, **kwargs):
+        calls.append({"prompt": prompt, **kwargs})
+        if kwargs.get("response_format"):
+            raise DatabricksModelServingResponseError("no text content")
+        return '{"headline": "Resumen recuperado"}'
+
+    monkeypatch.setattr(
+        "chec_dashboard.services.llm_service._generate_databricks_model_serving_answer",
+        fake_generate,
+    )
+
+    parsed = generate_llm_structured_answer(
+        settings,
+        prompt="Genera un resumen.",
+        schema_name="ExampleSchema",
+        json_schema={"type": "object"},
+        context_package={},
+        question=None,
+        citations=[],
+    )
+
+    assert parsed == {"headline": "Resumen recuperado"}
+    assert len(calls) == 2
+    assert calls[0]["response_format"] == {"type": "json_object"}
+    assert "response_format" not in calls[1]
+
+
+def test_generate_llm_structured_answer_repairs_non_json_response(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    data_dir = tmp_path / "data"
+    corpus_dir = tmp_path / "corpus"
+    data_dir.mkdir()
+    settings = _settings(
+        tmp_path,
+        data_dir,
+        corpus_dir,
+        llm_provider="databricks_model_serving",
+        llm_endpoint_name="databricks-qwen3-next-80b-a3b-instruct",
+    )
+    calls: list[dict[str, object]] = []
+
+    def fake_generate(settings, prompt, **kwargs):
+        calls.append({"prompt": prompt, **kwargs})
+        if len(calls) == 1:
+            return "Resumen en prosa, no JSON."
+        return '{"headline": "Resumen reparado"}'
+
+    monkeypatch.setattr(
+        "chec_dashboard.services.llm_service._generate_databricks_model_serving_answer",
+        fake_generate,
+    )
+
+    parsed = generate_llm_structured_answer(
+        settings,
+        prompt="Genera un resumen.",
+        schema_name="ExampleSchema",
+        json_schema={"type": "object"},
+        context_package={},
+        question=None,
+        citations=[],
+    )
+
+    assert parsed == {"headline": "Resumen reparado"}
+    assert len(calls) == 2
+    assert "RESPUESTA_ANTERIOR" in str(calls[1]["prompt"])
+
+
+def test_databricks_api_auth_headers_falls_back_to_sdk_auth(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("DATABRICKS_CLIENT_ID", raising=False)
+    monkeypatch.delenv("DATABRICKS_CLIENT_SECRET", raising=False)
+    monkeypatch.setattr(retrieval_service, "databricks_host", lambda: None)
+    monkeypatch.setattr(
+        retrieval_service,
+        "databricks_sdk_auth_headers",
+        lambda: {
+            "Authorization": "Bearer sdk-token",
+            "X-Databricks-Azure-SP-Management-Token": "azure-management-token",
+        },
+    )
+
+    headers = retrieval_service.databricks_api_auth_headers()
+
+    assert headers == {
+        "Authorization": "Bearer sdk-token",
+        "X-Databricks-Azure-SP-Management-Token": "azure-management-token",
+    }
 
 
 def test_databricks_model_serving_timeout_is_spanish_error(tmp_path: Path) -> None:
@@ -768,7 +1015,7 @@ def test_databricks_model_serving_failure_preserves_citations_and_metadata(
         llm_endpoint_name="databricks-qwen3-next-80b-a3b-instruct",
     )
 
-    def fake_generate(settings, prompt, *, trace_id=None):
+    def fake_generate(settings, prompt, **kwargs):
         raise RuntimeError("Databricks Model Serving no respondió antes del tiempo límite.")
 
     monkeypatch.setattr(
@@ -1428,15 +1675,15 @@ def test_phase7_router_selects_documents_structured_tools_and_direct_mode() -> N
     context_package = build_chatbot_context_package(
         selected_context=selected_context,
         briefing_type="reliability",
-        question_id="reliability_saidi_saifi",
+        question_id="reliability_impact_uiti",
     )
 
     candidates = route_agent_tools(
         selected_context=selected_context,
         context_package=context_package,
-        question="CREG 015 SAIDI SAIFI",
+        question="CREG 015 impacto UITI",
         briefing_type="reliability",
-        question_id="reliability_saidi_saifi",
+        question_id="reliability_impact_uiti",
     )
     direct_candidates = route_agent_tools(
         selected_context=selected_context,
@@ -1464,7 +1711,7 @@ def test_phase7_guided_assessment_returns_and_persists_tool_trace(tmp_path: Path
     payload = assess_chatbot_context(
         settings,
         selected_context={"kind": "event", "causa": "VIENTO", "cto_equi_ope": "CKT-1"},
-        question="CREG 015 SAIDI SAIFI",
+        question="CREG 015 impacto UITI",
         briefing_type="reliability",
     )
     detail = get_chatbot_conversation(settings, payload["conversation_id"])
@@ -1590,7 +1837,7 @@ def test_view_context_options_include_filtered_analysis_context(tmp_path: Path) 
     assert context["context_hash"]
     assert context["traceability"]["read_only"] is True
     assert context["kpi_summary"]["event_count"] == 1
-    assert context["kpi_summary"]["saidi_total"] == 0.5
+    assert context["kpi_summary"]["uiti_total"] == 0.5
     assert context["top_circuits"][0]["label"] == "CKT-1"
     assert context["top_causes"][0]["label"] == "VIENTO"
 
@@ -1710,7 +1957,7 @@ def test_databricks_context_options_use_governed_tools_and_views(
                     "selected_period": "2024-01",
                     "selected_municipio": "Manizales",
                     "scope_label": "CKT-1",
-                    "kpi_summary": {"event_count": 1, "saidi_total": 0.5, "saifi_total": 0.3},
+                    "kpi_summary": {"event_count": 1, "uiti_total": 0.5, "uiti_vano_total": 0.3},
                 }
             )
 
@@ -1727,8 +1974,8 @@ def test_databricks_context_options_use_governed_tools_and_views(
                         "cto_equi_ope": "CKT-1",
                         "equipo_ope": "EQ-1",
                         "causa": "VIENTO",
-                        "SAIDI": 0.5,
-                        "SAIFI": 0.3,
+                        "UITI": 0.5,
+                        "UITI_VANO": 0.3,
                     }
                 ]
             )
@@ -1793,7 +2040,7 @@ def test_context_package_includes_structured_tool_output(tmp_path: Path) -> None
     package = build_chatbot_context_package(
         selected_context=payload["items"][0]["context"],
         briefing_type="reliability",
-        question_id="reliability_saidi_saifi",
+        question_id="reliability_impact_uiti",
     )
 
     tool = package["structured_context_tool"]
@@ -1825,7 +2072,7 @@ def test_local_circuit_history_tool_uses_phase4_schema(tmp_path: Path) -> None:
 @pytest.mark.parametrize(
     ("briefing_type", "question_id", "expected_text"),
     [
-        ("reliability", "reliability_saidi_saifi", "confiabilidad"),
+        ("reliability", "reliability_impact_uiti", "confiabilidad"),
         ("compliance", "compliance_risk_flags", "Banderas de evidencia"),
         ("maintenance", "maintenance_field_checks", "mantenimiento"),
     ],

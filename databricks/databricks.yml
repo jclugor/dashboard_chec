@@ -23,6 +23,9 @@ variables:
   artifact_volume_name:
     description: Managed volume name for model and support artifacts.
     default: artifacts
+  manifest_filename:
+    description: Manifest used by bootstrap, ingest, validation, and build notebooks.
+    default: normalized_vano_assets.json
   spark_version:
     description: Runtime used by the job cluster.
     default: 13.3.x-scala2.12

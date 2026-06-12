@@ -77,7 +77,7 @@ def briefing_instruction(briefing_type: str, skill_resolution: SkillResolution |
             "revisiones de campo, activos/circuitos a priorizar y acciones preventivas."
         )
     return (
-        "Enfoca la respuesta en confiabilidad: SAIDI/SAIFI, recurrencia, concentración "
+        "Enfoca la respuesta en confiabilidad: impacto UITI, recurrencia, concentración "
         "por circuito/municipio/causa y señales ambientales u operativas."
     )
 

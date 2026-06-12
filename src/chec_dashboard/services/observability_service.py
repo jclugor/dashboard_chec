@@ -131,7 +131,7 @@ def append_turn_trace(settings: Settings, trace_payload: dict[str, Any]) -> None
 INSERT INTO {table_name} (
   trace_id, conversation_id, turn_id, created_at, mode, briefing_type, ready,
   status_text, skill_id, skill_hash, context_snapshot_hash, prompt_name,
-  prompt_alias, prompt_version, prompt_hash, llm_provider, model_endpoint_name,
+  prompt_alias, prompt_version, prompt_hash, llm_provider, llm_tier, model_endpoint_name,
   retriever_backend, ai_search_index_name, latency_ms, citation_count,
   retrieved_chunk_ids_json, tool_calls_json, validation_json, telemetry_json
 ) VALUES (
@@ -151,6 +151,7 @@ INSERT INTO {table_name} (
   {sql_literal(trace_payload.get("prompt_version"))},
   {sql_literal(trace_payload.get("prompt_hash"))},
   {sql_literal(trace_payload.get("llm_provider"))},
+  {sql_literal(trace_payload.get("llm_tier"))},
   {sql_literal(trace_payload.get("model_endpoint_name"))},
   {sql_literal(trace_payload.get("retriever_backend"))},
   {sql_literal(trace_payload.get("ai_search_index_name"))},
@@ -255,6 +256,7 @@ def _log_mlflow_turn(settings: Settings, trace_payload: dict[str, Any]) -> dict[
             "prompt_version": trace_payload.get("prompt_version"),
             "prompt_hash": trace_payload.get("prompt_hash"),
             "llm_provider": trace_payload.get("llm_provider"),
+            "llm_tier": trace_payload.get("llm_tier"),
             "model_endpoint_name": trace_payload.get("model_endpoint_name"),
             "retriever_backend": trace_payload.get("retriever_backend"),
             "ai_search_index_name": trace_payload.get("ai_search_index_name"),

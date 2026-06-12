@@ -14,7 +14,7 @@ allowed_tools:
   - search_technical_documents
   - search_regulatory_documents
 instructions:
-  - Analiza SAIDI, SAIFI, recurrencia, concentracion por circuito o municipio y senales ambientales disponibles.
+  - Analiza impacto UITI, UITI_VANO, recurrencia, concentracion por circuito o municipio y senales ambientales disponibles.
   - Distingue observaciones soportadas por datos de hipotesis operativas.
 output:
   sections:
@@ -36,6 +36,6 @@ retrieval:
   top_k: 5
   boost_tags:
     - confiabilidad
-    - SAIDI
-    - SAIFI
+    - UITI
+    - UITI_VANO
     - red

@@ -33,7 +33,7 @@ def get_timeseries_interpretability_context_tool(
             "start_date": None,
             "end_date": None,
             "circuit_label": None,
-            "metric_mode": "BOTH",
+            "metric_key": "UITI",
             "critical_points": [],
             "critical_periods": [],
             "status_text": "No hay contexto de interpretabilidad de serie disponible en esta conversacion.",

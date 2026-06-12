@@ -17,7 +17,7 @@ DEFAULT_WORKSPACE_ROOT = "/Workspace/Shared/chec-phase1"
 DEFAULT_CATALOG = "chec_dbx_demo"
 DEFAULT_SOURCE_VOLUME = "source_files"
 DEFAULT_ARTIFACT_VOLUME = "artifacts"
-DEFAULT_MANIFEST_FILENAME = "phase1_assets.json"
+DEFAULT_MANIFEST_FILENAME = "normalized_vano_assets.json"
 DEFAULT_SCHEMA_NAMES = (
     "raw",
     "bronze",
@@ -37,6 +37,7 @@ class Phase1Context:
     catalog_name: str
     source_volume_name: str
     artifact_volume_name: str
+    manifest_filename: str = DEFAULT_MANIFEST_FILENAME
 
     @property
     def source_data_root(self) -> str:
@@ -44,7 +45,7 @@ class Phase1Context:
 
     @property
     def manifest_path(self) -> str:
-        return f"{self.workspace_root_path.rstrip('/')}/manifests/{DEFAULT_MANIFEST_FILENAME}"
+        return f"{self.workspace_root_path.rstrip('/')}/manifests/{self.manifest_filename}"
 
     @property
     def source_volume_root(self) -> str:
@@ -59,16 +60,16 @@ def _dbutils() -> Any | None:
     return globals().get("dbutils")
 
 
-def _candidate_paths(path: str | None) -> list[str]:
+def _candidate_paths(path: str | None, manifest_filename: str = DEFAULT_MANIFEST_FILENAME) -> list[str]:
     candidates: list[str] = []
     if path:
         candidates.append(path)
-    candidates.append(f"{DEFAULT_WORKSPACE_ROOT}/manifests/{DEFAULT_MANIFEST_FILENAME}")
+    candidates.append(f"{DEFAULT_WORKSPACE_ROOT}/manifests/{manifest_filename}")
 
     notebook_file = globals().get("__file__")
     if notebook_file:
         candidates.append(
-            str(Path(notebook_file).resolve().parents[1] / "manifests" / DEFAULT_MANIFEST_FILENAME)
+            str(Path(notebook_file).resolve().parents[1] / "manifests" / manifest_filename)
         )
     return candidates
 
@@ -79,7 +80,8 @@ def _strip_file_prefix(path: str) -> str:
 
 def _read_text_file(path: str) -> str:
     dbutils_obj = _dbutils()
-    for candidate in _candidate_paths(path):
+    manifest_filename = Path(path).name if path else DEFAULT_MANIFEST_FILENAME
+    for candidate in _candidate_paths(path, manifest_filename=manifest_filename):
         if dbutils_obj is not None:
             for uri in (candidate, f"file:{candidate}"):
                 try:
@@ -117,6 +119,7 @@ def define_standard_widgets(dbutils_obj: Any | None = None) -> None:
     dbutils_obj.widgets.text("catalog_name", DEFAULT_CATALOG)
     dbutils_obj.widgets.text("source_volume_name", DEFAULT_SOURCE_VOLUME)
     dbutils_obj.widgets.text("artifact_volume_name", DEFAULT_ARTIFACT_VOLUME)
+    dbutils_obj.widgets.text("manifest_filename", DEFAULT_MANIFEST_FILENAME)
 
 
 def define_probability_widgets(dbutils_obj: Any | None = None) -> None:
@@ -138,7 +141,7 @@ def define_probability_widgets(dbutils_obj: Any | None = None) -> None:
     dbutils_obj.widgets.text("end_date", "")
     dbutils_obj.widgets.text("selected_circuit", "Todos")
     dbutils_obj.widgets.text("selected_municipio", "Todos")
-    dbutils_obj.widgets.text("target_column", "SAIDI")
+    dbutils_obj.widgets.text("target_column", "UITI")
 
 
 def define_map_widgets(dbutils_obj: Any | None = None) -> None:
@@ -163,12 +166,14 @@ def build_context(dbutils_obj: Any | None = None) -> Phase1Context:
             catalog_name=DEFAULT_CATALOG,
             source_volume_name=DEFAULT_SOURCE_VOLUME,
             artifact_volume_name=DEFAULT_ARTIFACT_VOLUME,
+            manifest_filename=DEFAULT_MANIFEST_FILENAME,
         )
     return Phase1Context(
         workspace_root_path=widget_value("workspace_root_path", DEFAULT_WORKSPACE_ROOT, dbutils_obj),
         catalog_name=widget_value("catalog_name", DEFAULT_CATALOG, dbutils_obj),
         source_volume_name=widget_value("source_volume_name", DEFAULT_SOURCE_VOLUME, dbutils_obj),
         artifact_volume_name=widget_value("artifact_volume_name", DEFAULT_ARTIFACT_VOLUME, dbutils_obj),
+        manifest_filename=widget_value("manifest_filename", DEFAULT_MANIFEST_FILENAME, dbutils_obj),
     )
 
 
@@ -191,6 +196,9 @@ def resolve_column_name(columns: Iterable[str], requested: str) -> str | None:
 
 
 def manifest_source_rows(manifest: dict[str, Any]) -> list[dict[str, Any]]:
+    def metadata_json(value: Any) -> str:
+        return json.dumps(value if value is not None else [], ensure_ascii=False, sort_keys=True)
+
     rows: list[dict[str, Any]] = []
     for entry in manifest.get("raw_sources", []):
         relative_path = entry["relative_path"]
@@ -201,8 +209,14 @@ def manifest_source_rows(manifest: dict[str, Any]) -> list[dict[str, Any]]:
                 "relative_path": relative_path,
                 "load_mode": entry.get("load_mode", ""),
                 "bronze_table": entry.get("bronze_table"),
-                "required_columns": entry.get("required_columns", []),
-                "date_columns": entry.get("date_columns", []),
+                "expected_rows": entry.get("expected_rows"),
+                "primary_key": metadata_json(entry.get("primary_key", [])),
+                "natural_key": metadata_json(entry.get("natural_key", [])),
+                "foreign_keys": metadata_json(entry.get("foreign_keys", [])),
+                "required_columns": metadata_json(entry.get("required_columns", [])),
+                "date_columns": metadata_json(entry.get("date_columns", [])),
+                "weather_variables": metadata_json(entry.get("weather_variables", [])),
+                "weather_offsets": metadata_json(entry.get("weather_offsets", [])),
             }
         )
     return rows
@@ -342,6 +356,8 @@ def copy_tree(source_root: Path | str, destination_root: Path | str) -> list[dic
 def load_source_frame(source_path: Path, load_mode: str) -> pd.DataFrame:
     if load_mode == "pickle":
         return pd.read_pickle(source_path)
+    if load_mode == "parquet":
+        return pd.read_parquet(source_path)
     if load_mode == "csv":
         return pd.read_csv(source_path)
     if load_mode == "excel":

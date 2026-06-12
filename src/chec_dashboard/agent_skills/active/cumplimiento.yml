@@ -40,5 +40,5 @@ retrieval:
     - calidad_servicio
     - cumplimiento
     - RETIE
-    - SAIDI
-    - SAIFI
+    - UITI
+    - UITI_VANO

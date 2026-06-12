@@ -49,9 +49,9 @@ BRIEFING_TYPES = {"reliability", "compliance", "maintenance"}
 GUIDED_QUESTIONS: dict[str, list[dict[str, str]]] = {
     "reliability": [
         {
-            "id": "reliability_saidi_saifi",
-            "label": "SAIDI / SAIFI",
-            "question": "¿Qué explica el comportamiento de SAIDI/SAIFI en esta vista?",
+            "id": "reliability_impact_uiti",
+            "label": "Impacto UITI",
+            "question": "¿Qué explica el impacto UITI en esta vista?",
         },
         {
             "id": "reliability_hotspots",
@@ -88,7 +88,7 @@ GUIDED_QUESTIONS: dict[str, list[dict[str, str]]] = {
         {
             "id": "compliance_creg_quality",
             "label": "CREG 015",
-            "question": "¿Cómo se relaciona esto con calidad del servicio SAIDI/SAIFI bajo CREG 015?",
+            "question": "¿Cómo se relaciona esto con calidad del servicio e interrupciones bajo CREG 015?",
         },
     ],
     "maintenance": [
@@ -387,9 +387,12 @@ def top_records_from_frame(
     work = pd.DataFrame(
         {
             "group": frame[group_column].fillna("Sin dato").astype(str).str.strip(),
-            "saidi": numeric_series(frame, ["severity_saidi", "SAIDI", "saidi_total"]),
-            "saifi": numeric_series(frame, ["severity_saifi", "SAIFI", "saifi_total"]),
-            "duration_h": numeric_series(frame, ["duration_hours", "duracion_h", "duration_total_h"]),
+            "uiti": numeric_series(frame, ["UITI", "uiti_total", "severity_uiti"]),
+            "uiti_vano": numeric_series(
+                frame,
+                ["UITI_VANO", "uiti_vano_total", "severity_uiti_vano"],
+            ),
+            "duration_raw": numeric_series(frame, ["DURATION_RAW", "duration_raw", "duration_raw_total", "duration_hours", "duracion_h", "duration_total_h"]),
             "users_affected": numeric_series(frame, ["cnt_usus", "users_affected_total"]),
             "event_count": numeric_series(frame, ["event_count"]),
         }
@@ -401,27 +404,27 @@ def top_records_from_frame(
         .groupby("group", dropna=False)
         .agg(
             event_count=("event_count", "sum"),
-            saidi=("saidi", "sum"),
-            saifi=("saifi", "sum"),
-            duration_h=("duration_h", "sum"),
+            uiti=("uiti", "sum"),
+            uiti_vano=("uiti_vano", "sum"),
+            duration_raw=("duration_raw", "sum"),
             users_affected=("users_affected", "sum"),
         )
         .reset_index()
     )
     if grouped.empty:
         return []
-    grouped["impact_score"] = grouped["saidi"] + grouped["saifi"]
+    grouped["impact_score"] = grouped["uiti"] + grouped["uiti_vano"]
     grouped = grouped.sort_values(
-        ["impact_score", "event_count", "duration_h"],
+        ["impact_score", "event_count", "duration_raw"],
         ascending=[False, False, False],
     ).head(limit)
     return [
         {
             "label": str(row["group"]),
             "event_count": int(row["event_count"]),
-            "saidi": rounded(row["saidi"]),
-            "saifi": rounded(row["saifi"]),
-            "duration_h": rounded(row["duration_h"], 2),
+            "uiti": rounded(row["uiti"]),
+            "uiti_vano": rounded(row["uiti_vano"]),
+            "duration_raw": rounded(row["duration_raw"], 2),
             "users_affected": int(row["users_affected"]),
         }
         for _, row in grouped.iterrows()
@@ -483,10 +486,13 @@ def view_context_from_events(
     selected_circuits: list[str] | None,
 ) -> dict[str, Any]:
     selected_circuits = selected_circuits_payload(selected_circuits)
-    saidi_total = series_total(frame, ["severity_saidi", "SAIDI", "saidi_total"])
-    saifi_total = series_total(frame, ["severity_saifi", "SAIFI", "saifi_total"])
+    uiti_total = series_total(frame, ["UITI", "uiti_total", "severity_uiti"])
+    uiti_vano_total = series_total(
+        frame,
+        ["UITI_VANO", "uiti_vano_total", "severity_uiti_vano"],
+    )
     event_count = int(series_total(frame, ["event_count"])) if "event_count" in frame.columns else int(len(frame))
-    duration_total_h = series_total(frame, ["duration_hours", "duracion_h", "duration_total_h"])
+    duration_raw_total = series_total(frame, ["DURATION_RAW", "duration_raw", "duration_raw_total", "duration_hours", "duracion_h", "duration_total_h"])
     users_affected = series_total(frame, ["cnt_usus", "users_affected_total"])
     return {
         "kind": "view",
@@ -497,9 +503,9 @@ def view_context_from_events(
         "date_bounds": date_bounds(frame, ["fecha_dia", "inicio_ts", "inicio", "map_date"]),
         "kpi_summary": {
             "event_count": event_count,
-            "saidi_total": rounded(saidi_total),
-            "saifi_total": rounded(saifi_total),
-            "duration_total_h": rounded(duration_total_h, 2),
+            "uiti_total": rounded(uiti_total),
+            "uiti_vano_total": rounded(uiti_vano_total),
+            "duration_raw_total": rounded(duration_raw_total, 2),
             "users_affected_total": int(users_affected),
         },
         "top_circuits": top_records_from_frame(frame, ["circuito", "cto_equi_ope", "FPARENT"]),
@@ -517,8 +523,8 @@ def view_item_from_context(context: dict[str, Any]) -> dict[str, Any]:
     summary = (
         f"Vista {municipio} / {selected_period} / {scope}. "
         f"Eventos: {kpis.get('event_count', 0)}, "
-        f"SAIDI: {kpis.get('saidi_total', 0)}, "
-        f"SAIFI: {kpis.get('saifi_total', 0)}."
+        f"UITI: {kpis.get('uiti_total', 0)}, "
+        f"UITI vano: {kpis.get('uiti_vano_total', 0)}."
     )
     return {
         "id": context_id("view", context),
@@ -543,8 +549,8 @@ def dashboard_context_tool_payload(
     summary_text = (
         f"Vista {municipio} / {selected_period} / {scope}. "
         f"Eventos: {kpis.get('event_count', 0)}, "
-        f"SAIDI: {kpis.get('saidi_total', 0)}, "
-        f"SAIFI: {kpis.get('saifi_total', 0)}."
+        f"UITI: {kpis.get('uiti_total', 0)}, "
+        f"UITI vano: {kpis.get('uiti_vano_total', 0)}."
     )
     records: list[dict[str, Any]] = []
     for record_type in ("top_circuits", "top_event_families", "top_causes"):
@@ -656,8 +662,8 @@ def event_items_from_frame(
         label = f"{equipo} | {circuito} | {causa} | {inicio}"
         summary = (
             f"Evento en circuito {circuito}. Causa: {causa}. "
-            f"SAIDI: {context.get('SAIDI') or context.get('severity_saidi') or 'N/D'}, "
-            f"SAIFI: {context.get('SAIFI') or context.get('severity_saifi') or 'N/D'}."
+            f"UITI: {context.get('UITI') or context.get('uiti_total') or 'N/D'}, "
+            f"UITI vano: {context.get('UITI_VANO') or context.get('uiti_vano_total') or 'N/D'}."
         )
         tool_context = event_tool_payload(
             context,
@@ -1137,9 +1143,9 @@ def selected_context_metrics(context: dict[str, Any]) -> dict[str, Any]:
             return {**nested_kpis, **{key: value for key, value in tool_metrics.items() if key != "kpi_summary"}}
         return tool_metrics
     metric_candidates = {
-        "saidi": ["SAIDI", "severity_saidi", "saidi_total"],
-        "saifi": ["SAIFI", "severity_saifi", "saifi_total"],
-        "duration_h": ["duracion_h", "duration_hours", "duration_total_h"],
+        "uiti": ["UITI", "uiti_total", "severity_uiti"],
+        "uiti_vano": ["UITI_VANO", "uiti_vano_total", "severity_uiti_vano"],
+        "duration_raw": ["DURATION_RAW", "duration_raw", "duration_raw_total", "duracion_h", "duration_hours", "duration_total_h"],
         "users_affected": ["cnt_usus", "users_affected_total"],
         "transformers_affected": ["CNT_TRAFOS_AFEC"],
         "kva": ["KVA"],
@@ -1206,7 +1212,7 @@ def build_chatbot_context_package(
                 package[key] = selected_context[key]
     package["data_source_scope"] = (
         "Datos internos CHEC disponibles en el dashboard: eventos, activos, "
-        "SAIDI/SAIFI, ubicación, causas y variables ambientales cuando están presentes."
+        "impacto UITI, usuarios, duración fuente, ubicación, causas y variables ambientales cuando están presentes."
     )
     package["response_guardrails"] = {
         "compliance": (

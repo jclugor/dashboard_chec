@@ -89,14 +89,14 @@ def test_chatbot_select_context_summary_returns_store() -> None:
                 "id": "event-1",
                 "label": "EQ-1",
                 "kind": "event",
-                "summary": "Evento con SAIDI alto",
-                "context": {"equipo_ope": "EQ-1", "cto_equi_ope": "CKT-1", "SAIDI": 0.5},
+                "summary": "Evento con UITI alto",
+                "context": {"equipo_ope": "EQ-1", "cto_equi_ope": "CKT-1", "UITI": 0.5},
             }
         ],
     )
 
     assert result[1]["equipo_ope"] == "EQ-1"
-    assert "Evento con SAIDI alto" in _all_text(result[0])
+    assert "Evento con UITI alto" in _all_text(result[0])
 
 
 def test_chatbot_assessment_callback_renders_spanish_message(monkeypatch: pytest.MonkeyPatch) -> None:

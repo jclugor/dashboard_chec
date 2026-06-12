@@ -17,6 +17,16 @@ FORBIDDEN_PHRASES = (
     "no cumple",
 )
 
+NO_DOCUMENTARY_EVIDENCE_PHRASES = (
+    "sin soporte documental",
+    "sin evidencia documental",
+    "sin documentos",
+    "no se recuperaron documentos",
+    "no hay documentos",
+    "documentos no disponibles",
+    "evidencia documental no disponible",
+)
+
 
 @dataclass
 class ValidationResult:
@@ -45,13 +55,14 @@ def _all_text(narrative: TimeseriesInterpretabilityNarrative) -> str:
                 *point.why_marked,
                 *point.observed_values,
                 *point.likely_drivers,
+                *point.domain_support,
                 *point.documentary_support,
                 *point.missing_evidence,
                 *point.recommended_checks,
             ]
         )
     for row in narrative.evidence_matrix:
-        rows.extend([row.signal, row.structured_evidence, row.documentary_evidence or ""])
+        rows.extend([row.signal, row.structured_evidence, row.domain_evidence or "", row.documentary_evidence or ""])
     return "\n".join(rows)
 
 
@@ -87,6 +98,13 @@ def _citation_indexes(narrative: TimeseriesInterpretabilityNarrative) -> list[in
     return indexes
 
 
+def _is_documentary_placeholder(text: str | None) -> bool:
+    normalized = normalize_text(text or "")
+    if not normalized or normalized in {"n d", "na", "no aplica"}:
+        return True
+    return any(phrase in normalized for phrase in NO_DOCUMENTARY_EVIDENCE_PHRASES)
+
+
 def validate_narrative(
     *,
     narrative: TimeseriesInterpretabilityNarrative,
@@ -113,6 +131,17 @@ def validate_narrative(
     for idx in _citation_indexes(narrative):
         if idx < 1 or idx > max_citation:
             errors.append(f"invalid_citation:{idx}")
+
+    for point in narrative.point_narratives:
+        for text in point.documentary_support:
+            if _is_documentary_placeholder(text):
+                continue
+            if not point.citations_used:
+                errors.append(f"uncited_documentary_claim:{point.fecha_dia}")
+    for row in narrative.evidence_matrix:
+        if row.documentary_evidence and not _is_documentary_placeholder(row.documentary_evidence):
+            if not row.citations_used:
+                errors.append(f"uncited_documentary_claim:{row.fecha_dia or 'evidence_matrix'}")
 
     flattened = _all_text(narrative).lower()
     for phrase in FORBIDDEN_PHRASES:

@@ -7,3 +7,7 @@ __pycache__/
 .env.databricks-fresh-install
 outputs/
 *.zip
+.codex/*
+!.codex/skills/
+!.codex/skills/chec-vano-normalized-dataset/
+!.codex/skills/chec-vano-normalized-dataset/**

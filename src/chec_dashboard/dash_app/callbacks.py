@@ -19,6 +19,8 @@ from chec_dashboard.services.data_service import (
     get_probability_filter_options_metadata,
     get_probability_metadata,
     get_probability_payload,
+    get_summary_event_options,
+    get_summary_interpretability_payload,
     get_summary_metadata,
     get_summary_payload,
 )
@@ -175,7 +177,35 @@ def _register_local_contract_routes(app: Dash, settings: Settings) -> None:
                         start_date_raw=summary.get("start_date"),
                         end_date_raw=summary.get("end_date"),
                         circuito=summary.get("circuito"),
-                        metric_mode=summary.get("metric_mode") or "BOTH",
+                        metric_key=summary.get("metric_key") or "UITI",
+                    ),
+                }
+            elif mode == "summary_event_options":
+                summary_event_options = payload.get("summary_event_options") or {}
+                response_payload = {
+                    "mode": "summary_event_options",
+                    "summary_event_options": get_summary_event_options(
+                        settings=settings,
+                        start_date_raw=summary_event_options.get("start_date"),
+                        end_date_raw=summary_event_options.get("end_date"),
+                        circuito=summary_event_options.get("circuito"),
+                        limit=int(summary_event_options.get("limit") or 200),
+                    ),
+                }
+            elif mode == "summary_interpretability":
+                summary_interpretability = payload.get("summary_interpretability") or {}
+                response_payload = {
+                    "mode": "summary_interpretability",
+                    "summary_interpretability": get_summary_interpretability_payload(
+                        settings=settings,
+                        start_date_raw=summary_interpretability.get("start_date"),
+                        end_date_raw=summary_interpretability.get("end_date"),
+                        circuito=summary_interpretability.get("circuito"),
+                        metric_key=summary_interpretability.get("metric_key") or "UITI",
+                        max_points=int(summary_interpretability.get("max_points") or 5),
+                        include_agent_text=summary_interpretability.get("include_agent_text"),
+                        selected_date=summary_interpretability.get("selected_date"),
+                        selected_event_id=summary_interpretability.get("selected_event_id"),
                     ),
                 }
             elif mode == "probability":

@@ -214,7 +214,7 @@ Stages:
 
 ```text
 azure        Azure subscription, provider registration, resource group, workspace
-foundation   SQL warehouse, preflight, bundle deploy, bootstrap, raw upload, gold build
+foundation   SQL warehouse, preflight, bundle deploy, bootstrap, normalized dataset upload, gold build
 dashboard    Lakeview notebooks, dashboard publish, pilot permissions
 chatbot      Corpus build if needed, document/corpus/skill upload
 app          Conversation/tool/search/observability setup and Databricks App deploy
@@ -438,7 +438,7 @@ Upload raw files and ML artifacts:
 
 ```bash
 cd <CHEC_ROOT>/dashboard
-CATALOG_NAME="${CATALOG_NAME}" bash databricks/scripts/upload_phase1_assets.sh
+CATALOG_NAME="${CATALOG_NAME}" bash databricks/scripts/upload_normalized_vano_assets.sh
 ```
 
 Run ingest, validation, and gold-table build:
@@ -1030,7 +1030,7 @@ Completed:
 [ ] Preflight passed
 [ ] Bundle validated/deployed
 [ ] Phase 1 bootstrap succeeded
-[ ] Raw files uploaded
+[ ] Normalized dataset uploaded
 [ ] Phase 1 ingest validation succeeded
 [ ] SAIDI/SAIFI interpretability gold tables exist
 [ ] Phase 2 dashboard published

@@ -11,12 +11,14 @@ DOCS_SOURCE_DIR="${CHATBOT_SOURCE_DOCS_DIR:-${CHEC_ROOT}/Dashboard_CHEC/Unstruct
 VARIABLES_SOURCE_DIR="${CHATBOT_VARIABLES_SOURCE_DIR:-${CHEC_ROOT}/data/arbol_decision_recomendaciones}"
 CORPUS_SOURCE_DIR="${CHATBOT_CORPUS_SOURCE_DIR:-${CHEC_ROOT}/data/chatbot_corpus}"
 SKILLS_SOURCE_DIR="${CHATBOT_SKILLS_SOURCE_DIR:-${CHEC_ROOT}/dashboard/src/chec_dashboard/agent_skills/active}"
+KNOWLEDGE_SOURCE_DIR="${CHATBOT_KNOWLEDGE_SOURCE_DIR:-${CHEC_ROOT}/dashboard/src/chec_dashboard/agent_knowledge}"
 VALIDATE_CHATBOT_SKILLS="${VALIDATE_CHATBOT_SKILLS:-true}"
 
 DOCS_TARGET_ROOT="dbfs:/Volumes/${CATALOG_NAME}/raw/${SOURCE_VOLUME_NAME}/chatbot_documents"
 CORPUS_TARGET_ROOT="dbfs:/Volumes/${CATALOG_NAME}/raw/${SOURCE_VOLUME_NAME}/chatbot_corpus"
 SKILLS_VOLUME_ROOT="dbfs:/Volumes/${CATALOG_NAME}/agent_config/skills"
 SKILLS_TARGET_ROOT="${SKILLS_VOLUME_ROOT}/active"
+KNOWLEDGE_TARGET_ROOT="${SKILLS_VOLUME_ROOT}/knowledge"
 
 CURATED_DOCS=(
   "retie.pdf"
@@ -43,10 +45,18 @@ SKILL_FILES=(
   "retrieval_policy.yml"
 )
 
+KNOWLEDGE_FILES=(
+  "variable_context.yml"
+  "variable_context.md"
+  "variable_interactions.yml"
+  "variable_interactions.md"
+)
+
 SKILL_LIFECYCLE_DIRS=(
   "active"
   "draft"
   "archive"
+  "knowledge"
 )
 
 require_command() {
@@ -124,4 +134,9 @@ for relative_path in "${SKILL_FILES[@]}"; do
   upload_file "${SKILLS_SOURCE_DIR}/${relative_path}" "${SKILLS_TARGET_ROOT}/${relative_path}"
 done
 
-echo "Chatbot assets uploaded to ${DOCS_TARGET_ROOT}, ${CORPUS_TARGET_ROOT}, and ${SKILLS_TARGET_ROOT}"
+echo "Uploading governed agent knowledge from ${KNOWLEDGE_SOURCE_DIR}"
+for relative_path in "${KNOWLEDGE_FILES[@]}"; do
+  upload_file "${KNOWLEDGE_SOURCE_DIR}/${relative_path}" "${KNOWLEDGE_TARGET_ROOT}/${relative_path}"
+done
+
+echo "Chatbot assets uploaded to ${DOCS_TARGET_ROOT}, ${CORPUS_TARGET_ROOT}, ${SKILLS_TARGET_ROOT}, and ${KNOWLEDGE_TARGET_ROOT}"

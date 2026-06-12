@@ -1,0 +1,210 @@
+schema_version: 1
+source_document: ContextoProyectoSimuladorCHEC.md
+source_sections:
+  - "1.1 Diccionario de Variables Estaticas y de Activos"
+  - "1.2 Variables de Series Temporales Climaticas"
+  - "2. Agrupacion Logica: Modos de las Variables de Entrada"
+modes:
+  - mode_id: A
+    label: "Evento, Impacto e Indicadores"
+    description: "Verdad terreno de fallas operativas: fecha, duracion, usuarios, transformadores, UITI y causa."
+  - mode_id: B
+    label: "Infraestructura de Proteccion y Maniobra"
+    description: "Equipos que detectan, despejan y aislan fallas; definen segmentacion y usuarios expuestos."
+  - mode_id: C
+    label: "Topologia y Configuracion Espacial"
+    description: "Geometria de red, circuito, vano, coordenadas, distancia e impacto ponderado."
+  - mode_id: D
+    label: "Caracteristicas Fisicas y Electricas del Vano"
+    description: "Condiciones tecnico-constructivas que afectan susceptibilidad mecanica o electrica."
+  - mode_id: E
+    label: "Activos"
+    description: "Infraestructura de soporte y transformadores asociados al vano."
+  - mode_id: F
+    label: "Entorno, Riesgo y Clima"
+    description: "Factores ambientales y climaticos que actuan como estresores o disparadores."
+variables:
+  - name: FECHA
+    mode_id: A
+    aliases: ["fecha_dia", "inicio", "inicio_ts"]
+    description: "Fecha y hora de la falla o dia agregado de analisis."
+  - name: DURACION
+    mode_id: A
+    aliases: ["DURATION_RAW", "duration_raw", "duration_raw_total"]
+    description: "Duracion total de la interrupcion."
+  - name: TOT_USUS
+    mode_id: A
+    aliases: ["USERS", "users_affected", "users_affected_total", "CNT_USUS"]
+    description: "Total de usuarios afectados por la falla."
+  - name: CNT_TRF
+    mode_id: A
+    aliases: ["transformer_count"]
+    description: "Cantidad de transformadores afectados."
+  - name: UITI
+    mode_id: A
+    aliases: ["uiti", "uiti_total"]
+    description: "Usuarios interrumpidos por tiempo de interrupcion durante la falla."
+  - name: UITI_VANO
+    mode_id: A
+    aliases: ["uiti_vano", "uiti_vano_total"]
+    description: "Contribucion del vano al impacto UITI observado."
+  - name: COD_CAUSA
+    mode_id: A
+    aliases: ["causa_codigo"]
+    description: "Codigo estandar de la causa de falla."
+  - name: DESC_CAUSA
+    mode_id: A
+    aliases: ["causa", "cause_label"]
+    description: "Descripcion textual de la causa de falla observada."
+  - name: FID_SW
+    mode_id: B
+    aliases: ["equipo_ope"]
+    description: "Identificador del equipo de proteccion o maniobra que opera."
+  - name: COD_EQ_PROTEGE
+    mode_id: B
+    aliases: ["equipo_ope", "CODE"]
+    description: "Codigo del equipo que protege o aisla el vano."
+  - name: TIPO
+    mode_id: B
+    aliases: ["tipo_equi_ope", "event_family"]
+    description: "Tipo de equipo de proteccion, como fusible o reconectador."
+  - name: CNT_VN_SW
+    mode_id: B
+    aliases: ["protected_span_count"]
+    description: "Cantidad total de vanos protegidos por el equipo."
+  - name: T_USUS_EQ_PROT
+    mode_id: B
+    aliases: ["protected_users"]
+    description: "Usuarios potencialmente desconectados por la apertura del equipo."
+  - name: CIRCUITO
+    mode_id: C
+    aliases: ["circuito", "cto_equi_ope", "FPARENT", "circuit_label"]
+    description: "Codigo del circuito al que pertenece el vano o evento."
+  - name: FID_VANO
+    mode_id: C
+    aliases: ["asset_id"]
+    description: "Identificador unico del vano de red."
+  - name: X1
+    mode_id: C
+    aliases: ["longitude"]
+    description: "Coordenada espacial inicial del vano."
+  - name: Y1
+    mode_id: C
+    aliases: ["latitude"]
+    description: "Coordenada espacial inicial del vano."
+  - name: X2
+    mode_id: C
+    aliases: ["longitude_end"]
+    description: "Coordenada espacial final del vano."
+  - name: Y2
+    mode_id: C
+    aliases: ["latitude_end"]
+    description: "Coordenada espacial final del vano."
+  - name: LVSW
+    mode_id: C
+    aliases: ["distance_to_switch"]
+    description: "Longitud de red desde el vano hasta el equipo que opera."
+  - name: CNT_VN
+    mode_id: C
+    aliases: ["span_count_to_switch"]
+    description: "Cantidad de vanos entre la falla y el equipo protector."
+  - name: PORC_APORTE_VANO
+    mode_id: C
+    aliases: ["span_contribution_pct"]
+    description: "Ponderacion del vano dentro del conjunto protegido."
+  - name: FECHA_OPERACION_VANO
+    mode_id: D
+    aliases: ["span_operation_date"]
+    description: "Fecha de entrada en operacion del vano."
+  - name: LONGITUD
+    mode_id: D
+    aliases: ["span_length"]
+    description: "Longitud fisica del vano."
+  - name: CNT_FASES
+    mode_id: D
+    aliases: ["phase_count"]
+    description: "Cantidad de fases electricas del vano."
+  - name: CONDUCTOR
+    mode_id: D
+    aliases: ["conductor"]
+    description: "Tipo o material del conductor."
+  - name: CALIBRE_NEUTRO
+    mode_id: D
+    aliases: ["neutral_gauge"]
+    description: "Calibre del cable neutro."
+  - name: NG_RED
+    mode_id: D
+    aliases: ["guard_wire"]
+    description: "Indicador de cable de guarda o neutro."
+  - name: PROMEDIO_KWH_VANO
+    mode_id: D
+    aliases: ["avg_kwh_span"]
+    description: "Promedio mensual de energia que circula por el vano."
+  - name: TIPO_TAX
+    mode_id: D
+    aliases: ["taxonomy_type"]
+    description: "Taxonomia constructiva del vano."
+  - name: COD_APOYO_FIN
+    mode_id: E
+    aliases: ["support_code"]
+    description: "Codigo del apoyo final del vano."
+  - name: VAL_CRIT_APOYO
+    mode_id: E
+    aliases: ["support_criticality"]
+    description: "Calificacion de criticidad del apoyo."
+  - name: ALTURA
+    mode_id: E
+    aliases: ["height"]
+    description: "Altura del apoyo final."
+  - name: CLASE
+    mode_id: E
+    aliases: ["support_class"]
+    description: "Clase mecanica o material del apoyo."
+  - name: NORMA
+    mode_id: E
+    aliases: ["standard"]
+    description: "Codigo de estructura electrica normalizada."
+  - name: FID_TRAFO
+    mode_id: E
+    aliases: ["trafo_id"]
+    description: "Identificador del transformador asociado."
+  - name: CAPACIDAD_NOMINAL
+    mode_id: E
+    aliases: ["nominal_capacity"]
+    description: "Capacidad nominal del transformador."
+  - name: CNT_USUS
+    mode_id: E
+    aliases: ["users_affected", "USERS"]
+    description: "Usuarios conectados al transformador."
+  - name: NR_T
+    mode_id: F
+    aliases: ["vegetation_risk"]
+    description: "Nivel de riesgo por vegetacion cercana al vano."
+  - name: DDT
+    mode_id: F
+    aliases: ["lightning_density"]
+    description: "Densidad de descargas a tierra promedio en la zona."
+  - name: PREP_*
+    mode_id: F
+    aliases: ["prep_*", "precipitation_*"]
+    description: "Precipitacion en intervalos previos al evento."
+  - name: CLOUDS_*
+    mode_id: F
+    aliases: ["clouds_*"]
+    description: "Porcentaje de nubosidad en intervalos previos."
+  - name: VIS_*
+    mode_id: F
+    aliases: ["vis_*", "visibility_*"]
+    description: "Distancia maxima de visibilidad clara."
+  - name: WIND_SPD_*
+    mode_id: F
+    aliases: ["wind_spd_*", "wind_speed_*"]
+    description: "Velocidad sostenida del viento."
+  - name: WIND_GUST_SPD_*
+    mode_id: F
+    aliases: ["wind_gust_spd_*", "wind_gust_*"]
+    description: "Rafagas maximas de viento."
+  - name: TEMP_*
+    mode_id: F
+    aliases: ["temp_*", "temperature_*"]
+    description: "Temperatura ambiente en intervalos previos."

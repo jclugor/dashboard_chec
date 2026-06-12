@@ -9,6 +9,7 @@ import pandas as pd
 
 from chec_dashboard.core.config import Settings
 from chec_dashboard.services import databricks_data_service
+from chec_dashboard.services import normalized_vano_data_service
 from chec_dashboard.services.cache import CACHE, build_cache_key
 from chec_dashboard.services.map_service import (
     ALL_CIRCUITS_LABEL,
@@ -19,6 +20,11 @@ from chec_dashboard.services.map_service import (
     load_map_dataset,
     normalize_selected_circuits,
     render_base_map,
+)
+from chec_dashboard.services.impact_metrics import (
+    empty_metric_totals,
+    metric_definition,
+    normalize_metric_key,
 )
 from chec_dashboard.services.probability_service import (
     apply_filters,
@@ -35,12 +41,14 @@ from chec_dashboard.services.summary_service import (
     filter_summary_data,
     get_circuit_options,
     get_default_window,
+    event_options as get_local_summary_event_options,
     get_summary_interpretability_payload as get_local_summary_interpretability_payload,
     load_summary_dataset,
 )
 from chec_dashboard.services.time_series_interpretability_agent import (
     attach_interpretability_narrative,
 )
+from chec_dashboard.services.event_focus_service import attach_circuit_period_context
 from chec_dashboard.services.time_series_interpretability_service import CriticalityThresholds
 
 
@@ -55,6 +63,10 @@ MAP_OUTPUT_OPTIONS = ["BASE"]
 
 def _use_databricks_backend(settings: Settings) -> bool:
     return settings.data_backend == "databricks_sql"
+
+
+def _use_normalized_backend(settings: Settings) -> bool:
+    return (settings.data_dir / "normalization_manifest.json").exists()
 
 
 
@@ -86,6 +98,9 @@ def get_dashboard_metadata(settings: Settings) -> dict[str, Any]:
 def get_map_metadata(settings: Settings) -> dict[str, Any]:
     if _use_databricks_backend(settings):
         return databricks_data_service.get_map_metadata(settings)
+    if _use_normalized_backend(settings):
+        dataset = normalized_vano_data_service.load_normalized_dataset(str(settings.data_dir))
+        return normalized_vano_data_service.map_metadata(dataset)
     cache_key = build_cache_key("meta", "map")
     cached = _cache_get(settings, cache_key)
     if cached is not None:
@@ -121,6 +136,9 @@ def get_map_filter_metadata(
             selected_period=selected_period,
             selected_municipio=selected_municipio,
         )
+    if _use_normalized_backend(settings):
+        dataset = normalized_vano_data_service.load_normalized_dataset(str(settings.data_dir))
+        return normalized_vano_data_service.map_filter_metadata(dataset, selected_period, selected_municipio)
     if action != "circuits":
         raise ValueError(f"Unsupported map metadata action: {action}")
     if not selected_period or not selected_municipio:
@@ -155,6 +173,9 @@ def get_map_filter_metadata(
 def get_summary_metadata(settings: Settings) -> dict[str, Any]:
     if _use_databricks_backend(settings):
         return databricks_data_service.get_summary_metadata(settings)
+    if _use_normalized_backend(settings):
+        dataset = normalized_vano_data_service.load_normalized_dataset(str(settings.data_dir))
+        return normalized_vano_data_service.summary_metadata(dataset)
     cache_key = build_cache_key("meta", "summary")
     cached = _cache_get(settings, cache_key)
     if cached is not None:
@@ -201,6 +222,20 @@ def get_probability_metadata(settings: Settings) -> dict[str, Any]:
 def get_probability_columns_metadata(settings: Settings, criteria: str) -> dict[str, Any]:
     if _use_databricks_backend(settings):
         return databricks_data_service.get_probability_columns_metadata(settings, criteria)
+    if _use_normalized_backend(settings):
+        if criteria != "Eventos Vano":
+            raise ValueError("Criterio no válido")
+        dataset = normalized_vano_data_service.load_normalized_dataset(str(settings.data_dir))
+        source_df = normalized_vano_data_service.probability_frame(dataset)
+        return {
+            "action": "columns",
+            "criteria_options": [],
+            "columns": source_df.columns.astype(str).tolist(),
+            "filter_kind": None,
+            "value_options": [],
+            "is_empty": False,
+            "message": None,
+        }
     if not criteria:
         raise ValueError("criteria is required for probability columns metadata")
 
@@ -257,6 +292,25 @@ def get_probability_filter_options_metadata(
             selected_column=selected_column,
             previous_filters=previous_filters,
         )
+    if _use_normalized_backend(settings):
+        if criteria != "Eventos Vano":
+            raise ValueError("Criterio no válido")
+        dataset = normalized_vano_data_service.load_normalized_dataset(str(settings.data_dir))
+        source_df = normalized_vano_data_service.probability_frame(dataset)
+        filtered_df = apply_filters(source_df, previous_filters)
+        if selected_column not in filtered_df.columns:
+            raise ValueError(f"La columna '{selected_column}' no existe para el criterio seleccionado")
+        series = filtered_df[selected_column]
+        filter_kind = infer_filter_type(series.dtype.name)
+        return {
+            "action": "filter_options",
+            "criteria_options": [],
+            "columns": [],
+            "filter_kind": filter_kind,
+            "value_options": _serialize_value_options(series) if filter_kind in {"seleccion", "fecha"} else [],
+            "is_empty": filtered_df.empty,
+            "message": "No hay opciones con filtros previos." if filtered_df.empty else None,
+        }
     if not criteria:
         raise ValueError("criteria is required for probability filter metadata")
     if not selected_column:
@@ -327,6 +381,18 @@ def get_map_payload(
             selected_circuits=selected_circuits,
             selected_output=selected_output,
             day=day,
+        )
+    if _use_normalized_backend(settings):
+        dataset = normalized_vano_data_service.load_normalized_dataset(str(settings.data_dir))
+        return normalized_vano_data_service.map_payload(
+            dataset,
+            selected_period,
+            selected_municipio,
+            selected_circuit,
+            selected_circuits,
+            selected_output,
+            day,
+            settings.max_map_html_chars,
         )
     if not selected_period or not selected_municipio:
         raise ValueError("selected_period and selected_municipio are required")
@@ -401,6 +467,7 @@ def _daily_records(daily_data: pd.DataFrame, max_points: int) -> tuple[list[dict
         step = max(int(len(frame) / max_points), 1)
         frame = frame.iloc[::step].head(max_points)
 
+    metric_columns = ["UITI", "UITI_VANO", "EVENT_COUNT", "USERS", "DURATION_RAW"]
     records: list[dict[str, Any]] = []
     for _, row in frame.iterrows():
         date_value = row["fecha_dia"]
@@ -411,11 +478,21 @@ def _daily_records(daily_data: pd.DataFrame, max_points: int) -> tuple[list[dict
         else:
             date_str = str(date_value)
 
+        metrics = {}
+        for column in metric_columns:
+            source_column = column
+            if source_column not in row.index and column == "DURATION_RAW" and "duration_total_h" in row.index:
+                source_column = "duration_total_h"
+            elif source_column not in row.index and column == "USERS" and "users_affected_total" in row.index:
+                source_column = "users_affected_total"
+            elif source_column not in row.index and column == "EVENT_COUNT" and "event_count" in row.index:
+                source_column = "event_count"
+            metrics[column] = float(row.get(source_column, 0.0) or 0.0)
+
         records.append(
             {
                 "fecha_dia": date_str,
-                "SAIDI": float(row["SAIDI"]),
-                "SAIFI": float(row["SAIFI"]),
+                "metrics": metrics,
             }
         )
     return records, truncated
@@ -427,7 +504,7 @@ def get_summary_payload(
     start_date_raw: str | None,
     end_date_raw: str | None,
     circuito: str | None,
-    metric_mode: str,
+    metric_key: str,
 ) -> dict[str, Any]:
     if _use_databricks_backend(settings):
         return databricks_data_service.get_summary_payload(
@@ -435,16 +512,26 @@ def get_summary_payload(
             start_date_raw=start_date_raw,
             end_date_raw=end_date_raw,
             circuito=circuito,
-            metric_mode=metric_mode,
+            metric_key=metric_key,
+        )
+    if _use_normalized_backend(settings):
+        dataset = normalized_vano_data_service.load_normalized_dataset(str(settings.data_dir))
+        return normalized_vano_data_service.summary_payload(
+            dataset,
+            start_date_raw,
+            end_date_raw,
+            circuito,
+            metric_key,
         )
     dataset = load_summary_dataset(str(settings.data_dir))
     start_date, end_date = coerce_window(dataset, start_date_raw, end_date_raw)
-    metric_mode = metric_mode or "BOTH"
+    metric_key = normalize_metric_key(metric_key)
+    metric = metric_definition(metric_key)
 
     cache_key = build_cache_key(
         "summary",
         circuito or "TODOS",
-        metric_mode,
+        metric_key,
         start_date.isoformat(),
         end_date.isoformat(),
     )
@@ -455,6 +542,12 @@ def get_summary_payload(
     filtered = filter_summary_data(dataset, circuito, start_date, end_date)
     daily_data = aggregate_daily(filtered, start_date, end_date)
     kpis = compute_kpis(filtered)
+    metric_totals = empty_metric_totals()
+    metric_totals["UITI"] = float(kpis.get("uiti_total", 0.0))
+    metric_totals["UITI_VANO"] = float(kpis.get("uiti_vano_total", 0.0))
+    metric_totals["EVENT_COUNT"] = float(kpis["event_count"])
+    metric_totals["USERS"] = float(kpis.get("users_affected_total", 0.0))
+    metric_totals["DURATION_RAW"] = float(kpis.get("duration_raw_total", kpis.get("duration_total_h", 0.0)))
 
     circuit_label = circuito or "TODOS"
     if filtered.empty:
@@ -467,7 +560,7 @@ def get_summary_payload(
         status_text = (
             f"Circuito: {circuit_label}. "
             f"Ventana: {start_date.isoformat()} a {end_date.isoformat()}. "
-            f"Eventos: {kpis['event_count']}."
+            f"Eventos: {kpis['event_count']}. Métrica: {metric.label}."
         )
 
     daily_records, truncated = _daily_records(daily_data, settings.max_summary_points)
@@ -481,15 +574,49 @@ def get_summary_payload(
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
         "circuit_label": circuit_label,
-        "metric_mode": metric_mode,
-        "saidi_total": float(kpis["saidi_total"]),
-        "saifi_total": float(kpis["saifi_total"]),
+        "metric_key": metric_key,
+        "metric_totals": metric_totals,
         "event_count": int(kpis["event_count"]),
         "daily_data": daily_records,
         "status_text": status_text,
     }
     _cache_set(settings, cache_key, payload, SUMMARY_CACHE_SECONDS)
     return payload
+
+
+def get_summary_event_options(
+    settings: Settings,
+    start_date_raw: str | None,
+    end_date_raw: str | None,
+    circuito: str | None,
+    *,
+    limit: int = 200,
+) -> dict[str, Any]:
+    if _use_databricks_backend(settings):
+        return databricks_data_service.get_summary_event_options(
+            settings=settings,
+            start_date_raw=start_date_raw,
+            end_date_raw=end_date_raw,
+            circuito=circuito,
+            limit=limit,
+        )
+    if _use_normalized_backend(settings):
+        dataset = normalized_vano_data_service.load_normalized_dataset(str(settings.data_dir))
+        return normalized_vano_data_service.event_options(
+            dataset,
+            start_date_raw,
+            end_date_raw,
+            circuito,
+            limit=limit,
+        )
+    dataset = load_summary_dataset(str(settings.data_dir))
+    return get_local_summary_event_options(
+        dataset,
+        start_date_raw,
+        end_date_raw,
+        circuito,
+        limit=limit,
+    )
 
 
 def _summary_interpretability_thresholds(settings: Settings) -> CriticalityThresholds:
@@ -508,11 +635,12 @@ def get_summary_interpretability_payload(
     start_date_raw: str | None,
     end_date_raw: str | None,
     circuito: str | None,
-    metric_mode: str | None,
+    metric_key: str | None,
     *,
     max_points: int | None = None,
     include_agent_text: bool | None = None,
     selected_date: str | None = None,
+    selected_event_id: str | None = None,
 ) -> dict[str, Any]:
     if _use_databricks_backend(settings):
         return databricks_data_service.get_summary_interpretability_payload(
@@ -520,7 +648,7 @@ def get_summary_interpretability_payload(
             start_date_raw=start_date_raw,
             end_date_raw=end_date_raw,
             circuito=circuito,
-            metric_mode=metric_mode,
+            metric_key=metric_key,
             max_points=max_points or settings.summary_interpretability_max_points,
             include_agent_text=(
                 settings.summary_interpretability_include_agent_text_default
@@ -528,11 +656,39 @@ def get_summary_interpretability_payload(
                 else include_agent_text
             ),
             selected_date=selected_date,
+            selected_event_id=selected_event_id,
+        )
+    if _use_normalized_backend(settings):
+        dataset = normalized_vano_data_service.load_normalized_dataset(str(settings.data_dir))
+        payload = normalized_vano_data_service.interpretability_payload(
+            dataset,
+            start_date_raw,
+            end_date_raw,
+            circuito,
+            metric_key,
+            max_points=max_points or settings.summary_interpretability_max_points,
+            thresholds=_summary_interpretability_thresholds(settings),
+            selected_event_id=selected_event_id,
+        )
+        if selected_date:
+            payload["critical_points"] = [
+                point for point in payload.get("critical_points", []) if point.get("fecha_dia") == selected_date
+            ]
+        payload = attach_circuit_period_context(settings, payload)
+        should_include_agent = (
+            settings.summary_interpretability_include_agent_text_default
+            if include_agent_text is None
+            else include_agent_text
+        )
+        return attach_interpretability_narrative(
+            settings,
+            payload,
+            include_agent_text=bool(should_include_agent and settings.summary_interpretability_enabled),
         )
 
     dataset = load_summary_dataset(str(settings.data_dir))
     start_date, end_date = coerce_window(dataset, start_date_raw, end_date_raw)
-    metric_mode = metric_mode or "BOTH"
+    metric_key = normalize_metric_key(metric_key)
     safe_max_points = max(1, min(int(max_points or settings.summary_interpretability_max_points), 12))
     should_include_agent = (
         settings.summary_interpretability_include_agent_text_default
@@ -543,7 +699,7 @@ def get_summary_interpretability_payload(
     cache_key = build_cache_key(
         "summary_interpretability",
         circuito or "TODOS",
-        metric_mode,
+        metric_key,
         start_date.isoformat(),
         end_date.isoformat(),
         str(safe_max_points),
@@ -555,7 +711,7 @@ def get_summary_interpretability_payload(
         str(should_include_agent),
         selected_date or "",
         "narrative_v2",
-        "schema_1",
+        "schema_3_circuit_period",
     )
     cached = _cache_get(settings, cache_key)
     if cached is not None:
@@ -566,14 +722,16 @@ def get_summary_interpretability_payload(
         start_date_raw=start_date.isoformat(),
         end_date_raw=end_date.isoformat(),
         circuito=circuito,
-        metric_mode=metric_mode,
+        metric_key=metric_key,
         max_points=safe_max_points,
         thresholds=_summary_interpretability_thresholds(settings),
+        selected_event_id=selected_event_id,
     )
     if selected_date:
         payload["critical_points"] = [
             point for point in payload.get("critical_points", []) if point.get("fecha_dia") == selected_date
         ]
+    payload = attach_circuit_period_context(settings, payload)
     payload = attach_interpretability_narrative(
         settings,
         payload,
@@ -629,6 +787,34 @@ def get_probability_payload(
             target_column=target_column,
             filters=filters,
         )
+    if _use_normalized_backend(settings):
+        if criteria != "Eventos Vano":
+            raise ValueError("Criterio no válido")
+        dataset = normalized_vano_data_service.load_normalized_dataset(str(settings.data_dir))
+        source_df = normalized_vano_data_service.probability_frame(dataset)
+        filtered_df = apply_filters(source_df, filters)
+        probability_text = _build_probability_text(criteria, target_column, filters)
+        if filtered_df.empty:
+            return {
+                "probability_text": probability_text,
+                "status_text": "No hay registros para la combinación seleccionada.",
+                "graph_name": None,
+                "graph_data_uri": None,
+            }
+        graph_path = generate_probability_graph(
+            filtered_df,
+            target_column=target_column,
+            probability_text=probability_text,
+            output_dir=settings.output_dir,
+        )
+        graph_bytes = graph_path.read_bytes()
+        graph_data_uri = f"data:image/png;base64,{base64.b64encode(graph_bytes).decode('ascii')}"
+        return {
+            "probability_text": probability_text,
+            "status_text": "Distribución generada correctamente.",
+            "graph_name": graph_path.name,
+            "graph_data_uri": graph_data_uri,
+        }
     if not criteria:
         raise ValueError("criteria is required")
     if not target_column:

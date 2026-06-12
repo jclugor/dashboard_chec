@@ -77,7 +77,11 @@ def _context_summary_component(item: dict[str, Any] | None):
             ("Municipio", context.get("selected_municipio")),
             ("Circuitos", context.get("scope_label")),
             ("Fechas", f"{date_bounds.get('start') or 'N/D'} a {date_bounds.get('end') or 'N/D'}"),
-            ("Indicadores", f"Eventos {kpis.get('event_count', 0)} / SAIDI {kpis.get('saidi_total', 0)} / SAIFI {kpis.get('saifi_total', 0)}"),
+            (
+                "Indicadores",
+                f"Eventos {kpis.get('event_count', 0)} / UITI {kpis.get('uiti_total', 0)} / "
+                f"UITI vano {kpis.get('uiti_vano_total', 0)}",
+            ),
             ("Circuitos críticos", top_circuits),
             ("Causas", top_causes),
         ]
@@ -88,7 +92,11 @@ def _context_summary_component(item: dict[str, Any] | None):
             ("Circuito", context.get("cto_equi_ope") or context.get("circuito") or context.get("FPARENT")),
             ("Municipio", context.get("MUN") or context.get("municipio")),
             ("Equipo", context.get("equipo_ope") or context.get("CODE") or context.get("display_label")),
-            ("Indicadores", f"SAIDI {context.get('SAIDI') or context.get('severity_saidi') or 'N/D'} / SAIFI {context.get('SAIFI') or context.get('severity_saifi') or 'N/D'}"),
+            (
+                "Indicadores",
+                f"UITI {context.get('UITI') or context.get('uiti_total') or 'N/D'} / "
+                f"UITI vano {context.get('UITI_VANO') or context.get('uiti_vano_total') or 'N/D'}",
+            ),
         ]
     rows = [
         html.Div(

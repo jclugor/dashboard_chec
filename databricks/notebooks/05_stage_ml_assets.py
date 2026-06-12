@@ -4,6 +4,8 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+from pyspark.sql.types import LongType, StringType, StructField, StructType, TimestampType
+
 # COMMAND ----------
 # MAGIC %run ./_shared_phase1
 
@@ -12,6 +14,20 @@ define_standard_widgets()
 context = build_context()
 manifest = load_manifest(context.manifest_path)
 artifact_volume_root = Path(context.artifact_volume_root)
+
+artifact_inventory_schema = StructType(
+    [
+        StructField("logical_name", StringType(), True),
+        StructField("source_file_name", StringType(), True),
+        StructField("relative_path", StringType(), True),
+        StructField("target_schema", StringType(), True),
+        StructField("target_volume", StringType(), True),
+        StructField("staged_path", StringType(), True),
+        StructField("bytes", LongType(), True),
+        StructField("copy_status", StringType(), True),
+        StructField("staged_at", TimestampType(), True),
+    ]
+)
 
 artifact_rows: list[dict[str, object]] = []
 
@@ -37,7 +53,7 @@ for entry in manifest.get("ml_artifacts", []):
         }
     )
 
-artifact_df = spark.createDataFrame(artifact_rows)
+artifact_df = spark.createDataFrame(artifact_rows, schema=artifact_inventory_schema)
 artifact_df.write.format("delta").mode("overwrite").option("overwriteSchema", "true").saveAsTable(
     table_name(context.catalog_name, "ml", "phase1_artifact_inventory")
 )

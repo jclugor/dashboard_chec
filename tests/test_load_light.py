@@ -20,11 +20,10 @@ def test_concurrent_summary_requests(client: TestClient, monkeypatch: pytest.Mon
             "start_date": "2024-01-01",
             "end_date": "2024-01-31",
             "circuit_label": "CIR-1",
-            "metric_mode": "BOTH",
-            "saidi_total": 10.0,
-            "saifi_total": 20.0,
+            "metric_key": "UITI",
+            "metric_totals": {"UITI": 10.0, "UITI_VANO": 20.0, "EVENT_COUNT": 4.0, "USERS": 30.0, "DURATION_RAW": 5.0},
             "event_count": 4,
-            "daily_data": [{"fecha_dia": "2024-01-01", "SAIDI": 1.0, "SAIFI": 2.0}],
+            "daily_data": [{"fecha_dia": "2024-01-01", "metrics": {"UITI": 1.0, "UITI_VANO": 2.0}}],
             "status_text": "ok",
         },
     )
@@ -35,7 +34,7 @@ def test_concurrent_summary_requests(client: TestClient, monkeypatch: pytest.Mon
             "start_date": "2024-01-01",
             "end_date": "2024-01-31",
             "circuito": "CIR-1",
-            "metric_mode": "BOTH",
+            "metric_key": "UITI",
         },
     }
 

@@ -6,8 +6,10 @@ from typing import Any
 
 import pandas as pd
 
+from chec_dashboard.services.impact_metrics import metric_keys, normalize_metric_key
 
-METRICS = ("SAIDI", "SAIFI")
+
+METRICS = metric_keys()
 
 
 @dataclass(frozen=True)
@@ -52,11 +54,8 @@ def _metric_key(metric: str) -> str:
     return metric.lower()
 
 
-def _metric_modes(metric_mode: str | None) -> tuple[str, ...]:
-    mode = (metric_mode or "BOTH").upper()
-    if mode in METRICS:
-        return (mode,)
-    return METRICS
+def _selected_metric_keys(metric_key: str | None) -> tuple[str, ...]:
+    return (normalize_metric_key(metric_key),)
 
 
 def _first_existing_column(frame: pd.DataFrame, candidates: list[str]) -> str | None:
@@ -80,15 +79,19 @@ def normalize_daily_frame(
     end_date: date | str | None = None,
 ) -> pd.DataFrame:
     frame = pd.DataFrame(daily_data).copy()
+    if "metrics" in frame.columns:
+        metric_values = pd.json_normalize(frame["metrics"]).reindex(frame.index)
+        for metric in METRICS:
+            if metric not in frame.columns and metric in metric_values.columns:
+                frame[metric] = metric_values[metric]
     if frame.empty:
         if start_date is None or end_date is None:
             return pd.DataFrame(
                 columns=[
                     "fecha_dia",
-                    "SAIDI",
-                    "SAIFI",
+                    *METRICS,
                     "event_count",
-                    "duration_total_h",
+                    "duration_raw_total",
                     "users_affected_total",
                 ]
             )
@@ -104,10 +107,9 @@ def normalize_daily_frame(
         return pd.DataFrame(
             columns=[
                 "fecha_dia",
-                "SAIDI",
-                "SAIFI",
+                *METRICS,
                 "event_count",
-                "duration_total_h",
+                "duration_raw_total",
                 "users_affected_total",
             ]
         )
@@ -119,9 +121,15 @@ def normalize_daily_frame(
 
     aggregate_columns = {
         "event_count": 0,
-        "duration_total_h": 0.0,
+        "duration_raw_total": 0.0,
         "users_affected_total": 0.0,
     }
+    if "event_count" not in frame.columns and "EVENT_COUNT" in frame.columns:
+        frame["event_count"] = frame["EVENT_COUNT"]
+    if "duration_raw_total" not in frame.columns and "DURATION_RAW" in frame.columns:
+        frame["duration_raw_total"] = frame["DURATION_RAW"]
+    if "users_affected_total" not in frame.columns and "USERS" in frame.columns:
+        frame["users_affected_total"] = frame["USERS"]
     for column, default in aggregate_columns.items():
         if column not in frame.columns:
             frame[column] = default
@@ -130,10 +138,9 @@ def normalize_daily_frame(
     grouped = (
         frame.groupby("fecha_dia", as_index=False)
         .agg(
-            SAIDI=("SAIDI", "sum"),
-            SAIFI=("SAIFI", "sum"),
+            **{metric: (metric, "sum") for metric in METRICS},
             event_count=("event_count", "sum"),
-            duration_total_h=("duration_total_h", "sum"),
+            duration_raw_total=("duration_raw_total", "sum"),
             users_affected_total=("users_affected_total", "sum"),
         )
         .sort_values("fecha_dia")
@@ -211,9 +218,8 @@ def compute_data_quality_flags(daily_data: pd.DataFrame, event_frame: pd.DataFra
     if len(frame) < 7:
         flags.append("short_window")
     if all(metric in frame.columns for metric in METRICS):
-        if pd.to_numeric(frame["SAIDI"], errors="coerce").fillna(0.0).sum() == 0 and pd.to_numeric(
-            frame["SAIFI"], errors="coerce"
-        ).fillna(0.0).sum() == 0:
+        total = sum(pd.to_numeric(frame[metric], errors="coerce").fillna(0.0).sum() for metric in METRICS)
+        if total == 0:
             flags.append("all_zero_window")
     if event_frame is not None and event_frame.empty and "all_zero_window" not in flags:
         flags.append("missing_event_attribution")
@@ -244,7 +250,7 @@ def _reason(
 def detect_point_reasons(
     feature_frame: pd.DataFrame,
     *,
-    metric_mode: str = "BOTH",
+    metric_key: str = "UITI",
     thresholds: CriticalityThresholds | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     thresholds = thresholds or CriticalityThresholds()
@@ -253,7 +259,7 @@ def detect_point_reasons(
     frame = feature_frame.copy()
     reasons_by_date: dict[str, list[dict[str, Any]]] = {}
 
-    for metric in _metric_modes(metric_mode):
+    for metric in _selected_metric_keys(metric_key):
         key = _metric_key(metric)
         values = pd.to_numeric(frame[metric], errors="coerce").fillna(0.0)
         if values.sum() <= 0:
@@ -368,28 +374,6 @@ def detect_point_reasons(
                 )
             )
 
-    for _, row in frame.iterrows():
-        date_key = _date_text(row["fecha_dia"])
-        saidi_contribution = _as_float(row.get("saidi_contribution_pct"))
-        saifi_contribution = _as_float(row.get("saifi_contribution_pct"))
-        saidi_z = _as_float(row.get("saidi_robust_z"))
-        saifi_z = _as_float(row.get("saifi_robust_z"))
-        if (
-            abs(saidi_contribution - saifi_contribution) >= thresholds.top_contributor_pct
-            or abs(saidi_z - saifi_z) >= thresholds.high_robust_z
-        ) and (_as_float(row.get("SAIDI")) > 0 or _as_float(row.get("SAIFI")) > 0):
-            reasons_by_date.setdefault(date_key, []).append(
-                _reason(
-                    "saidi_saifi_divergence",
-                    "BOTH",
-                    abs(saidi_contribution - saifi_contribution) + abs(saidi_z - saifi_z) / 10,
-                    value=abs(saidi_contribution - saifi_contribution),
-                    baseline=0.0,
-                    threshold=thresholds.top_contributor_pct,
-                    detail="SAIDI y SAIFI muestran comportamientos distintos en el mismo dia.",
-                )
-            )
-
     return {
         date_key: [reason for reason in reasons if reason["score"] > 0]
         for date_key, reasons in reasons_by_date.items()
@@ -400,7 +384,7 @@ def detect_point_reasons(
 def detect_critical_periods(
     feature_frame: pd.DataFrame,
     *,
-    metric_mode: str = "BOTH",
+    metric_key: str = "UITI",
     thresholds: CriticalityThresholds | None = None,
 ) -> list[dict[str, Any]]:
     thresholds = thresholds or CriticalityThresholds()
@@ -408,7 +392,7 @@ def detect_critical_periods(
     if feature_frame.empty:
         return periods
 
-    for metric in _metric_modes(metric_mode):
+    for metric in _selected_metric_keys(metric_key):
         values = pd.to_numeric(feature_frame[metric], errors="coerce").fillna(0.0)
         if values.sum() <= 0:
             continue
@@ -467,7 +451,7 @@ def rank_and_merge_critical_points(
         if isinstance(row, pd.DataFrame):
             row = row.iloc[0]
         reason_score = sum(float(reason["score"]) for reason in reasons)
-        contribution_score = _as_float(row.get("saidi_contribution_pct")) + _as_float(row.get("saifi_contribution_pct"))
+        contribution_score = max(_as_float(row.get(f"{_metric_key(metric)}_contribution_pct")) for metric in METRICS)
         criticality_score = min(reason_score + contribution_score, 10.0)
         points.append(
             {
@@ -478,7 +462,7 @@ def rank_and_merge_critical_points(
                 "metrics": _row_metrics(row),
                 "daily_aggregates": {
                     "event_count": _as_int(row.get("event_count")),
-                    "duration_total_h": _round(row.get("duration_total_h"), 2),
+                    "duration_raw_total": _round(row.get("duration_raw_total"), 2),
                     "users_affected_total": _round(row.get("users_affected_total"), 2),
                 },
             }
@@ -492,25 +476,22 @@ def rank_and_merge_critical_points(
 
 def _row_metrics(row: pd.Series) -> dict[str, Any]:
     metrics: dict[str, Any] = {}
-    for column in (
-        "SAIDI",
-        "SAIFI",
-        "saidi_robust_z",
-        "saifi_robust_z",
-        "saidi_delta_1d",
-        "saifi_delta_1d",
-        "saidi_delta_pct",
-        "saifi_delta_pct",
-        "saidi_contribution_pct",
-        "saifi_contribution_pct",
-        "rolling_7d_saidi_sum",
-        "rolling_7d_saifi_sum",
-    ):
+    columns: list[str] = []
+    for metric in METRICS:
+        key = _metric_key(metric)
+        columns.extend(
+            [
+                metric,
+                f"{key}_robust_z",
+                f"{key}_delta_1d",
+                f"{key}_delta_pct",
+                f"{key}_contribution_pct",
+                f"rolling_7d_{key}_sum",
+            ]
+        )
+    for column in columns:
         value = row.get(column)
-        if value is None or pd.isna(value):
-            metrics[column] = None
-        else:
-            metrics[column] = _round(value)
+        metrics[column] = None if value is None or pd.isna(value) else _round(value)
     return metrics
 
 
@@ -536,10 +517,10 @@ def _attribution_items(
         {
             "label": frame[group_column].fillna("Sin dato").astype(str).str.strip().replace("", "Sin dato"),
             "event_count": _numeric_series(frame, ["event_count"]),
-            "saidi_total": _numeric_series(frame, ["saidi_total", "severity_saidi", "SAIDI"]),
-            "saifi_total": _numeric_series(frame, ["saifi_total", "severity_saifi", "SAIFI"]),
-            "duration_total_h": _numeric_series(frame, ["duration_total_h", "duration_hours", "duracion_h"]),
-            "users_affected_total": _numeric_series(frame, ["users_affected_total", "cnt_usus"]),
+            "uiti_total": _numeric_series(frame, ["uiti_total", "UITI"]),
+            "uiti_vano_total": _numeric_series(frame, ["uiti_vano_total", "UITI_VANO"]),
+            "duration_raw_total": _numeric_series(frame, ["duration_raw_total", "DURATION_RAW", "duration_raw", "duracion_h"]),
+            "users_affected_total": _numeric_series(frame, ["users_affected_total", "USERS", "users_affected", "cnt_usus"]),
         }
     )
     if work["event_count"].sum() == 0:
@@ -548,28 +529,34 @@ def _attribution_items(
         work.groupby("label", dropna=False)
         .agg(
             event_count=("event_count", "sum"),
-            saidi_total=("saidi_total", "sum"),
-            saifi_total=("saifi_total", "sum"),
-            duration_total_h=("duration_total_h", "sum"),
+            uiti_total=("uiti_total", "sum"),
+            uiti_vano_total=("uiti_vano_total", "sum"),
+            duration_raw_total=("duration_raw_total", "sum"),
             users_affected_total=("users_affected_total", "sum"),
         )
         .reset_index()
     )
-    grouped["impact_score"] = grouped["saidi_total"] + grouped["saifi_total"]
+    grouped["impact_score"] = grouped["uiti_total"]
     grouped = grouped.sort_values(
-        ["impact_score", "event_count", "duration_total_h"],
+        ["impact_score", "event_count", "duration_raw_total"],
         ascending=[False, False, False],
     ).head(limit)
     return [
         {
             "label": str(row["label"]),
             "event_count": _as_int(row["event_count"]),
-            "saidi_total": _round(row["saidi_total"]),
-            "saifi_total": _round(row["saifi_total"]),
-            "duration_total_h": _round(row["duration_total_h"], 2),
+            "metric_totals": {
+                "UITI": _round(row["uiti_total"]),
+                "UITI_VANO": _round(row["uiti_vano_total"]),
+                "EVENT_COUNT": _round(row["event_count"]),
+                "USERS": _round(row["users_affected_total"], 2),
+                "DURATION_RAW": _round(row["duration_raw_total"], 2),
+            },
+            "impact_total": _round(row["uiti_total"]),
+            "duration_raw_total": _round(row["duration_raw_total"], 2),
             "users_affected_total": _round(row["users_affected_total"], 2),
             "contribution_pct": (
-                _round((row["saidi_total"] + row["saifi_total"]) / daily_total)
+                _round(row["uiti_total"] / daily_total)
                 if daily_total > 0
                 else None
             ),
@@ -590,13 +577,13 @@ def _top_events(frame: pd.DataFrame, *, limit: int = 5) -> list[dict[str, Any]]:
     if frame.empty:
         return []
     work = frame.copy()
-    work["severity_saidi"] = _numeric_series(work, ["severity_saidi", "SAIDI", "saidi_total"])
-    work["severity_saifi"] = _numeric_series(work, ["severity_saifi", "SAIFI", "saifi_total"])
-    work["duration_hours"] = _numeric_series(work, ["duration_hours", "duracion_h", "duration_total_h"])
-    work["cnt_usus"] = _numeric_series(work, ["cnt_usus", "users_affected_total"])
-    work["impact_score"] = work["severity_saidi"] + work["severity_saifi"]
+    work["uiti"] = _numeric_series(work, ["UITI", "uiti_total"])
+    work["uiti_vano"] = _numeric_series(work, ["UITI_VANO", "uiti_vano_total"])
+    work["duration_raw"] = _numeric_series(work, ["DURATION_RAW", "duration_raw", "duration_raw_total", "duracion_h"])
+    work["users_affected"] = _numeric_series(work, ["USERS", "users_affected", "users_affected_total", "cnt_usus"])
+    work["impact_score"] = work["uiti_vano"].where(work["uiti_vano"] > 0, work["uiti"])
     work = work.sort_values(
-        ["impact_score", "duration_hours", "cnt_usus"],
+        ["impact_score", "duration_raw", "users_affected"],
         ascending=[False, False, False],
     ).head(limit)
     events = []
@@ -615,10 +602,10 @@ def _top_events(frame: pd.DataFrame, *, limit: int = 5) -> list[dict[str, Any]]:
                 "equipo_ope": _event_text(row, ["equipo_ope", "CODE"]),
                 "tipo_equi_ope": _event_text(row, ["tipo_equi_ope"]),
                 "tipo_elemento": _event_text(row, ["tipo_elemento"]),
-                "duration_hours": _round(row["duration_hours"], 2),
-                "severity_saidi": _round(row["severity_saidi"]),
-                "severity_saifi": _round(row["severity_saifi"]),
-                "cnt_usus": _round(row["cnt_usus"], 2),
+                "duration_raw": _round(row["duration_raw"], 2),
+                "uiti": _round(row["uiti"]),
+                "uiti_vano": _round(row["uiti_vano"]),
+                "users_affected": _round(row["users_affected"], 2),
             }
         )
     return events
@@ -652,14 +639,13 @@ def enrich_critical_points_with_attribution(
         environment = _date_filtered_frame(environment_frame, fecha_dia)
         source = attribution if not attribution.empty else events
         metrics = point.get("metrics") or {}
-        daily_total = _as_float(metrics.get("SAIDI")) + _as_float(metrics.get("SAIFI"))
+        daily_total = _as_float(metrics.get("UITI"))
 
         data_quality_flags: list[str] = []
         if source.empty and (point.get("daily_aggregates") or {}).get("event_count", 0):
             data_quality_flags.append("missing_event_attribution")
         if not events.empty:
-            event_metric_total = _numeric_series(events, ["severity_saidi", "SAIDI", "saidi_total"]).sum()
-            event_metric_total += _numeric_series(events, ["severity_saifi", "SAIFI", "saifi_total"]).sum()
+            event_metric_total = _numeric_series(events, ["UITI_VANO", "UITI", "uiti_total"]).sum()
         else:
             event_metric_total = 0.0
         if not events.empty and event_metric_total == 0:
@@ -727,13 +713,135 @@ def deterministic_insight_text(payload: dict[str, Any]) -> str:
     )
     return (
         f"Se detectaron {len(points)} puntos criticos entre {start_date} y {end_date}. "
-        f"El punto principal fue {first.get('fecha_dia')}, con SAIDI={_round(metrics.get('SAIDI'))} "
-        f"y SAIFI={_round(metrics.get('SAIFI'))}. Se marco por: {reason_labels}. "
+        f"El punto principal fue {first.get('fecha_dia')}, con UITI={_round(metrics.get('UITI'))} "
+        f"y UITI_VANO={_round(metrics.get('UITI_VANO'))}. Se marco por: {reason_labels}. "
         f"En ese dia se registraron {aggregates.get('event_count', 0)} eventos, "
-        f"{aggregates.get('duration_total_h', 0)} horas acumuladas de duracion y "
+        f"{aggregates.get('duration_raw_total', 0)} unidades de duracion fuente acumulada y "
         f"{aggregates.get('users_affected_total', 0)} usuarios afectados. "
         f"La principal agrupacion observada fue {dominant}.{quality_text}"
     )
+
+
+def _daily_indicator_rows(frame: pd.DataFrame, *, limit: int = 400) -> list[dict[str, Any]]:
+    if frame.empty:
+        return []
+    rows: list[dict[str, Any]] = []
+    work = normalize_daily_frame(frame)
+    for _, row in work.head(limit).iterrows():
+        rows.append(
+            {
+                "fecha_dia": _date_text(row.get("fecha_dia")),
+                "UITI": _round(row.get("UITI")),
+                "UITI_VANO": _round(row.get("UITI_VANO")),
+                "event_count": _as_int(row.get("event_count")),
+                "DURATION_RAW": _round(row.get("DURATION_RAW"), 2),
+                "USERS": _round(row.get("USERS"), 2),
+            }
+        )
+    return rows
+
+
+def _aggregate_totals(frame: pd.DataFrame) -> dict[str, Any]:
+    if frame.empty:
+        return {"UITI": 0.0, "UITI_VANO": 0.0, "EVENT_COUNT": 0, "DURATION_RAW": 0.0, "USERS": 0.0}
+    return {
+        "UITI": _round(_numeric_series(frame, ["UITI", "uiti_total"]).sum()),
+        "UITI_VANO": _round(_numeric_series(frame, ["UITI_VANO", "uiti_vano_total"]).sum()),
+        "EVENT_COUNT": _as_int(_numeric_series(frame, ["event_count", "EVENT_COUNT"]).sum()),
+        "DURATION_RAW": _round(_numeric_series(frame, ["DURATION_RAW", "duration_raw_total", "duration_raw"]).sum(), 2),
+        "USERS": _round(_numeric_series(frame, ["USERS", "users_affected_total", "users_affected"]).sum(), 2),
+    }
+
+
+def _trend_summary(frame: pd.DataFrame, metric_key: str) -> dict[str, Any]:
+    if frame.empty:
+        return {"available": False}
+    metric_key = normalize_metric_key(metric_key)
+    work = normalize_daily_frame(frame)
+    metric = pd.to_numeric(work.get(metric_key, 0.0), errors="coerce").fillna(0.0)
+    if metric.empty:
+        return {"available": False}
+    max_index = metric.idxmax()
+    first_value = float(metric.iloc[0])
+    last_value = float(metric.iloc[-1])
+    return {
+        "available": True,
+        "metric": metric_key,
+        "first_value": _round(first_value),
+        "last_value": _round(last_value),
+        "delta": _round(last_value - first_value),
+        "max_date": _date_text(work.loc[max_index, "fecha_dia"]),
+        "max_value": _round(metric.loc[max_index]),
+        "nonzero_days": int((metric > 0).sum()),
+    }
+
+
+def build_circuit_history_12m_payload(
+    *,
+    daily_frame: pd.DataFrame,
+    start_date: str,
+    end_date: str,
+    circuit_label: str,
+    metric_key: str,
+    max_points: int = 5,
+    thresholds: CriticalityThresholds | None = None,
+    attribution_frame: pd.DataFrame | None = None,
+    event_frame: pd.DataFrame | None = None,
+    environment_frame: pd.DataFrame | None = None,
+) -> dict[str, Any]:
+    thresholds = thresholds or CriticalityThresholds(max_points=max_points)
+    raw_quality_flags = compute_data_quality_flags(pd.DataFrame(daily_frame), event_frame=event_frame)
+    normalized = normalize_daily_frame(daily_frame, start_date=start_date, end_date=end_date)
+    if normalized.empty:
+        return {
+            "available": False,
+            "reason": "empty_history",
+            "start_date": start_date,
+            "end_date": end_date,
+            "circuit_label": circuit_label,
+            "metric_key": normalize_metric_key(metric_key),
+        }
+
+    feature_frame = compute_time_series_features(normalized)
+    reasons_by_date = detect_point_reasons(feature_frame, metric_key=metric_key, thresholds=thresholds)
+    points = rank_and_merge_critical_points(feature_frame, reasons_by_date, max_points=max_points)
+    points = enrich_critical_points_with_attribution(
+        points,
+        attribution_frame=attribution_frame,
+        event_frame=event_frame,
+        environment_frame=environment_frame,
+    )
+    aggregate_totals = _aggregate_totals(normalized)
+    attribution_source = pd.DataFrame() if attribution_frame is None else attribution_frame
+    history_total = float(aggregate_totals.get("UITI") or 0.0)
+
+    return {
+        "available": True,
+        "start_date": start_date,
+        "end_date": end_date,
+        "circuit_label": circuit_label,
+        "metric_key": normalize_metric_key(metric_key),
+        "event_count": int(aggregate_totals.get("EVENT_COUNT") or 0),
+        "aggregate_totals": aggregate_totals,
+        "trend_summary": _trend_summary(normalized, metric_key),
+        "daily_indicators": _daily_indicator_rows(normalized),
+        "critical_points": points,
+        "critical_periods": detect_critical_periods(feature_frame, metric_key=metric_key, thresholds=thresholds),
+        "dominant_causes": _attribution_items(attribution_source, ["causa"], daily_total=history_total),
+        "dominant_event_families": _attribution_items(
+            attribution_source,
+            ["event_family", "tipo_equi_ope"],
+            daily_total=history_total,
+        ),
+        "dominant_equipment": _attribution_items(
+            attribution_source,
+            ["equipo_ope", "tipo_equi_ope", "tipo_elemento", "CODE"],
+            daily_total=history_total,
+        ),
+        "dominant_circuits": _attribution_items(attribution_source, ["circuito", "cto_equi_ope", "FPARENT"], daily_total=history_total),
+        "external_signals": _external_signals(pd.DataFrame() if environment_frame is None else environment_frame),
+        "data_quality_flags": sorted(set(raw_quality_flags + compute_data_quality_flags(normalized, event_frame=event_frame))),
+    }
 
 
 def build_timeseries_context_package(payload: dict[str, Any]) -> dict[str, Any]:
@@ -750,7 +858,7 @@ def build_summary_interpretability_payload(
     start_date: str,
     end_date: str,
     circuit_label: str,
-    metric_mode: str,
+    metric_key: str,
     generated_at: str,
     max_points: int = 5,
     thresholds: CriticalityThresholds | None = None,
@@ -776,7 +884,8 @@ def build_summary_interpretability_payload(
     global_flags = sorted(
         set(raw_quality_flags + compute_data_quality_flags(normalized, event_frame=event_frame))
     )
-    reasons_by_date = detect_point_reasons(feature_frame, metric_mode=metric_mode, thresholds=thresholds)
+    metric_key = normalize_metric_key(metric_key)
+    reasons_by_date = detect_point_reasons(feature_frame, metric_key=metric_key, thresholds=thresholds)
     points = rank_and_merge_critical_points(feature_frame, reasons_by_date, max_points=max_points)
     points = enrich_critical_points_with_attribution(
         points,
@@ -791,7 +900,7 @@ def build_summary_interpretability_payload(
             if any(flag in merged for flag in ("empty_time_series", "all_zero_window", "missing_event_attribution")):
                 point["confidence"] = "low"
 
-    periods = detect_critical_periods(feature_frame, metric_mode=metric_mode, thresholds=thresholds)
+    periods = detect_critical_periods(feature_frame, metric_key=metric_key, thresholds=thresholds)
     status_text = (
         f"Se detectaron {len(points)} puntos criticos para la ventana seleccionada."
         if points
@@ -804,7 +913,7 @@ def build_summary_interpretability_payload(
         "start_date": start_date,
         "end_date": end_date,
         "circuit_label": circuit_label,
-        "metric_mode": metric_mode,
+        "metric_key": metric_key,
         "generated_at": generated_at,
         "critical_points": points,
         "critical_periods": periods,

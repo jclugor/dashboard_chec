@@ -10,6 +10,17 @@ from chec_dashboard.services.model_loader import load_local_model
 from chec_dashboard.services.probability_service import REQUIRED_PROBABILITY_FILES
 from chec_dashboard.services.summary_service import SUMMARY_FILE
 
+NORMALIZED_DATASET_FILES = [
+    "normalization_manifest.json",
+    "causas.parquet",
+    "equipos_proteccion.parquet",
+    "apoyos.parquet",
+    "vanos.parquet",
+    "transformador_profiles.parquet",
+    "eventos.parquet",
+    "evento_vano_trafo.parquet",
+    "clima_vano_fecha.parquet",
+]
 
 router = APIRouter(tags=["health"])
 
@@ -29,6 +40,15 @@ def _data_readiness_check(data_dir: Path) -> ReadinessCheck:
     if settings.data_backend == "databricks_sql":
         ok, message = databricks_data_readiness_check(settings)
         return ReadinessCheck(ok=ok, message=message)
+
+    if (data_dir / "normalization_manifest.json").exists():
+        missing_normalized = [name for name in NORMALIZED_DATASET_FILES if not (data_dir / name).exists()]
+        if missing_normalized:
+            return ReadinessCheck(
+                ok=False,
+                message=f"Missing normalized dataset files: {', '.join(missing_normalized)}",
+            )
+        return ReadinessCheck(ok=True, message="Normalized vano dataset files are available")
 
     required_files = set(REQUIRED_MAP_FILES + REQUIRED_PROBABILITY_FILES + [SUMMARY_FILE])
     missing = [name for name in sorted(required_files) if not (data_dir / name).exists()]

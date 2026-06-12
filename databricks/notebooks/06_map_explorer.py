@@ -32,6 +32,7 @@ frame = (
     .withColumn(
         "map_date",
         F.coalesce(
+            F.to_date(F.col("map_date")),
             F.to_date(F.col("inicio_ts")),
             F.to_date(F.col("fecha_registro")),
             F.to_date(F.col("fecha_evento_ts")),

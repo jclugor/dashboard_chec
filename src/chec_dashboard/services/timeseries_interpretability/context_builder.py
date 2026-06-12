@@ -25,8 +25,12 @@ def top_labels(points: list[dict[str, Any]], key: str, *, limit: int = 5) -> lis
         for item in point.get(key) or []:
             if not isinstance(item, dict):
                 continue
-            weight = item.get("saidi_total", 0.0)
-            weight = float(weight or 0.0) + float(item.get("saifi_total", 0.0) or 0.0)
+            metric_totals = item.get("metric_totals")
+            if isinstance(metric_totals, dict):
+                weight = float(metric_totals.get("UITI") or 0.0) + float(metric_totals.get("UITI_VANO") or 0.0)
+            else:
+                weight = float(item.get("uiti_total") or 0.0)
+                weight += float(item.get("uiti_vano_total") or 0.0)
             if weight <= 0:
                 weight = item.get("event_count", 1)
             _append_label(scores, item.get("label"), weight)
@@ -76,7 +80,7 @@ def build_timeseries_context_package_v2(payload: dict[str, Any]) -> dict[str, An
 
     return {
         "tipo_analisis": "reliability",
-        "nombre_analisis": "Interpretabilidad de evolucion SAIDI/SAIFI",
+        "nombre_analisis": "Interpretabilidad de impacto UITI",
         "kind": "timeseries_criticality",
         "context_kind": "timeseries_criticality",
         "tool_name": "get_timeseries_interpretability_context",
@@ -86,15 +90,16 @@ def build_timeseries_context_package_v2(payload: dict[str, Any]) -> dict[str, An
             "circuito": payload.get("circuit_label"),
             "start_date": payload.get("start_date"),
             "end_date": payload.get("end_date"),
-            "metric_mode": payload.get("metric_mode"),
+            "metric_key": payload.get("metric_key") or "UITI",
             "selected_date": payload.get("selected_date"),
+            "analysis_focus": payload.get("analysis_focus") or "circuit_period",
         },
         "summary": {
             "text": fallback_text,
             "start_date": payload.get("start_date"),
             "end_date": payload.get("end_date"),
             "circuit_label": payload.get("circuit_label"),
-            "metric_mode": payload.get("metric_mode"),
+            "metric_key": payload.get("metric_key") or "UITI",
         },
         "window_summary": {
             "critical_point_count": len(points),
@@ -104,6 +109,11 @@ def build_timeseries_context_package_v2(payload: dict[str, Any]) -> dict[str, An
         },
         "critical_points": points,
         "critical_periods": periods,
+        "analysis_focus": payload.get("analysis_focus") or "circuit_period",
+        "circuit_history_12m": payload.get("circuit_history_12m") or {},
+        "agent_workflow": payload.get("agent_workflow") or [],
+        "variable_context": payload.get("variable_context") or {},
+        "variable_interactions": payload.get("variable_interactions") or {},
         "records": points,
         "metrics": {
             "critical_point_count": len(points),
@@ -115,14 +125,14 @@ def build_timeseries_context_package_v2(payload: dict[str, Any]) -> dict[str, An
             "do_not_detect_new_anomalies": True,
             "do_not_change_criticality_types": True,
             "do_not_claim_causality": True,
-            "cite_documentary_claims": True,
+            "cite_documentary_claims": False,
             "report_missing_evidence": True,
         },
         "traceability": {
             "claim_scope": "summary_time_series_interpretability",
             "read_only": True,
             "source_tables": [
-                "gold_saidi_saifi_daily",
+                "gold_impact_daily",
                 "gold_timeseries_daily_attribution",
                 "gold_timeseries_event_details",
                 "gold_timeseries_environment_daily",

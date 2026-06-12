@@ -121,11 +121,10 @@ def test_post_data_summary_route(client: TestClient, monkeypatch: pytest.MonkeyP
             "start_date": "2024-01-01",
             "end_date": "2024-01-31",
             "circuit_label": "CIR-1",
-            "metric_mode": "BOTH",
-            "saidi_total": 10.0,
-            "saifi_total": 20.0,
+            "metric_key": "UITI",
+            "metric_totals": {"UITI": 10.0, "UITI_VANO": 20.0, "EVENT_COUNT": 4.0, "USERS": 30.0, "DURATION_RAW": 5.0},
             "event_count": 4,
-            "daily_data": [{"fecha_dia": "2024-01-01", "SAIDI": 1.0, "SAIFI": 2.0}],
+            "daily_data": [{"fecha_dia": "2024-01-01", "metrics": {"UITI": 1.0, "UITI_VANO": 2.0}}],
             "status_text": "ok",
         },
     )
@@ -138,7 +137,7 @@ def test_post_data_summary_route(client: TestClient, monkeypatch: pytest.MonkeyP
                 "start_date": "2024-01-01",
                 "end_date": "2024-01-31",
                 "circuito": "CIR-1",
-                "metric_mode": "BOTH",
+                "metric_key": "UITI",
             },
         },
     )
@@ -151,9 +150,8 @@ def test_post_data_summary_route(client: TestClient, monkeypatch: pytest.MonkeyP
             "start_date",
             "end_date",
             "circuit_label",
-            "metric_mode",
-            "saidi_total",
-            "saifi_total",
+            "metric_key",
+            "metric_totals",
             "event_count",
             "daily_data",
             "status_text",
@@ -161,31 +159,80 @@ def test_post_data_summary_route(client: TestClient, monkeypatch: pytest.MonkeyP
     )
 
 
+def test_post_data_summary_event_options_route(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_summary_event_options(**kwargs):
+        captured.update(kwargs)
+        return {
+            "events": [
+                {
+                    "event_id": "evt-1",
+                    "label": "2024-01-03 | EQ-1 | VIENTO | UITI vano 0.3000 | evt-1",
+                    "fecha_dia": "2024-01-03",
+                    "inicio_ts": "2024-01-03T10:00:00",
+                    "circuito": "CIR-1",
+                    "causa": "VIENTO",
+                    "duration_raw": 2.0,
+                    "uiti": 0.5,
+                    "uiti_vano": 0.3,
+                    "users_affected": 10.0,
+                }
+            ],
+            "default_event_id": None,
+            "status_text": "ok",
+        }
+
+    monkeypatch.setattr("chec_dashboard.api.routes.data.get_summary_event_options", fake_summary_event_options)
+
+    response = client.post(
+        "/data",
+        json={
+            "mode": "summary_event_options",
+            "summary_event_options": {
+                "start_date": "2024-01-01",
+                "end_date": "2024-01-31",
+                "circuito": "CIR-1",
+                "limit": 25,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["mode"] == "summary_event_options"
+    assert payload["summary_event_options"]["events"][0]["event_id"] == "evt-1"
+    assert captured["circuito"] == "CIR-1"
+    assert captured["limit"] == 25
+
+
 def test_post_data_summary_interpretability_route(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(
-        "chec_dashboard.api.routes.data.get_summary_interpretability_payload",
-        lambda **_: {
+    captured: dict[str, object] = {}
+
+    def fake_summary_interpretability(**kwargs):
+        captured.update(kwargs)
+        return {
             "start_date": "2024-01-01",
             "end_date": "2024-01-31",
             "circuit_label": "CIR-1",
-            "metric_mode": "BOTH",
+            "metric_key": "UITI",
             "generated_at": "2026-06-04T00:00:00Z",
             "critical_points": [
                 {
                     "fecha_dia": "2024-01-03",
                     "rank": 1,
                     "criticality_score": 1.2,
-                    "criticality_types": ["saidi_high_outlier"],
-                    "metrics": {"SAIDI": 9.5, "SAIFI": 0.05},
+                    "criticality_types": ["uiti_high_outlier"],
+                    "metrics": {"UITI": 9.5, "UITI_VANO": 0.05},
                     "reasons": [
                         {
-                            "reason_type": "saidi_high_outlier",
-                            "metric": "SAIDI",
+                            "reason_type": "uiti_high_outlier",
+                            "metric": "UITI",
                             "score": 1.0,
                             "value": 9.5,
                             "baseline": 0.2,
                             "threshold": 3.0,
-                            "detail": "SAIDI alto.",
+                            "detail": "UITI alto.",
                         }
                     ],
                     "daily_aggregates": {"event_count": 3},
@@ -206,8 +253,16 @@ def test_post_data_summary_interpretability_route(client: TestClient, monkeypatc
             "status": {"text": "ok", "severity": "ok", "fallback_used": True},
             "interpretability_trace": {"mode": "deterministic", "fallback_used": True},
             "corpus_citations": [],
+            "analysis_focus": "selected_event",
+            "selected_event": {"event_id": "evt-1"},
+            "agent_workflow": [],
+            "variable_interactions": {},
             "status_text": "ok",
-        },
+        }
+
+    monkeypatch.setattr(
+        "chec_dashboard.api.routes.data.get_summary_interpretability_payload",
+        fake_summary_interpretability,
     )
 
     response = client.post(
@@ -218,9 +273,10 @@ def test_post_data_summary_interpretability_route(client: TestClient, monkeypatc
                 "start_date": "2024-01-01",
                 "end_date": "2024-01-31",
                 "circuito": "CIR-1",
-                "metric_mode": "BOTH",
+                "metric_key": "UITI",
                 "max_points": 5,
                 "include_agent_text": False,
+                "selected_event_id": "evt-1",
             },
         },
     )
@@ -232,6 +288,8 @@ def test_post_data_summary_interpretability_route(client: TestClient, monkeypatc
     assert payload["summary_interpretability"]["insight_text"] == "Texto deterministico."
     assert payload["summary_interpretability"]["narrative"]["headline"] == "Resumen"
     assert payload["summary_interpretability"]["interpretability_trace"]["fallback_used"] is True
+    assert payload["summary_interpretability"]["analysis_focus"] == "selected_event"
+    assert captured["selected_event_id"] == "evt-1"
 
 
 
