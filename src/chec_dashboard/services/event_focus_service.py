@@ -31,10 +31,10 @@ def _history_summary(payload: dict[str, Any]) -> str:
     history = payload.get("circuit_history_12m")
     if isinstance(history, dict) and history.get("available"):
         return (
-            f"Historial 12 meses: {history.get('event_count', 0)} eventos, "
+            f"Historico disponible: {history.get('event_count', 0)} eventos, "
             f"UITI {history.get('aggregate_totals', {}).get('UITI', 0)}."
         )
-    return "Historial anual insuficiente o no disponible; se usa la ventana seleccionada."
+    return "Historico disponible sin eventos adicionales; se usa la ventana seleccionada."
 
 
 def build_agent_workflow(payload: dict[str, Any]) -> list[dict[str, str]]:

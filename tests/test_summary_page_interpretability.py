@@ -59,7 +59,23 @@ def _payload() -> dict:
         "narrative": {
             "source": "deterministic",
             "headline": "Se detecto un punto critico.",
+            "section_title": "Hallazgos del periodo",
             "executive_summary": ["Resumen"],
+            "key_findings": [
+                {
+                    "title": "Evolucion del periodo",
+                    "text": "El indicador se concentra en el evento seleccionado dentro del periodo analizado.",
+                    "referenced_events": [
+                        {
+                            "date": "2024-01-03",
+                            "indicator_value": 9.5,
+                            "selection_reason": "UITI alto",
+                        }
+                    ],
+                    "variable_groups_used": ["Evento/Impacto"],
+                }
+            ],
+            "period_synthesis": "Sintesis descriptiva del periodo.",
             "point_narratives": [
                 {
                     "fecha_dia": "2024-01-03",
@@ -94,9 +110,13 @@ def _payload() -> dict:
 
 def test_structured_interpretability_panel_renders() -> None:
     panel = _interpretability_panel_from_payload(_payload())
+    text = _component_text(panel)
 
     assert "summary-interpretability-panel-v2" in panel.className
-    assert len(panel.children) >= 5
+    assert len(panel.children) == 2
+    assert "Hallazgos del periodo" in text
+    assert "Evolucion del periodo" in text
+    assert "Por que se marco" not in text
 
 
 def test_circuit_period_semantic_context_renders_without_event_focus() -> None:
@@ -146,10 +166,9 @@ def test_circuit_period_semantic_context_renders_without_event_focus() -> None:
 
     text = _component_text(panel)
     assert "Evento seleccionado" not in text
-    assert "Contexto de variables" in text
-    assert "UITI" in text
-    assert "Flujo agentico" in text
-    assert "Interacciones de variables" in text
+    assert "Hallazgos del periodo" in text
+    assert "Flujo agentico" not in text
+    assert "Interacciones de variables" not in text
 
 
 def test_chart_markers_include_customdata_and_period_shape() -> None:

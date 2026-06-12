@@ -94,7 +94,8 @@ def test_flat_zero_window_has_no_critical_points() -> None:
     )
 
     assert payload["critical_points"] == []
-    assert "No se detectaron puntos criticos" in payload["status_text"]
+    assert "no hay eventos con valores disponibles" in payload["status_text"]
+    assert "all_zero_window" not in payload["status_text"]
 
 
 def test_negative_values_create_quality_flags() -> None:
@@ -126,7 +127,7 @@ def test_missing_event_attribution_lowers_confidence() -> None:
     assert "missing_event_attribution" in point["data_quality_flags"]
 
 
-def test_short_window_is_flagged_but_can_still_rank_contributor() -> None:
+def test_short_window_can_still_rank_contributor_without_warning() -> None:
     payload = _payload(
         {
             "fecha_dia": ["2024-01-01", "2024-01-02", "2024-01-03"],
@@ -138,9 +139,42 @@ def test_short_window_is_flagged_but_can_still_rank_contributor() -> None:
 
     point = payload["critical_points"][0]
 
-    assert "short_window" in payload["status_text"]
+    assert "short_window" not in payload["status_text"]
     assert point["rank"] == 1
+    assert point["selection_reason"]
     assert "top_uiti_contributor" in point["criticality_types"]
+
+
+def test_missing_dates_are_not_user_facing_quality_issue() -> None:
+    payload = _payload(
+        {
+            "fecha_dia": ["2024-01-01", "2024-01-03", "2024-01-04"],
+            "UITI": [0.1, 4.0, 0.2],
+            "UITI_VANO": [0.1, 0.1, 0.1],
+        },
+        end_date="2024-01-04",
+    )
+
+    assert "missing_dates" not in payload["status_text"]
+    assert "calidad" not in payload["status_text"].lower()
+    assert all("missing_dates" not in point["data_quality_flags"] for point in payload["critical_points"])
+
+
+def test_six_month_available_window_is_treated_as_valid() -> None:
+    payload = _payload(
+        {
+            "fecha_dia": pd.date_range("2024-01-01", periods=180, freq="D"),
+            "UITI": [0.2] * 60 + [7.0] + [0.2] * 119,
+            "UITI_VANO": [0.1] * 180,
+        },
+        end_date="2024-06-28",
+    )
+
+    status = payload["status_text"].lower()
+    assert "12 meses" not in status
+    assert "insuficiente" not in status
+    assert "short_window" not in status
+    assert payload["critical_points"]
 
 
 def test_points_are_ranked_by_combined_criticality() -> None:

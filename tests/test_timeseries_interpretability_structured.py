@@ -38,6 +38,7 @@ from chec_dashboard.services.timeseries_interpretability.retrieval_query import 
 from chec_dashboard.services.timeseries_interpretability.validators import (
     validate_narrative,
 )
+from chec_dashboard.services.llm_service import STRUCTURED_JSON_SUFFIX
 
 
 def _settings(tmp_path: Path):
@@ -69,14 +70,50 @@ def _payload() -> dict:
     )
 
 
+def _raw_period_narrative(payload: dict, *, source: str = "llm", headline: str = "Resumen validado") -> dict:
+    points = payload["critical_points"]
+    referenced_events = [
+        {
+            "date": point["fecha_dia"],
+            "indicator_value": point["metrics"]["UITI"],
+            "selection_reason": point["selection_reason"],
+        }
+        for point in points
+    ]
+    return {
+        "source": source,
+        "headline": headline,
+        "section_title": "Hallazgos del periodo",
+        "executive_summary": ["Se explica el comportamiento del periodo con evidencia estructurada."],
+        "key_findings": [
+            {
+                "title": "Evolucion del periodo",
+                "text": "El indicador se concentra en los eventos seleccionados y se interpreta a nivel de periodo.",
+                "referenced_events": referenced_events,
+                "variable_groups_used": ["Evento/Impacto"],
+            }
+        ],
+        "period_synthesis": "Sintesis descriptiva del periodo analizado.",
+        "point_narratives": [],
+        "period_narratives": [],
+        "evidence_matrix": [],
+        "data_gaps": [],
+        "recommended_actions": [],
+        "limitations": [],
+        "citations_used": [],
+    }
+
+
 def test_deterministic_narrative_has_stable_shape() -> None:
     narrative = build_deterministic_narrative(_payload())
     text = flatten_narrative_to_text(narrative)
 
     assert narrative.source == "deterministic"
-    assert narrative.point_narratives
+    assert narrative.section_title == "Hallazgos del periodo"
+    assert narrative.key_findings
+    assert narrative.key_findings[0].referenced_events
     assert narrative.evidence_matrix
-    assert "Se detectaron" in text
+    assert "Hallazgos del periodo" in text
 
 
 def test_context_builder_and_retrieval_query_include_grounded_facts() -> None:
@@ -89,6 +126,49 @@ def test_context_builder_and_retrieval_query_include_grounded_facts() -> None:
     assert "UITI" in query
     assert "UITI_VANO" in query
     assert "confiabilidad" in query
+
+
+def test_context_keeps_all_selected_events_for_period_synthesis() -> None:
+    payload = _payload()
+    context = build_timeseries_context_package_v2(payload)
+
+    assert len(context["critical_points"]) == len(payload["critical_points"])
+    assert [point["fecha_dia"] for point in context["critical_points"]] == [
+        point["fecha_dia"] for point in payload["critical_points"]
+    ]
+    assert all(point["selection_reason"] for point in context["critical_points"])
+
+
+def test_prompt_and_structured_suffix_do_not_cap_period_events(tmp_path: Path) -> None:
+    settings = _settings(tmp_path)
+    context = get_timeseries_interpretability_context_tool(settings, context_package=_payload())
+    prompt, _ = render_timeseries_prompt(
+        context_package=context,
+        docs_text="",
+        question_text="Analiza el periodo.",
+    )
+    prompt_and_suffix = f"{prompt}\n{STRUCTURED_JSON_SUFFIX}".lower()
+
+    forbidden_caps = ["maximo 2", "maximo 3", "top 2", "top 3", "narra los 2"]
+    assert not any(cap in prompt_and_suffix for cap in forbidden_caps)
+    assert "hallazgos del periodo" in prompt_and_suffix
+
+
+def test_deterministic_flattened_text_excludes_out_of_scope_warnings() -> None:
+    text = flatten_narrative_to_text(build_deterministic_narrative(_payload())).lower()
+
+    forbidden = [
+        "calidad de datos",
+        "valores faltantes",
+        "datos incompletos",
+        "12 meses",
+        "bitacora",
+        "rag",
+        "modelo predictivo",
+        "simulacion",
+        "reporte final",
+    ]
+    assert not any(item in text for item in forbidden)
 
 
 def test_validator_rejects_unseen_date_and_invalid_citation() -> None:
@@ -138,42 +218,7 @@ def test_orchestrator_and_public_bridge_fallback_when_disabled(tmp_path: Path) -
 def test_orchestrator_accepts_valid_structured_llm(tmp_path: Path, monkeypatch) -> None:
     settings = replace(_settings(tmp_path), chatbot_enabled=True)
     payload = _payload()
-    point = payload["critical_points"][0]
-    raw_narrative = {
-        "source": "llm",
-        "headline": "Resumen validado",
-        "executive_summary": ["Se explica solo el punto calculado."],
-        "point_narratives": [
-            {
-                "fecha_dia": point["fecha_dia"],
-                "rank": point["rank"],
-                "headline": "Punto calculado",
-                "confidence": point["confidence"],
-                "why_marked": ["UITI alto segun el detector."],
-                "observed_values": ["UITI=6.0"],
-                "likely_drivers": ["Revision operativa soportada por la evidencia estructurada."],
-                "domain_support": ["UITI conecta eventos con impacto regulatorio en el periodo."],
-                "documentary_support": [],
-                "missing_evidence": point["data_quality_flags"],
-                "recommended_checks": ["Validar registros operativos."],
-                "citations_used": [],
-            }
-        ],
-        "evidence_matrix": [
-            {
-                "fecha_dia": point["fecha_dia"],
-                "signal": "Contexto de dominio",
-                "structured_evidence": "Punto critico calculado por el sistema.",
-                "domain_evidence": "Descripcion UITI y relacion Eventos -> Indicadores.",
-                "documentary_evidence": None,
-                "confidence": "medium",
-                "citations_used": [],
-            }
-        ],
-        "recommended_actions": ["Validar registros operativos."],
-        "limitations": ["No causalidad definitiva."],
-        "citations_used": [],
-    }
+    raw_narrative = _raw_period_narrative(payload)
 
     monkeypatch.setattr(
         "chec_dashboard.services.timeseries_interpretability.orchestrator.generate_llm_structured_answer",
@@ -188,6 +233,8 @@ def test_orchestrator_accepts_valid_structured_llm(tmp_path: Path, monkeypatch) 
 
     assert not run.status.fallback_used
     assert run.narrative.source == "llm"
+    assert run.narrative.section_title == "Hallazgos del periodo"
+    assert run.narrative.key_findings
     assert run.trace.mode == "llm_structured_semantic"
     assert run.trace.citation_count == 0
     assert run.citations == []
@@ -235,7 +282,7 @@ def test_orchestrator_repairs_tool_payload_shape_from_llm(tmp_path: Path, monkey
     assert not run.status.fallback_used
     assert run.narrative.source == "validated_repair"
     assert run.narrative.executive_summary[0].startswith("El punto principal")
-    assert run.narrative.point_narratives
+    assert run.narrative.key_findings
     assert run.trace.mode == "llm_structured_semantic"
     assert run.trace.validation["valid"] is True
     assert run.trace.validation["repair_applied"] == "tool_payload_shape"
@@ -248,33 +295,21 @@ def test_orchestrator_coerces_scalar_schema_lists_from_llm(tmp_path: Path, monke
     raw_narrative = {
         "source": "llm",
         "headline": "Resumen compacto",
-        "executive_summary": "Se explica el punto calculado.",
-        "point_narratives": {
-            "fecha_dia": point["fecha_dia"],
-            "rank": point["rank"],
-            "headline": "Punto calculado",
-            "confidence": point["confidence"],
-            "why_marked": "UITI alto segun el detector.",
-            "observed_values": "UITI=6.0",
-            "likely_drivers": "La evidencia estructurada muestra concentracion del impacto UITI.",
-            "domain_support": "UITI describe impacto regulatorio y se relaciona con eventos.",
-            "documentary_support": "",
-            "missing_evidence": "sin_bitacoras_modelo_simulacion",
-            "recommended_checks": "Validar registros operativos.",
-            "citations_used": "",
+        "section_title": "Hallazgos del periodo",
+        "executive_summary": "Se explica el periodo analizado.",
+        "key_findings": {
+            "title": "Hallazgo consolidado",
+            "text": "El evento seleccionado se interpreta dentro de la evolucion del periodo.",
+            "referenced_events": [
+                {
+                    "date": point["fecha_dia"],
+                    "indicator_value": point["metrics"]["UITI"],
+                    "selection_reason": point["selection_reason"],
+                }
+            ],
+            "variable_groups_used": ["Evento/Impacto"],
         },
-        "evidence_matrix": {
-            "fecha_dia": point["fecha_dia"],
-            "signal": "Indicador",
-            "structured_evidence": "Punto critico calculado por el sistema.",
-            "domain_evidence": "Variable UITI y modo de indicadores.",
-            "documentary_evidence": "",
-            "confidence": "medium",
-            "citations_used": "",
-        },
-        "data_gaps": "sin_bitacoras_modelo_simulacion",
-        "recommended_actions": "Validar registros operativos.",
-        "limitations": "No causalidad definitiva.",
+        "period_synthesis": "Sintesis del periodo.",
         "citations_used": "",
     }
 
@@ -291,8 +326,8 @@ def test_orchestrator_coerces_scalar_schema_lists_from_llm(tmp_path: Path, monke
 
     assert not run.status.fallback_used
     assert run.narrative.source == "llm"
-    assert run.narrative.executive_summary == ["Se explica el punto calculado."]
-    assert run.narrative.recommended_actions == ["Validar registros operativos."]
+    assert run.narrative.executive_summary == ["Se explica el periodo analizado."]
+    assert run.narrative.key_findings[0].title == "Hallazgo consolidado"
     assert run.trace.validation["valid"] is True
     assert run.trace.validation["repair_applied"] == "schema_shape_coercion"
 
@@ -304,7 +339,9 @@ def test_orchestrator_sanitizes_uncited_documentary_claims(tmp_path: Path, monke
     raw_narrative = {
         "source": "llm",
         "headline": "Resumen con soporte insuficiente",
+        "section_title": "Hallazgos del periodo",
         "executive_summary": ["Se explica el punto calculado."],
+        "key_findings": _raw_period_narrative(payload)["key_findings"],
         "point_narratives": [
             {
                 "fecha_dia": point["fecha_dia"],
@@ -362,7 +399,9 @@ def test_orchestrator_sanitizes_out_of_range_citations(tmp_path: Path, monkeypat
     raw_narrative = {
         "source": "llm",
         "headline": "Resumen con cita fuera de rango",
+        "section_title": "Hallazgos del periodo",
         "executive_summary": ["Se explica el punto calculado."],
+        "key_findings": _raw_period_narrative(payload)["key_findings"],
         "point_narratives": [
             {
                 "fecha_dia": point["fecha_dia"],
@@ -419,43 +458,7 @@ def test_orchestrator_sanitizes_out_of_range_citations(tmp_path: Path, monkeypat
 def test_orchestrator_uses_llm_without_document_retrieval(tmp_path: Path, monkeypatch) -> None:
     settings = replace(_settings(tmp_path), chatbot_enabled=True)
     payload = _payload()
-    point = payload["critical_points"][0]
-    raw_narrative = {
-        "source": "llm",
-        "headline": "Resumen semantico por circuito",
-        "executive_summary": ["Se explica el punto calculado usando evidencia estructurada y dominio."],
-        "point_narratives": [
-            {
-                "fecha_dia": point["fecha_dia"],
-                "rank": point["rank"],
-                "headline": "Punto calculado",
-                "confidence": point["confidence"],
-                "why_marked": ["UITI alto segun el detector."],
-                "observed_values": ["UITI=6.0"],
-                "likely_drivers": ["La evidencia estructurada muestra concentracion del impacto UITI."],
-                "domain_support": ["UITI pertenece al modo de indicadores y resume impacto al usuario."],
-                "documentary_support": [],
-                "missing_evidence": ["sin_bitacoras_modelo_simulacion"],
-                "recommended_checks": ["Validar registros operativos."],
-                "citations_used": [],
-            }
-        ],
-        "evidence_matrix": [
-            {
-                "fecha_dia": point["fecha_dia"],
-                "signal": "Indicador",
-                "structured_evidence": "Punto critico calculado por el sistema.",
-                "domain_evidence": "Descripcion de UITI en ContextoProyectoSimuladorCHEC.",
-                "documentary_evidence": None,
-                "confidence": "medium",
-                "citations_used": [],
-            }
-        ],
-        "data_gaps": ["sin_bitacoras_modelo_simulacion"],
-        "recommended_actions": ["Validar registros operativos."],
-        "limitations": ["No causalidad definitiva."],
-        "citations_used": [],
-    }
+    raw_narrative = _raw_period_narrative(payload, headline="Resumen semantico por circuito")
 
     monkeypatch.setattr(
         "chec_dashboard.services.timeseries_interpretability.orchestrator.generate_llm_structured_answer",
@@ -472,6 +475,7 @@ def test_orchestrator_uses_llm_without_document_retrieval(tmp_path: Path, monkey
     assert run.status.severity == "ok"
     assert "no_retrieved_documents" not in run.status.data_quality_flags
     assert run.narrative.source == "llm"
+    assert run.narrative.key_findings
     assert run.trace.mode == "llm_structured_semantic"
     assert run.trace.citation_count == 0
     assert run.trace.validation["valid"] is True

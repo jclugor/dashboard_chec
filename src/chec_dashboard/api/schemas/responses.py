@@ -164,6 +164,7 @@ class CriticalPoint(APIResponseModel):
     rank: int
     criticality_score: float
     criticality_types: list[str] = Field(default_factory=list)
+    selection_reason: str | None = None
     metrics: dict[str, Any] = Field(default_factory=dict)
     reasons: list[CriticalityReason] = Field(default_factory=list)
     daily_aggregates: dict[str, Any] = Field(default_factory=dict)

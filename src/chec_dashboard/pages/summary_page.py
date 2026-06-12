@@ -237,6 +237,55 @@ def _narrative_bullets(items: list[Any], class_name: str, *, limit: int = 5) -> 
     return html.Ul([html.Li(item) for item in cleaned[:limit]], className=class_name)
 
 
+def _period_findings_section(narrative: dict[str, Any]) -> html.Div:
+    section_title = str(narrative.get("section_title") or "Hallazgos del periodo")
+    findings = narrative.get("key_findings") or []
+    items: list[Any] = []
+    for index, finding in enumerate(findings, start=1):
+        if isinstance(finding, dict):
+            title = str(finding.get("title") or f"Hallazgo {index}").strip()
+            text = str(finding.get("text") or "").strip()
+            referenced_events = finding.get("referenced_events") or []
+            event_bits = []
+            for event in referenced_events:
+                if not isinstance(event, dict):
+                    continue
+                date = str(event.get("date") or "").strip()
+                value = event.get("indicator_value")
+                reason = str(event.get("selection_reason") or "").strip()
+                details = []
+                if date:
+                    details.append(date)
+                if value not in (None, ""):
+                    details.append(f"valor {value}")
+                if reason:
+                    details.append(reason)
+                if details:
+                    event_bits.append(" - ".join(details))
+        else:
+            title = f"Hallazgo {index}"
+            text = str(finding or "").strip()
+            event_bits = []
+        if not text:
+            continue
+        children: list[Any] = [html.Strong(f"{title}: "), html.Span(text)]
+        if event_bits:
+            children.append(html.Div("Evidencia: " + "; ".join(event_bits), className="summary-muted-text"))
+        items.append(html.Li(children))
+
+    if not items:
+        items = [html.Li("Sin hallazgos disponibles para el periodo analizado.")]
+    synthesis = str(narrative.get("period_synthesis") or "").strip()
+    return html.Div(
+        className="summary-narrative-section summary-period-findings-section",
+        children=[
+            html.Div(section_title, className="summary-section-title"),
+            html.Ul(items, className="summary-narrative-list summary-period-findings-list"),
+            html.Div(synthesis, className="summary-interpretability-text") if synthesis else html.Div(),
+        ],
+    )
+
+
 def _narrative_header(payload: dict[str, Any], narrative: dict[str, Any]) -> html.Div:
     status = payload.get("status") or {}
     trace = payload.get("interpretability_trace") or {}
@@ -295,7 +344,7 @@ def _point_narrative_card(point: dict[str, Any], narrative_by_date: dict[str, di
             _narrative_bullets(narrative.get("likely_drivers") or [], "summary-critical-point-list", limit=4),
             html.Div("Soporte de dominio", className="summary-critical-point-section-title"),
             _narrative_bullets(narrative.get("domain_support") or [], "summary-critical-point-list", limit=3),
-            html.Div("Datos faltantes", className="summary-critical-point-section-title"),
+            html.Div("Observaciones", className="summary-critical-point-section-title"),
             _narrative_bullets(narrative.get("missing_evidence") or [], "summary-critical-point-list muted", limit=4),
             html.Div("Revisiones", className="summary-critical-point-section-title"),
             _narrative_bullets(narrative.get("recommended_checks") or [], "summary-critical-point-list", limit=3),
@@ -380,7 +429,7 @@ def _selected_event_panel(payload: dict[str, Any]) -> html.Div:
     ]
     if history.get("available"):
         details.append(
-            f"Historial 12 meses: {history.get('event_count', 0)} eventos, "
+            f"Historico disponible: {history.get('event_count', 0)} eventos, "
             f"UITI {_format_number(history.get('uiti_total'))}"
         )
     return html.Div(
@@ -471,7 +520,7 @@ def _variable_context_panel(payload: dict[str, Any]) -> html.Div:
 def _narrative_footer(narrative: dict[str, Any]) -> html.Div:
     sections = []
     for title, key in (
-        ("Datos faltantes", "data_gaps"),
+        ("Observaciones", "data_gaps"),
         ("Recomendaciones", "recommended_actions"),
         ("Limitaciones", "limitations"),
     ):
@@ -508,33 +557,11 @@ def _interpretability_panel_from_payload(payload: dict[str, Any] | None) -> html
         return _interpretability_empty_panel(str(payload.get("status_text") or "No se detectaron puntos criticos."))
     narrative = payload.get("narrative") or {}
     if narrative:
-        point_narratives = {
-            str(item.get("fecha_dia")): item
-            for item in narrative.get("point_narratives") or []
-            if isinstance(item, dict)
-        }
         return html.Div(
             className="summary-interpretability-panel summary-interpretability-panel-v2",
             children=[
                 _narrative_header(payload, narrative),
-                _selected_event_panel(payload),
-                _agent_workflow_panel(payload),
-                _variable_context_panel(payload),
-                _variable_interactions_panel(payload),
-                html.Div(
-                    className="summary-narrative-section",
-                    children=[
-                        html.Div("Resumen ejecutivo", className="summary-section-title"),
-                        _narrative_bullets(narrative.get("executive_summary") or [], "summary-narrative-list"),
-                    ],
-                ),
-                html.Div(
-                    [_point_narrative_card(point, point_narratives) for point in points],
-                    className="summary-critical-point-grid",
-                ),
-                _evidence_matrix(narrative.get("evidence_matrix") or []),
-                _narrative_footer(narrative),
-                _citation_list(payload.get("corpus_citations") or []),
+                _period_findings_section(narrative),
             ],
         )
     return html.Div(
@@ -547,14 +574,15 @@ def _interpretability_panel_from_payload(payload: dict[str, Any] | None) -> html
                 ],
                 className="summary-interpretability-header",
             ),
-            html.Div(str(payload.get("insight_text") or ""), className="summary-interpretability-text"),
-            _selected_event_panel(payload),
-            _agent_workflow_panel(payload),
-            _variable_context_panel(payload),
-            _variable_interactions_panel(payload),
             html.Div(
-                [_critical_point_card(point) for point in points],
-                className="summary-critical-point-grid",
+                className="summary-narrative-section summary-period-findings-section",
+                children=[
+                    html.Div("Hallazgos del periodo", className="summary-section-title"),
+                    html.Ul(
+                        [html.Li(str(payload.get("insight_text") or "Sin hallazgos disponibles."))],
+                        className="summary-narrative-list summary-period-findings-list",
+                    ),
+                ],
             ),
         ],
     )

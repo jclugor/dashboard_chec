@@ -29,14 +29,14 @@ from chec_dashboard.services.timeseries_interpretability.validators import (
 
 
 TIMESERIES_INTERPRETABILITY_QUESTION = (
-    "Explica los comportamientos y puntos criticos de la evolucion del impacto UITI "
-    "usando solo datos estructurados, descripciones de variables, modos e interacciones "
-    "de dominio. Indica datos faltantes y evita afirmar causalidad definitiva."
+    "Genera una seccion consolidada de hallazgos del periodo para la evolucion del "
+    "indicador seleccionado. Usa todos los eventos criticos seleccionados como evidencia, "
+    "sin producir un diagnostico independiente por punto y sin usar RAG, bitacoras, "
+    "normativa, simulacion, mascara predictiva ni reporte final."
 )
 
 TOP_LEVEL_TEXT_LIST_FIELDS = (
     "executive_summary",
-    "key_findings",
     "period_narratives",
     "data_gaps",
     "recommended_actions",
@@ -62,6 +62,12 @@ NO_DOCUMENTARY_PHRASES = (
     "no se recuperaron documentos",
     "no hay documentos",
 )
+STRUCTURAL_NON_WARNING_FLAGS = {
+    "missing_dates",
+    "short_window",
+    "all_zero_window",
+    "empty_time_series",
+}
 
 
 def _text_items(value: Any, *, limit: int | None = None) -> list[str]:
@@ -82,6 +88,10 @@ def _unique_text(items: list[str]) -> list[str]:
         seen.add(key)
         unique.append(item)
     return unique
+
+
+def _visible_flags(flags: list[str]) -> list[str]:
+    return sorted({flag for flag in flags if flag not in STRUCTURAL_NON_WARNING_FLAGS})
 
 
 def _int_items(value: Any) -> list[int]:
@@ -112,6 +122,13 @@ def _normalize_raw_narrative_shape(raw_narrative: Any) -> tuple[Any, bool]:
         if field in normalized and not isinstance(normalized[field], list):
             normalized[field] = _text_items(normalized[field])
             changed = True
+    if "key_findings" in normalized and not isinstance(normalized["key_findings"], list):
+        normalized["key_findings"] = (
+            [normalized["key_findings"]]
+            if isinstance(normalized["key_findings"], dict)
+            else _text_items(normalized["key_findings"])
+        )
+        changed = True
     if "citations_used" in normalized and (
         not isinstance(normalized.get("citations_used"), list)
         or not all(isinstance(item, int) for item in normalized.get("citations_used") or [])
@@ -153,6 +170,36 @@ def _normalize_raw_narrative_shape(raw_narrative: Any) -> tuple[Any, bool]:
                 changed = True
             cleaned_collection.append(cleaned)
         normalized[collection_key] = cleaned_collection
+
+    if not normalized.get("key_findings") and normalized.get("point_narratives"):
+        event_refs = []
+        finding_parts = []
+        for point in normalized.get("point_narratives") or []:
+            if not isinstance(point, dict):
+                continue
+            date = str(point.get("fecha_dia") or "").strip()
+            headline = str(point.get("headline") or "").strip()
+            why_marked = " ".join(_text_items(point.get("why_marked"), limit=2))
+            observed = " ".join(_text_items(point.get("observed_values"), limit=2))
+            if headline or why_marked or observed:
+                finding_parts.append(" ".join(item for item in (date, headline, why_marked, observed) if item))
+            if date:
+                event_refs.append(
+                    {
+                        "date": date,
+                        "indicator_value": None,
+                        "selection_reason": why_marked or headline or None,
+                    }
+                )
+        normalized["key_findings"] = [
+            {
+                "title": "Sintesis de eventos seleccionados",
+                "text": " ".join(finding_parts) or "Eventos seleccionados sintetizados a nivel de periodo.",
+                "referenced_events": event_refs,
+                "variable_groups_used": ["Evento/Impacto"],
+            }
+        ]
+        changed = True
 
     return normalized, changed
 
@@ -275,7 +322,7 @@ def _repair_tool_payload_narrative(
     repaired = deterministic.model_dump(mode="json")
     analysis = _text_items(raw_narrative.get("analysis"), limit=8)
     observations = _text_items(raw_narrative.get("observations"), limit=4)
-    hypotheses = _text_items(raw_narrative.get("operational_hypotheses"), limit=4)
+    _ = _text_items(raw_narrative.get("operational_hypotheses"), limit=4)
     missing = _text_items(raw_narrative.get("missing_evidence"), limit=6)
     quality_flags = _text_items(raw_narrative.get("data_quality_flags"), limit=6)
     supporting_docs = _text_items(raw_narrative.get("supporting_documents"), limit=4)
@@ -284,22 +331,24 @@ def _repair_tool_payload_narrative(
     if analysis:
         repaired["headline"] = analysis[0][:240]
         repaired["executive_summary"] = analysis[:3]
-        repaired["key_findings"] = analysis[3:] or observations[:3]
+        repaired["key_findings"] = [
+            {"title": f"Hallazgo {index}", "text": text}
+            for index, text in enumerate((analysis[3:] or observations[:3]), start=1)
+        ]
     if observations:
         repaired["period_narratives"] = observations
-    repaired["data_gaps"] = _unique_text([*repaired.get("data_gaps", []), *missing, *quality_flags])
+    repaired["data_gaps"] = _visible_flags(_unique_text([*repaired.get("data_gaps", []), *missing, *quality_flags]))
     repaired["recommended_actions"] = _unique_text(
         [
             *repaired.get("recommended_actions", []),
-            "Contrastar las hipotesis operativas del LLM con registros de campo y bitacoras antes de priorizar intervenciones.",
-            *hypotheses[:2],
+            "Mantener la lectura como diagnostico descriptivo preliminar antes de priorizar intervenciones.",
         ]
     )
     repaired["limitations"] = _unique_text(
         [
             *repaired.get("limitations", []),
             "La salida LLM fue normalizada desde un objeto de herramienta al esquema narrativo requerido.",
-            *[f"Documento recuperado mencionado por el LLM: {item}" for item in supporting_docs],
+            *[f"Referencia externa ignorada por estar fuera del alcance temporal: {item}" for item in supporting_docs],
         ]
     )
     repaired["citations_used"] = []
@@ -327,13 +376,15 @@ class TimeseriesInterpretabilityOrchestrator:
         started = perf_counter()
         logger = get_logger(__name__, settings.log_level)
         deterministic = build_deterministic_narrative(deterministic_payload)
-        data_quality_flags = sorted(
-            {
-                str(flag)
-                for point in (deterministic_payload.get("critical_points") or [])
-                for flag in (point.get("data_quality_flags") or [])
-                if str(flag).strip()
-            }
+        data_quality_flags = _visible_flags(
+            sorted(
+                {
+                    str(flag)
+                    for point in (deterministic_payload.get("critical_points") or [])
+                    for flag in (point.get("data_quality_flags") or [])
+                    if str(flag).strip()
+                }
+            )
         )
 
         logger.info(
@@ -469,11 +520,7 @@ class TimeseriesInterpretabilityOrchestrator:
             validation_payload = validation.to_payload()
             if repair_reasons:
                 validation_payload = {**validation_payload, "repair_applied": "+".join(repair_reasons)}
-            status_flags = sorted(
-                {
-                    *data_quality_flags,
-                }
-            )
+            status_flags = _visible_flags([*data_quality_flags])
             trace = InterpretabilityTrace(
                 mode="llm_structured_semantic",
                 fallback_used=False,

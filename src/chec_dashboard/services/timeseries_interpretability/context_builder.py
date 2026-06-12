@@ -111,6 +111,7 @@ def build_timeseries_context_package_v2(payload: dict[str, Any]) -> dict[str, An
         "critical_periods": periods,
         "analysis_focus": payload.get("analysis_focus") or "circuit_period",
         "circuit_history_12m": payload.get("circuit_history_12m") or {},
+        "available_history": payload.get("circuit_history_12m") or {},
         "agent_workflow": payload.get("agent_workflow") or [],
         "variable_context": payload.get("variable_context") or {},
         "variable_interactions": payload.get("variable_interactions") or {},
@@ -126,7 +127,9 @@ def build_timeseries_context_package_v2(payload: dict[str, Any]) -> dict[str, An
             "do_not_change_criticality_types": True,
             "do_not_claim_causality": True,
             "cite_documentary_claims": False,
-            "report_missing_evidence": True,
+            "report_missing_evidence": False,
+            "treat_event_gaps_as_structural": True,
+            "do_not_warn_about_window_length": True,
         },
         "traceability": {
             "claim_scope": "summary_time_series_interpretability",

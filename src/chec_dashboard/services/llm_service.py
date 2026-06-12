@@ -36,16 +36,14 @@ STRUCTURED_JSON_SUFFIX = (
     "- El primer caracter de la respuesta debe ser { y el ultimo debe ser }.\n"
     "- No uses Markdown, bloques ```json, comentarios, ni texto explicativo.\n"
     "- Todos los campos tipo arreglo deben ser arreglos JSON aunque tengan un solo elemento.\n"
-    "- Maximo 2 point_narratives, maximo 2 evidence_matrix y maximo 2 strings por arreglo.\n"
-    "- Cada string debe ser corto, idealmente menos de 160 caracteres.\n"
+    "- No impongas limites adicionales sobre elementos del esquema si el prompt pide sintetizarlos todos.\n"
+    "- Mantén cada string claro y breve sin perder evidencia requerida por el esquema.\n"
 )
 STRUCTURED_JSON_REPAIR_SUFFIX = (
     "\n\nREINTENTO COMPACTO OBLIGATORIO:\n"
     "- Devuelve solo un objeto JSON valido y cerrado.\n"
-    "- Maximo 1 point_narratives y maximo 1 evidence_matrix.\n"
-    "- Maximo 1 string por arreglo, excepto missing_evidence que puede tener 2.\n"
-    "- Cada string debe ser muy corto, menos de 140 caracteres.\n"
-    "- No copies una respuesta truncada; resume solo la evidencia mas importante.\n"
+    "- Reduce longitud de textos largos, pero conserva los campos obligatorios del esquema.\n"
+    "- No copies una respuesta truncada; sintetiza la evidencia estructurada disponible.\n"
 )
 STRUCTURED_REPAIR_MAX_CHARS = 6000
 

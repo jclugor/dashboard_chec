@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 NARRATIVE_SCHEMA_VERSION = "1"
@@ -38,6 +38,19 @@ class PointNarrative(InterpretabilityModel):
     citations_used: list[int] = Field(default_factory=list)
 
 
+class ReferencedEvent(InterpretabilityModel):
+    date: str | None = None
+    indicator_value: float | int | None = None
+    selection_reason: str | None = None
+
+
+class PeriodFinding(InterpretabilityModel):
+    title: str
+    text: str
+    referenced_events: list[ReferencedEvent] = Field(default_factory=list)
+    variable_groups_used: list[str] = Field(default_factory=list)
+
+
 class EvidenceMatrixRow(InterpretabilityModel):
     fecha_dia: str | None = None
     signal: str
@@ -51,8 +64,10 @@ class EvidenceMatrixRow(InterpretabilityModel):
 class TimeseriesInterpretabilityNarrative(InterpretabilityModel):
     source: NarrativeSource = "llm"
     headline: str
+    section_title: str = "Hallazgos del periodo"
     executive_summary: list[str] = Field(default_factory=list)
-    key_findings: list[str] = Field(default_factory=list)
+    key_findings: list[PeriodFinding] = Field(default_factory=list)
+    period_synthesis: str | None = None
     point_narratives: list[PointNarrative] = Field(default_factory=list)
     period_narratives: list[str] = Field(default_factory=list)
     evidence_matrix: list[EvidenceMatrixRow] = Field(default_factory=list)
@@ -60,6 +75,42 @@ class TimeseriesInterpretabilityNarrative(InterpretabilityModel):
     recommended_actions: list[str] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
     citations_used: list[int] = Field(default_factory=list)
+
+    @field_validator("key_findings", mode="before")
+    @classmethod
+    def _coerce_key_findings(cls, value: Any) -> list[Any]:
+        if value is None:
+            return []
+        raw_items = value if isinstance(value, list) else [value]
+        findings: list[Any] = []
+        for index, item in enumerate(raw_items, start=1):
+            if isinstance(item, PeriodFinding):
+                findings.append(item)
+                continue
+            if isinstance(item, str):
+                text = item.strip()
+                if text:
+                    findings.append({"title": f"Hallazgo {index}", "text": text})
+                continue
+            if isinstance(item, dict):
+                cleaned = dict(item)
+                text = str(
+                    cleaned.get("text")
+                    or cleaned.get("description")
+                    or cleaned.get("summary")
+                    or cleaned.get("finding")
+                    or ""
+                ).strip()
+                title = str(cleaned.get("title") or f"Hallazgo {index}").strip()
+                if text:
+                    cleaned["title"] = title
+                    cleaned["text"] = text
+                    findings.append(cleaned)
+                continue
+            text = str(item or "").strip()
+            if text:
+                findings.append({"title": f"Hallazgo {index}", "text": text})
+        return findings
 
 
 class InterpretabilityStatus(InterpretabilityModel):

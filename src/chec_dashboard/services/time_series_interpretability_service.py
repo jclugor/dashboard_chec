@@ -25,6 +25,14 @@ class CriticalityThresholds:
     max_points: int = 5
 
 
+STRUCTURAL_NON_WARNING_FLAGS = {
+    "missing_dates",
+    "short_window",
+    "all_zero_window",
+    "empty_time_series",
+}
+
+
 def _as_float(value: Any, default: float = 0.0) -> float:
     coerced = pd.to_numeric(value, errors="coerce")
     if pd.isna(coerced):
@@ -52,6 +60,10 @@ def _date_text(value: Any) -> str:
 
 def _metric_key(metric: str) -> str:
     return metric.lower()
+
+
+def _user_facing_flags(flags: list[str]) -> list[str]:
+    return sorted({flag for flag in flags if flag not in STRUCTURAL_NON_WARNING_FLAGS})
 
 
 def _selected_metric_keys(metric_key: str | None) -> tuple[str, ...]:
@@ -245,6 +257,24 @@ def _reason(
         "threshold": None if threshold is None else _round(threshold),
         "detail": detail,
     }
+
+
+def _selection_reason_text(reasons: list[dict[str, Any]]) -> str:
+    details = [
+        str(reason.get("detail")).strip()
+        for reason in sorted(reasons, key=lambda item: float(item.get("score") or 0), reverse=True)
+        if str(reason.get("detail") or "").strip()
+    ]
+    if details:
+        return " ".join(details[:2])
+    reason_types = [
+        str(reason.get("reason_type")).strip()
+        for reason in reasons
+        if str(reason.get("reason_type") or "").strip()
+    ]
+    if reason_types:
+        return "Seleccionado por tipos de criticidad calculados: " + ", ".join(reason_types[:4]) + "."
+    return "Seleccionado por el detector de puntos de interes del periodo analizado."
 
 
 def detect_point_reasons(
@@ -458,6 +488,7 @@ def rank_and_merge_critical_points(
                 "fecha_dia": date_key,
                 "criticality_score": round(criticality_score, 4),
                 "criticality_types": sorted({str(reason["reason_type"]) for reason in reasons}),
+                "selection_reason": _selection_reason_text(reasons),
                 "reasons": sorted(reasons, key=lambda reason: reason["score"], reverse=True),
                 "metrics": _row_metrics(row),
                 "daily_aggregates": {
@@ -705,20 +736,16 @@ def deterministic_insight_text(payload: dict[str, Any]) -> str:
         if groups:
             dominant = f"{groups[0].get('label')} ({group_key})"
             break
-    quality_flags = first.get("data_quality_flags") or []
-    quality_text = (
-        f" Banderas de calidad: {', '.join(quality_flags)}."
-        if quality_flags
-        else " No se observaron banderas de calidad principales en el punto dominante."
-    )
     return (
-        f"Se detectaron {len(points)} puntos criticos entre {start_date} y {end_date}. "
-        f"El punto principal fue {first.get('fecha_dia')}, con UITI={_round(metrics.get('UITI'))} "
-        f"y UITI_VANO={_round(metrics.get('UITI_VANO'))}. Se marco por: {reason_labels}. "
+        f"Se detectaron {len(points)} eventos de interes entre {start_date} y {end_date}. "
+        f"El evento de mayor criticidad fue {first.get('fecha_dia')}, con UITI={_round(metrics.get('UITI'))} "
+        f"y UITI_VANO={_round(metrics.get('UITI_VANO'))}. Se selecciono por: "
+        f"{first.get('selection_reason') or reason_labels}. "
         f"En ese dia se registraron {aggregates.get('event_count', 0)} eventos, "
         f"{aggregates.get('duration_raw_total', 0)} unidades de duracion fuente acumulada y "
         f"{aggregates.get('users_affected_total', 0)} usuarios afectados. "
-        f"La principal agrupacion observada fue {dominant}.{quality_text}"
+        f"La principal agrupacion observada fue {dominant}. "
+        "Los intervalos sin evento registrado no se interpretan como anomalias por si mismos."
     )
 
 
@@ -840,7 +867,9 @@ def build_circuit_history_12m_payload(
         ),
         "dominant_circuits": _attribution_items(attribution_source, ["circuito", "cto_equi_ope", "FPARENT"], daily_total=history_total),
         "external_signals": _external_signals(pd.DataFrame() if environment_frame is None else environment_frame),
-        "data_quality_flags": sorted(set(raw_quality_flags + compute_data_quality_flags(normalized, event_frame=event_frame))),
+        "data_quality_flags": _user_facing_flags(
+            sorted(set(raw_quality_flags + compute_data_quality_flags(normalized, event_frame=event_frame)))
+        ),
     }
 
 
@@ -884,6 +913,7 @@ def build_summary_interpretability_payload(
     global_flags = sorted(
         set(raw_quality_flags + compute_data_quality_flags(normalized, event_frame=event_frame))
     )
+    visible_flags = _user_facing_flags(global_flags)
     metric_key = normalize_metric_key(metric_key)
     reasons_by_date = detect_point_reasons(feature_frame, metric_key=metric_key, thresholds=thresholds)
     points = rank_and_merge_critical_points(feature_frame, reasons_by_date, max_points=max_points)
@@ -893,21 +923,25 @@ def build_summary_interpretability_payload(
         event_frame=event_frame,
         environment_frame=environment_frame,
     )
-    if global_flags:
+    if visible_flags:
         for point in points:
-            merged = sorted(set((point.get("data_quality_flags") or []) + global_flags))
+            merged = sorted(set((point.get("data_quality_flags") or []) + visible_flags))
             point["data_quality_flags"] = merged
             if any(flag in merged for flag in ("empty_time_series", "all_zero_window", "missing_event_attribution")):
                 point["confidence"] = "low"
 
     periods = detect_critical_periods(feature_frame, metric_key=metric_key, thresholds=thresholds)
-    status_text = (
-        f"Se detectaron {len(points)} puntos criticos para la ventana seleccionada."
-        if points
-        else "No se detectaron puntos criticos bajo los umbrales actuales."
-    )
-    if global_flags:
-        status_text = f"{status_text} Banderas de datos: {', '.join(global_flags)}."
+    if points:
+        status_text = f"Se detectaron {len(points)} eventos de interes para el periodo analizado."
+    elif {"empty_time_series", "all_zero_window"} & set(global_flags):
+        status_text = (
+            "Para el periodo seleccionado no hay eventos con valores disponibles del indicador "
+            "para construir el analisis temporal."
+        )
+    else:
+        status_text = "No se detectaron puntos criticos bajo los umbrales actuales."
+    if visible_flags:
+        status_text = f"{status_text} Observaciones tecnicas: {', '.join(visible_flags)}."
 
     payload = {
         "start_date": start_date,

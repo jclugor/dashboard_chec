@@ -15,6 +15,32 @@ FORBIDDEN_PHRASES = (
     "esto demuestra que",
     "incumplimiento confirmado",
     "no cumple",
+    "calidad de datos",
+    "data quality",
+    "valores faltantes",
+    "missing values",
+    "datos incompletos",
+    "incomplete data",
+    "missing_dates",
+    "short_window",
+    "12 meses",
+    "doce meses",
+    "menos de 12",
+    "historial anual insuficiente",
+    "bitacora",
+    "bitacoras",
+    "bitácora",
+    "bitácoras",
+    "rag",
+    "documento normativo",
+    "documentos normativos",
+    "mascara predictiva",
+    "máscara predictiva",
+    "modelo predictivo",
+    "simulacion",
+    "simulación",
+    "what-if",
+    "reporte final",
 )
 
 NO_DOCUMENTARY_EVIDENCE_PHRASES = (
@@ -41,13 +67,18 @@ class ValidationResult:
 def _all_text(narrative: TimeseriesInterpretabilityNarrative) -> str:
     rows: list[str] = [
         narrative.headline,
+        narrative.section_title,
         *narrative.executive_summary,
-        *narrative.key_findings,
         *narrative.period_narratives,
+        narrative.period_synthesis or "",
         *narrative.data_gaps,
         *narrative.recommended_actions,
         *narrative.limitations,
     ]
+    for finding in narrative.key_findings:
+        rows.extend([finding.title, finding.text, *finding.variable_groups_used])
+        for event in finding.referenced_events:
+            rows.extend([event.date or "", str(event.indicator_value or ""), event.selection_reason or ""])
     for point in narrative.point_narratives:
         rows.extend(
             [
@@ -128,6 +159,13 @@ def validate_narrative(
         if confidence_by_date.get(point.fecha_dia) == "low" and not point.missing_evidence:
             errors.append(f"low_confidence_without_missing_evidence:{point.fecha_dia}")
 
+    for index, finding in enumerate(narrative.key_findings, start=1):
+        if not finding.title.strip() or not finding.text.strip():
+            errors.append(f"empty_period_finding:{index}")
+        for event in finding.referenced_events:
+            if event.date and event.date not in allowed_dates:
+                errors.append(f"referenced_event_date_not_grounded:{event.date}")
+
     for idx in _citation_indexes(narrative):
         if idx < 1 or idx > max_citation:
             errors.append(f"invalid_citation:{idx}")
@@ -160,7 +198,7 @@ def validate_narrative(
 
     if not narrative.executive_summary:
         warnings.append("empty_executive_summary")
-    if points and not narrative.point_narratives:
-        errors.append("missing_point_narratives")
+    if points and not narrative.key_findings:
+        errors.append("missing_period_findings")
 
     return ValidationResult(valid=not errors, errors=errors, warnings=warnings)
