@@ -25,6 +25,27 @@ FastAPI Backend (/health, /ready, /data, /inference)
   -> services/cache.py
 ```
 
+### Governed Simulator Spine
+
+The chatbot now accepts optional `analysis_stage` values for internal/API workflows while preserving the existing `briefing_type` behavior. Stage-aware execution stays inside the same Dash/FastAPI service runtime:
+
+```text
+Selected dashboard context
+  -> agent_context_service
+  -> skill_service resolves briefing_type + optional analysis_stage
+  -> agent_routing_service runs only approved read-only tools
+  -> capability_registry marks available / partial / unavailable behavior
+  -> prompt_service renders guided or stage prompt with contract metadata
+  -> llm_output_validation_service validates citations, claims, and skeleton safety
+  -> conversation_service + observability_service persist additive metadata
+```
+
+Capability maturity:
+- `existing_integrated`: structured context, local/AI Search retrieval, time-series interpretability, skills, prompt fallback, observability shell.
+- `implement_now`: stage skills/prompts/contracts, capability registry, evidence policy, citation validation, LLM output validation, metadata persistence.
+- `skeleton_only`: model evidence without explicit features, absent feature masks, three-way synthesis beyond evidence, intervention candidates, what-if simulation, evidence report context.
+- `deferred_external_dependency`: production Databricks model endpoint behavior, production feature-vector builder, approved intervention registry, production report artifact storage.
+
 ## Key Modules
 - `src/chec_dashboard/dash_app/api_client.py`: Dash->API HTTP calls.
 - `src/chec_dashboard/pages/probability_page.py`: probability callbacks (API-driven metadata + inference orchestration).
@@ -65,6 +86,8 @@ FastAPI Backend (/health, /ready, /data, /inference)
 - Never commit Gemini API keys or generated private document indexes.
 - Keep dashboard user-facing chatbot copy in Spanish, even when repo docs remain in English.
 - Prefer structured context payloads for event/asset metadata, indicator values, circuit, municipio, time window, and external conditions instead of concatenating ad hoc prompt strings in callbacks.
+- Do not invent predictions, masks, simulations, intervention candidates, citations, or report artifacts when a capability is skeleton-only or not configured; return structured Spanish unavailable/partial metadata instead.
+- Do not add LangChain/LlamaIndex or arbitrary SQL/Python/tool execution paths for the governed simulator.
 - Keep worker counts conservative by default (`1`) until memory/load baselines are validated.
 
 ## Data Contract

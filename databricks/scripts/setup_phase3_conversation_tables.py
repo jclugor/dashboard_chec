@@ -14,7 +14,12 @@ from chec_dashboard.core.config import load_settings  # noqa: E402
 from chec_dashboard.services.databricks_sql import DatabricksSQLWarehouseClient, sql_table_name  # noqa: E402
 
 
+CONVERSATION_TRACE_COLUMNS = {
+    "analysis_stage": "STRING",
+}
+
 MESSAGE_TRACE_COLUMNS = {
+    "analysis_stage": "STRING",
     "agent_tool_calls_json": "STRING",
     "agent_skipped_tools_json": "STRING",
     "agent_route_summary_json": "STRING",
@@ -29,6 +34,16 @@ MESSAGE_TRACE_COLUMNS = {
     "mlflow_trace_id": "STRING",
     "mlflow_run_id": "STRING",
     "latency_ms": "BIGINT",
+    "capability_id": "STRING",
+    "capability_status": "STRING",
+    "capability_tier": "STRING",
+    "safe_fallback_used": "BOOLEAN",
+    "validation_status": "STRING",
+    "missing_requirements_json": "STRING",
+    "contract_name": "STRING",
+    "contract_version": "STRING",
+    "contract_hash": "STRING",
+    "stage_metadata_json": "STRING",
 }
 
 
@@ -57,6 +72,7 @@ CREATE TABLE IF NOT EXISTS {sql_table_name(catalog, schema, "agent_conversations
   updated_at TIMESTAMP,
   mode STRING,
   briefing_type STRING,
+  analysis_stage STRING,
   title STRING,
   context_snapshot_json STRING,
   skill_id STRING,
@@ -76,6 +92,7 @@ CREATE TABLE IF NOT EXISTS {sql_table_name(catalog, schema, "agent_messages")} (
   content STRING,
   created_at TIMESTAMP,
   briefing_type STRING,
+  analysis_stage STRING,
   question_id STRING,
   skill_id STRING,
   skill_version STRING,
@@ -100,20 +117,27 @@ CREATE TABLE IF NOT EXISTS {sql_table_name(catalog, schema, "agent_messages")} (
   prompt_hash STRING,
   mlflow_trace_id STRING,
   mlflow_run_id STRING,
-  latency_ms BIGINT
+  latency_ms BIGINT,
+  capability_id STRING,
+  capability_status STRING,
+  capability_tier STRING,
+  safe_fallback_used BOOLEAN,
+  validation_status STRING,
+  missing_requirements_json STRING,
+  contract_name STRING,
+  contract_version STRING,
+  contract_hash STRING,
+  stage_metadata_json STRING
 ) USING DELTA
 """.strip()
     )
+    _add_missing_columns(
+        client,
+        sql_table_name(catalog, schema, "agent_conversations"),
+        CONVERSATION_TRACE_COLUMNS,
+    )
     messages_table = sql_table_name(catalog, schema, "agent_messages")
-    existing_columns = _table_columns(client, messages_table)
-    missing_columns = {
-        column_name: column_type
-        for column_name, column_type in MESSAGE_TRACE_COLUMNS.items()
-        if column_name.lower() not in existing_columns
-    }
-    if missing_columns:
-        column_sql = ", ".join(f"{column_name} {column_type}" for column_name, column_type in missing_columns.items())
-        client.fetch_dataframe(f"ALTER TABLE {messages_table} ADD COLUMNS ({column_sql})")
+    _add_missing_columns(client, messages_table, MESSAGE_TRACE_COLUMNS)
     client.fetch_dataframe(
         f"""
 CREATE TABLE IF NOT EXISTS {sql_table_name(catalog, schema, "agent_feedback")} (
@@ -140,6 +164,23 @@ def _table_columns(client: DatabricksSQLWarehouseClient, table_name: str) -> set
         for value in frame[column_field].tolist()
         if str(value).strip() and not str(value).startswith("#")
     }
+
+
+def _add_missing_columns(
+    client: DatabricksSQLWarehouseClient,
+    table_name: str,
+    expected_columns: dict[str, str],
+) -> None:
+    existing_columns = _table_columns(client, table_name)
+    missing_columns = {
+        column_name: column_type
+        for column_name, column_type in expected_columns.items()
+        if column_name.lower() not in existing_columns
+    }
+    if not missing_columns:
+        return
+    column_sql = ", ".join(f"{column_name} {column_type}" for column_name, column_type in missing_columns.items())
+    client.fetch_dataframe(f"ALTER TABLE {table_name} ADD COLUMNS ({column_sql})")
 
 
 if __name__ == "__main__":

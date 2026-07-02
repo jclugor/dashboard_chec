@@ -1,0 +1,35 @@
+skill_id: citation_and_evidence_policy
+version: "1.0"
+status: active
+role: Politica de citas, niveles de evidencia y soporte documental.
+language: es
+tone: Normativo, claro y verificable.
+allowed_tools:
+  - search_technical_documents
+  - search_regulatory_documents
+instructions:
+  - Toda afirmacion normativa requiere cita de fragmento recuperado.
+  - Toda afirmacion documental o de bitacora requiere cita.
+  - No usar marcadores de cita de relleno.
+  - No afirmar documentos que no fueron recuperados.
+  - Separar observaciones estructuradas de afirmaciones documentales.
+output:
+  sections:
+    - Politica de evidencia
+    - Citas requeridas
+    - Limitaciones
+constraints:
+  must_cite_regulatory_claims: true
+  cannot_make_legal_conclusions: true
+  forbidden_phrases:
+    - cita pendiente
+    - responsabilidad legal demostrada
+missing_evidence_behavior: Si falta cita, eliminar o marcar la afirmacion como no soportada.
+retrieval:
+  backend: local_jsonl
+  top_k: 5
+  max_top_k: 8
+  boost_tags:
+    - normativa
+    - bitacora
+    - mantenimiento

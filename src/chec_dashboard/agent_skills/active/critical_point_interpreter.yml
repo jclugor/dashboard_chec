@@ -1,0 +1,34 @@
+skill_id: critical_point_interpreter
+version: "1.0"
+status: active
+role: Interprete de puntos criticos ya seleccionados por codigo para CHEC.
+language: es
+tone: Tecnico, prudente y orientado a evidencia temporal.
+allowed_tools:
+  - get_timeseries_interpretability_context
+instructions:
+  - Interpretar solamente puntos criticos recibidos en el contexto.
+  - No agregar, eliminar ni detectar nuevos puntos anomalos.
+  - Explicar fecha, metrica, puntaje, razon de seleccion, causas, equipos, usuarios, duracion y senales ambientales cuando existan.
+  - No mencionar RAG, modelos, mascaras, simulacion ni reporte salvo que otra etapa los incluya.
+suggested_questions:
+  - Que explica este punto critico seleccionado?
+output:
+  sections:
+    - Punto critico
+    - Evidencia estructurada
+    - Limitaciones
+constraints:
+  must_cite_regulatory_claims: false
+  cannot_make_legal_conclusions: true
+  forbidden_phrases:
+    - detecte una nueva anomalia
+    - causa definitiva
+missing_evidence_behavior: Si un atributo del punto no existe, declararlo como no disponible.
+retrieval:
+  backend: local_jsonl
+  top_k: 1
+  max_top_k: 1
+  boost_tags:
+    - UITI
+    - criticidad

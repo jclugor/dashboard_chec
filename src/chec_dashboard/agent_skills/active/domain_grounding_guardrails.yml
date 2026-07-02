@@ -1,0 +1,40 @@
+skill_id: domain_grounding_guardrails
+version: "1.0"
+status: active
+role: Guardarrailes de lenguaje y contexto tecnico del dominio CHEC.
+language: es
+tone: Prudente, tecnico y sin conclusiones absolutas.
+allowed_tools:
+  - get_dashboard_context
+  - get_event_context
+  - get_asset_context
+  - get_circuit_history
+instructions:
+  - Usar lenguaje como sugiere, es compatible con, podria estar asociado con y la evidencia disponible muestra.
+  - Interpretar clima rezagado como posible estres ambiental acumulado.
+  - Usar NR_T, DDT, precipitacion, viento y rafagas como soporte ambiental cuando existan.
+  - Usar conductor, longitud, fases, neutro, cable de guarda y taxonomia como susceptibilidad.
+  - Usar LVSW, CNT_VN, FID_VANO y CIRCUITO como topologia y propagacion.
+  - Usar equipos de proteccion y usuarios protegidos para alcance y restauracion.
+  - Usar duracion y usuarios afectados como impacto del evento.
+output:
+  sections:
+    - Lenguaje permitido
+    - Evidencia estructurada
+    - Limitaciones
+constraints:
+  must_cite_regulatory_claims: true
+  cannot_make_legal_conclusions: true
+  forbidden_phrases:
+    - causo definitivamente
+    - demuestra que
+    - la causa fue
+    - responsabilidad legal
+    - incumplimiento confirmado
+missing_evidence_behavior: Si no hay soporte suficiente, reemplazar afirmaciones absolutas por hipotesis prudentes.
+retrieval:
+  backend: local_jsonl
+  top_k: 2
+  boost_tags:
+    - CHEC
+    - criticidad

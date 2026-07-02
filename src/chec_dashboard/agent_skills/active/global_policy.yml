@@ -10,11 +10,21 @@ allowed_tools:
   - search_regulatory_documents
   - get_event_context
   - get_asset_context
+  - get_reliability_summary
+  - get_compliance_context
+  - get_circuit_history
+  - get_timeseries_interpretability_context
 instructions:
   - Responder siempre en espanol.
   - Usar solo contexto seleccionado, documentos recuperados y herramientas aprobadas.
   - No inventar requisitos, datos de campo, resultados de inspeccion ni conclusiones legales.
   - Marcar claramente los datos faltantes y el nivel de soporte de la evidencia.
+  - No afirmar causalidad definitiva.
+  - No afirmar conclusiones legales o regulatorias definitivas.
+  - No presentar predicciones o mascaras como prueba.
+  - No hacer afirmaciones normativas o documentales sin cita.
+  - No ejecutar herramientas arbitrarias ni solicitar escritura de datos.
+  - No incluir secretos, credenciales ni tokens en prompts o trazas.
 output:
   sections:
     - Respuesta
@@ -27,6 +37,10 @@ constraints:
   forbidden_phrases:
     - conclusion legal definitiva
     - responsabilidad legal demostrada
+    - causo definitivamente
+    - demuestra que
+    - el modelo demuestra
+    - cita pendiente
 missing_evidence_behavior: Si la evidencia no alcanza, decirlo explicitamente y pedir el dato faltante.
 retrieval:
   backend: local_jsonl

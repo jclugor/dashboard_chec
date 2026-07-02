@@ -1,0 +1,20 @@
+schema_version: 1
+status: example_only
+description: >
+  Example registry for future intervention variables. This file is not production
+  truth and must not be loaded as the active intervention registry.
+variables:
+  - variable: vegetation_clearance_level
+    group: vegetation_risk_context
+    rationale: Example scenario variable for vegetation management.
+    allowed_simulation_range:
+      min: 0
+      max: 1
+    warning: Scenario-only example; requires SME approval before production use.
+  - variable: protection_segmentation_level
+    group: protection_segmentation_context
+    rationale: Example scenario variable for protection segmentation.
+    allowed_simulation_range:
+      min: 0
+      max: 1
+    warning: Scenario-only example; requires engineering approval.

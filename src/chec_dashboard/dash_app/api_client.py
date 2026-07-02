@@ -540,6 +540,7 @@ def fetch_chatbot_assessment(
     selected_context: dict[str, Any],
     question: str | None = None,
     briefing_type: str = "reliability",
+    analysis_stage: str | None = None,
     question_id: str | None = None,
     conversation_id: str | None = None,
 ) -> dict[str, Any]:
@@ -549,6 +550,7 @@ def fetch_chatbot_assessment(
             selected_context=selected_context,
             question=question,
             briefing_type=briefing_type,
+            analysis_stage=analysis_stage,
             question_id=question_id,
             conversation_id=conversation_id,
         )
@@ -559,6 +561,7 @@ def fetch_chatbot_assessment(
             "selected_context": selected_context,
             "question": question,
             "briefing_type": briefing_type,
+            "analysis_stage": analysis_stage,
             "question_id": question_id,
             "conversation_id": conversation_id,
         },
@@ -569,6 +572,7 @@ def fetch_chatbot_create_conversation(
     *,
     selected_context: dict[str, Any] | None = None,
     briefing_type: str = "reliability",
+    analysis_stage: str | None = None,
     mode: str = "guided",
 ) -> dict[str, Any]:
     if _use_inproc_transport():
@@ -576,6 +580,7 @@ def fetch_chatbot_create_conversation(
             settings=settings,
             selected_context=selected_context or {},
             briefing_type=briefing_type,
+            analysis_stage=analysis_stage,
             mode=mode,
         )
     return _request_json(
@@ -584,6 +589,7 @@ def fetch_chatbot_create_conversation(
         json_body={
             "selected_context": selected_context or {},
             "briefing_type": briefing_type,
+            "analysis_stage": analysis_stage,
             "mode": mode,
         },
     )
@@ -600,6 +606,7 @@ def fetch_chatbot_message(
     conversation_id: str,
     message: str,
     briefing_type: str | None = None,
+    analysis_stage: str | None = None,
     selected_context: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if _use_inproc_transport():
@@ -608,6 +615,7 @@ def fetch_chatbot_message(
             conversation_id=conversation_id,
             message=message,
             briefing_type=briefing_type,
+            analysis_stage=analysis_stage,
             selected_context=selected_context,
         ) or {}
     return _request_json(
@@ -616,6 +624,7 @@ def fetch_chatbot_message(
         json_body={
             "message": message,
             "briefing_type": briefing_type,
+            "analysis_stage": analysis_stage,
             "selected_context": selected_context,
         },
     )

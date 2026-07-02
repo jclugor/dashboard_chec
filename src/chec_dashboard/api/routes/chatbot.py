@@ -63,6 +63,7 @@ def chatbot_assess(request: ChatbotAssessmentRequest) -> ChatbotAssessmentRespon
         selected_context=request.selected_context,
         question=request.question,
         briefing_type=request.briefing_type,
+        analysis_stage=request.analysis_stage,
         question_id=request.question_id,
         conversation_id=request.conversation_id,
     )
@@ -75,6 +76,7 @@ def chatbot_create_conversation(request: ChatbotConversationCreateRequest) -> Ch
         settings=settings,
         selected_context=request.selected_context,
         briefing_type=request.briefing_type,
+        analysis_stage=request.analysis_stage,
         mode=request.mode,
     )
     return ChatbotConversationResponse(**payload)
@@ -100,6 +102,7 @@ def chatbot_send_message(
         conversation_id=conversation_id,
         message=request.message,
         briefing_type=request.briefing_type,
+        analysis_stage=request.analysis_stage,
         selected_context=request.selected_context,
     )
     if payload is None:

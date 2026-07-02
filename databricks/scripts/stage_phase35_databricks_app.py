@@ -32,6 +32,8 @@ def _render_app_yaml(template_text: str) -> str:
         "__GOLD_SCHEMA__": os.getenv("APP_GOLD_SCHEMA", "gold"),
         "__SILVER_SCHEMA__": os.getenv("APP_SILVER_SCHEMA", "silver"),
         "__LLM_PROVIDER__": os.getenv("APP_LLM_PROVIDER", "databricks_model_serving"),
+        "__MODEL_BACKEND__": os.getenv("APP_MODEL_BACKEND", "mock"),
+        "__DATABRICKS_MODEL_ENDPOINT__": os.getenv("APP_DATABRICKS_MODEL_ENDPOINT", ""),
         "__LLM_ENDPOINT_RESOURCE_KEY__": os.getenv("APP_LLM_ENDPOINT_RESOURCE_KEY", "chatbot_llm_endpoint"),
         "__LLM_ROUTING_ENABLED__": os.getenv("APP_LLM_ROUTING_ENABLED", "false"),
         "__LLM_DEFAULT_TIER__": os.getenv("APP_LLM_DEFAULT_TIER", "medium"),

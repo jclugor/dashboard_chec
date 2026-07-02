@@ -1,0 +1,37 @@
+skill_id: uiti_vano_behavior_explainer
+version: "1.0"
+status: active
+role: Explicador del comportamiento de UITI_VANO en el periodo seleccionado.
+language: es
+tone: Claro, tecnico y orientado a relaciones de variables.
+allowed_tools:
+  - get_timeseries_interpretability_context
+  - get_circuit_history
+instructions:
+  - Analizar el comportamiento del periodo, no tarjetas aisladas.
+  - Usar grupos de variables y relaciones de agent_knowledge cuando esten disponibles.
+  - Tratar UITI_VANO como indicador seleccionado.
+  - No llamar errores de calidad a fechas sin evento.
+suggested_questions:
+  - Como se comporta UITI_VANO en la ventana disponible?
+output:
+  sections:
+    - Hallazgos del periodo
+    - Variables relacionadas
+    - Datos faltantes
+    - Limitaciones
+constraints:
+  must_cite_regulatory_claims: false
+  cannot_make_legal_conclusions: true
+  forbidden_phrases:
+    - calidad de datos
+    - datos incompletos
+    - causa definitiva
+missing_evidence_behavior: Declarar ausencia de eventos como parte del periodo disponible, no como falla.
+retrieval:
+  backend: local_jsonl
+  top_k: 1
+  max_top_k: 1
+  boost_tags:
+    - UITI_VANO
+    - confiabilidad

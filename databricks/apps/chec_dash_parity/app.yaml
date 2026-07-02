@@ -17,7 +17,9 @@ env:
   - name: CACHE_ENABLED
     value: "true"
   - name: MODEL_BACKEND
-    value: mock
+    value: "__MODEL_BACKEND__"
+  - name: DATABRICKS_MODEL_ENDPOINT
+    value: "__DATABRICKS_MODEL_ENDPOINT__"
   - name: LLM_PROVIDER
     value: "__LLM_PROVIDER__"
   - name: LLM_ENDPOINT_NAME

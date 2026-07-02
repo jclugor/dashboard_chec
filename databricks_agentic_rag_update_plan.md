@@ -11,6 +11,21 @@ The client should be able to adjust behavior through governed text files that ac
 
 ---
 
+## Capability maturity update
+
+The governed simulator spine is implemented inside the existing Dash/FastAPI chatbot runtime, not as a second LLM runtime. Existing guided `briefing_type` requests remain backward-compatible; optional `analysis_stage` enables future stages with typed metadata.
+
+| Tier | Current meaning |
+|---|---|
+| `existing_integrated` | Structured dashboard/context tools, local JSONL or Databricks AI Search retrieval, time-series interpretability, skill loading, prompt fallback, observability shell. |
+| `implement_now` | Stage skill YAMLs, stage prompt templates, JSON contracts, capability registry, evidence policy, citation validation, LLM output validation, and additive API/persistence metadata. |
+| `skeleton_only` | Model evidence without explicit safe features, feature masks when absent, three-way synthesis with missing evidence, intervention candidates without an approved registry, what-if simulation, and report context. These must return Spanish unavailable/partial payloads instead of invented results. |
+| `deferred_external_dependency` | Production Databricks model endpoint behavior, production feature-vector builder, approved intervention registry, and production report artifact storage. |
+
+Skeleton rule: a stage may expose contracts, metadata, prompts, and safe fallbacks before production dependencies exist, but it must never claim a prediction, mask, citation, simulation, intervention, or artifact was produced unless a governed service actually produced it.
+
+---
+
 ## 1. Target architecture figure
 
 The proposed architecture is shown below. The source file is also delivered as `databricks_agentic_rag_architecture.svg`.

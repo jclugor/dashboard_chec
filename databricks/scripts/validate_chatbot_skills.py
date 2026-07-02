@@ -11,22 +11,36 @@ SRC = ROOT / "src"
 sys.path.insert(0, str(SRC))
 
 from chec_dashboard.core.config import settings as base_settings  # noqa: E402
-from chec_dashboard.services.skill_service import get_skill_status  # noqa: E402
+from chec_dashboard.services.skill_service import EXPECTED_SKILL_FILES, get_skill_status  # noqa: E402
 
 
 def main(argv: list[str]) -> int:
     skills_dir = Path(argv[1]).resolve() if len(argv) > 1 else ROOT / "src" / "chec_dashboard" / "agent_skills" / "active"
     status = get_skill_status(replace(base_settings, chatbot_skills_dir=skills_dir))
     errors = status.get("validation_errors") or []
+    resolved_skills = status.get("skills") or []
+    expected_count = len(EXPECTED_SKILL_FILES)
+    registry_errors: list[str] = []
+    if status.get("skills_count") != expected_count:
+        registry_errors.append(f"Expected {expected_count} governed skills, resolved {status.get('skills_count', 0)}.")
+    builtin_fallbacks = sorted(
+        str(item.get("skill_id"))
+        for item in resolved_skills
+        if item.get("source_type") == "builtin" and item.get("skill_id")
+    )
+    if builtin_fallbacks:
+        registry_errors.append("Builtin fallback used for: " + ", ".join(builtin_fallbacks))
 
     print(f"Validating governed chatbot skills in {skills_dir}")
     print(f"Resolved skills: {status.get('skills_count', 0)}")
     print(f"Supported file types: {', '.join(status.get('supported_file_types') or [])}")
-    if not errors:
+    if not errors and not registry_errors:
         print("Skill validation passed.")
         return 0
 
     print("Skill validation failed:", file=sys.stderr)
+    for error in registry_errors:
+        print(f"- registry: {error}", file=sys.stderr)
     for item in errors:
         file_name = item.get("file_name") or item.get("source_path") or "unknown"
         for error in item.get("errors") or []:

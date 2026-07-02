@@ -18,14 +18,21 @@ from chec_dashboard.services.agent_context_service import (
     get_event_context_tool,
     get_reliability_summary_tool,
 )
+from chec_dashboard.services.capability_registry import unavailable_payload
+from chec_dashboard.services.evidence_report_service import build_evidence_report_context
+from chec_dashboard.services.feature_mask_service import build_feature_mask_package
+from chec_dashboard.services.intervention_candidate_service import build_intervention_candidate_context
+from chec_dashboard.services.model_evidence_service import build_model_evidence_package
 from chec_dashboard.services.retrieval_service import (
     retriever_backend,
     retrieve_chatbot_chunks,
 )
 from chec_dashboard.services.skill_service import SkillResolution
+from chec_dashboard.services.three_way_synthesis_service import build_three_way_context
 from chec_dashboard.services.timeseries_interpretability.context_tool import (
     get_timeseries_interpretability_context_tool,
 )
+from chec_dashboard.services.what_if_service import run_what_if_simulation
 
 
 RUNTIME_AGENT_TOOLS = {
@@ -38,6 +45,13 @@ RUNTIME_AGENT_TOOLS = {
     "get_timeseries_interpretability_context",
     "search_technical_documents",
     "search_regulatory_documents",
+    "get_documentary_evidence_context",
+    "get_prediction_context",
+    "get_feature_mask_context",
+    "get_three_way_synthesis_context",
+    "get_intervention_candidate_context",
+    "get_what_if_context",
+    "get_evidence_report_context",
 }
 
 DOCUMENT_SEARCH_TOOLS = {"search_technical_documents", "search_regulatory_documents"}
@@ -158,6 +172,78 @@ _TIMESERIES_TERMS = {
     "uiti",
     "impacto",
 }
+_DOCUMENTARY_TERMS = {
+    "documental",
+    "documentaria",
+    "documento",
+    "documentos",
+    "bitacora",
+    "bitácora",
+    "normativa",
+    "normativo",
+    "creg",
+    "retie",
+}
+_PREDICTION_TERMS = {
+    "prediccion",
+    "predicción",
+    "predictivo",
+    "modelo",
+    "riesgo",
+    "score",
+}
+_MASK_TERMS = {
+    "mascara",
+    "máscara",
+    "relevancia",
+    "importancia",
+    "atribucion",
+    "atribución",
+    "features",
+}
+_SYNTHESIS_TERMS = {
+    "sintesis",
+    "síntesis",
+    "causal",
+    "causalidad",
+    "integrada",
+    "tres",
+}
+_INTERVENTION_TERMS = {
+    "intervencion",
+    "intervención",
+    "candidato",
+    "accion",
+    "acción",
+    "mitigar",
+}
+_WHAT_IF_TERMS = {
+    "what-if",
+    "whatif",
+    "simulacion",
+    "simulación",
+    "escenario",
+    "delta",
+}
+_REPORT_TERMS = {
+    "reporte",
+    "informe",
+    "evidencia",
+    "generar",
+}
+
+_STAGE_TOOL_CANDIDATES = {
+    "structured_context": ("get_dashboard_context",),
+    "critical_point_interpretation": ("get_timeseries_interpretability_context",),
+    "uiti_vano_behavior_explanation": ("get_timeseries_interpretability_context", "get_circuit_history"),
+    "documentary_analysis": ("search_technical_documents", "search_regulatory_documents", "get_documentary_evidence_context"),
+    "predictive_interpretation": ("get_prediction_context",),
+    "feature_mask_interpretation": ("get_feature_mask_context",),
+    "three_way_causal_synthesis": ("get_three_way_synthesis_context",),
+    "intervention_selection": ("get_intervention_candidate_context",),
+    "what_if_simulation": ("get_what_if_context",),
+    "evidence_report": ("get_evidence_report_context",),
+}
 
 
 @dataclass(frozen=True)
@@ -192,6 +278,7 @@ def execute_agent_route(
     briefing_type: str,
     question_id: str | None,
     skill_resolution: SkillResolution,
+    analysis_stage: str | None = None,
     conversation_history: list[dict[str, Any]] | None = None,
 ) -> AgentRouteExecution:
     candidates = _dedupe_candidates(
@@ -201,6 +288,7 @@ def execute_agent_route(
             question=question,
             briefing_type=briefing_type,
             question_id=question_id,
+            analysis_stage=analysis_stage,
             conversation_history=conversation_history,
         )
     )
@@ -230,7 +318,7 @@ def execute_agent_route(
             settings,
             tool_name=candidate.tool_name,
             selected_context=selected_context,
-            context_package=context_package,
+            context_package=context_with_evidence,
         )
         if skip_reason:
             skipped_tools.append(_skipped_tool(candidate.tool_name, skip_reason, candidate.reason))
@@ -240,6 +328,7 @@ def execute_agent_route(
             continue
         evidence = _bounded_tool_evidence(payload)
         tool_evidence.append(evidence)
+        _attach_stage_payload(context_with_evidence, payload)
         executed_calls.append(_tool_call_trace(candidate.tool_name, candidate.reason, evidence))
 
     if tool_evidence:
@@ -254,6 +343,7 @@ def execute_agent_route(
             question=question,
             skill_resolution=skill_resolution,
         )
+        context_with_evidence["retrieved_chunks"] = chunks
         executed_calls.append(
             _document_tool_trace(
                 document_tool.tool_name,
@@ -286,6 +376,7 @@ def route_agent_tools(
     question: str | None,
     briefing_type: str,
     question_id: str | None,
+    analysis_stage: str | None = None,
     conversation_history: list[dict[str, Any]] | None = None,
 ) -> list[AgentToolCandidate]:
     text = _routing_text(
@@ -294,6 +385,7 @@ def route_agent_tools(
         question=question,
         briefing_type=briefing_type,
         question_id=question_id,
+        analysis_stage=analysis_stage,
         conversation_history=conversation_history,
     )
     context_kind = str(
@@ -303,7 +395,10 @@ def route_agent_tools(
         or ""
     ).lower()
     candidates: list[AgentToolCandidate] = []
-    if _direct_answer_question(question):
+    if analysis_stage and analysis_stage != "guided_answer":
+        for tool_name in _STAGE_TOOL_CANDIDATES.get(analysis_stage, ()):
+            candidates.append(AgentToolCandidate(tool_name, f"La etapa {analysis_stage} requiere esta herramienta."))
+    if _direct_answer_question(question) and not candidates:
         return candidates
 
     if context_kind == "view" or _contains_any(text, _DASHBOARD_TERMS):
@@ -325,6 +420,19 @@ def route_agent_tools(
                 "La pregunta pide explicar la evolucion temporal del impacto UITI o un punto critico.",
             )
         )
+
+    if _contains_any(text, _PREDICTION_TERMS):
+        candidates.append(AgentToolCandidate("get_prediction_context", "La pregunta solicita senales predictivas."))
+    if _contains_any(text, _MASK_TERMS):
+        candidates.append(AgentToolCandidate("get_feature_mask_context", "La pregunta solicita relevancia o mascaras de variables."))
+    if _contains_any(text, _SYNTHESIS_TERMS):
+        candidates.append(AgentToolCandidate("get_three_way_synthesis_context", "La pregunta solicita sintesis integrada de evidencia."))
+    if _contains_any(text, _INTERVENTION_TERMS):
+        candidates.append(AgentToolCandidate("get_intervention_candidate_context", "La pregunta solicita candidatos de intervencion."))
+    if _contains_any(text, _WHAT_IF_TERMS):
+        candidates.append(AgentToolCandidate("get_what_if_context", "La pregunta solicita simulacion o escenario what-if."))
+    if _contains_any(text, _REPORT_TERMS):
+        candidates.append(AgentToolCandidate("get_evidence_report_context", "La pregunta solicita reporte o informe de evidencia."))
 
     if _contains_any(text, _REGULATORY_TERMS):
         candidates.append(
@@ -356,6 +464,7 @@ def _routing_text(
     question: str | None,
     briefing_type: str,
     question_id: str | None,
+    analysis_stage: str | None,
     conversation_history: list[dict[str, Any]] | None,
 ) -> str:
     history_text = " ".join(
@@ -367,6 +476,7 @@ def _routing_text(
         "question": question,
         "briefing_type": briefing_type,
         "question_id": question_id,
+        "analysis_stage": analysis_stage,
         "selected_context": selected_context,
         "context_identity": context_package.get("selected_context"),
         "history": history_text,
@@ -456,9 +566,114 @@ def _execute_structured_tool(
                 context_package=context_package,
                 selected_date=str(selected_date) if selected_date else None,
             ), None
+        if tool_name == "get_documentary_evidence_context":
+            return _documentary_evidence_context(context_package), None
+        if tool_name == "get_prediction_context":
+            features = _explicit_features(selected_context, context_package)
+            return build_model_evidence_package(
+                settings,
+                features=features,
+                context=context_package,
+                trace_id=str(context_package.get("trace_id") or "") or None,
+            ), None
+        if tool_name == "get_feature_mask_context":
+            raw_response = _raw_model_response(selected_context, context_package)
+            return build_feature_mask_package(raw_response, trace_id=str(context_package.get("trace_id") or "") or None), None
+        if tool_name == "get_three_way_synthesis_context":
+            return build_three_way_context(
+                structured_evidence=context_package,
+                documentary_evidence=context_package.get("documentary_evidence_context"),
+                model_evidence=context_package.get("model_evidence"),
+                feature_masks=context_package.get("feature_masks"),
+                trace_id=str(context_package.get("trace_id") or "") or None,
+            ), None
+        if tool_name == "get_intervention_candidate_context":
+            return build_intervention_candidate_context(
+                settings,
+                evidence_context=context_package.get("three_way_synthesis_context") or context_package,
+                trace_id=str(context_package.get("trace_id") or "") or None,
+            ), None
+        if tool_name == "get_what_if_context":
+            return run_what_if_simulation(
+                settings,
+                request=_what_if_request(selected_context, context_package),
+                baseline_features=_baseline_features(selected_context, context_package),
+                trace_id=str(context_package.get("trace_id") or "") or None,
+            ), None
+        if tool_name == "get_evidence_report_context":
+            return build_evidence_report_context(
+                structured_context=context_package,
+                critical_points=context_package.get("critical_points"),
+                documentary_evidence=context_package.get("documentary_evidence_context"),
+                normative_evidence=context_package.get("normative_evidence_context"),
+                model_evidence=context_package.get("model_evidence"),
+                feature_masks=context_package.get("feature_masks"),
+                intervention_candidates=context_package.get("intervention_candidates"),
+                what_if_results=context_package.get("what_if_results"),
+                validation_metadata=context_package.get("validation"),
+                trace_id=str(context_package.get("trace_id") or "") or None,
+            ), None
     except Exception:
         return {}, "tool_execution_error"
     return {}, "unsupported_tool"
+
+
+def _attach_stage_payload(context_package: dict[str, Any], payload: dict[str, Any]) -> None:
+    capability_id = str(payload.get("capability_id") or "")
+    key_by_capability = {
+        "documentary_normative_analysis": "documentary_evidence_context",
+        "model_prediction": "model_evidence",
+        "feature_masks": "feature_masks",
+        "three_way_synthesis": "three_way_synthesis_context",
+        "intervention_candidates": "intervention_candidates",
+        "what_if_simulation": "what_if_results",
+        "evidence_report": "evidence_report_context",
+    }
+    key = key_by_capability.get(capability_id)
+    if key:
+        context_package[key] = payload
+
+
+def _documentary_evidence_context(context_package: dict[str, Any]) -> dict[str, Any]:
+    chunks = context_package.get("retrieved_chunks") or context_package.get("chunks") or []
+    if not chunks:
+        return unavailable_payload(
+            capability_id="documentary_normative_analysis",
+            reason="No hay fragmentos documentales recuperados en el contexto actual.",
+            missing_requirements=["retrieved document chunks"],
+            next_steps=["Ejecutar busqueda documental tecnica o normativa para el contexto seleccionado."],
+            status="not_provided",
+        )
+    return {
+        "status": "available",
+        "capability_id": "documentary_normative_analysis",
+        "evidence": chunks,
+        "warnings": [],
+        "traceability": {"safe_to_present": True, "capability_tier": "implement_now"},
+    }
+
+
+def _explicit_features(selected_context: dict[str, Any], context_package: dict[str, Any]) -> dict[str, Any] | None:
+    value = _context_value(selected_context, context_package, "model_features", "features", "baseline_features")
+    return value if isinstance(value, dict) else None
+
+
+def _baseline_features(selected_context: dict[str, Any], context_package: dict[str, Any]) -> dict[str, Any] | None:
+    value = _context_value(selected_context, context_package, "baseline_features")
+    return value if isinstance(value, dict) else None
+
+
+def _what_if_request(selected_context: dict[str, Any], context_package: dict[str, Any]) -> dict[str, Any] | None:
+    value = _context_value(selected_context, context_package, "what_if_request", "scenario_request")
+    return value if isinstance(value, dict) else None
+
+
+def _raw_model_response(selected_context: dict[str, Any], context_package: dict[str, Any]) -> dict[str, Any] | None:
+    model_evidence = context_package.get("model_evidence")
+    if isinstance(model_evidence, dict) and isinstance(model_evidence.get("raw_response_subset"), dict):
+        return model_evidence["raw_response_subset"]
+    value = _context_value(selected_context, context_package, "raw_model_response")
+    return value if isinstance(value, dict) else None
 
 
 def _dashboard_scope(
@@ -556,15 +771,33 @@ def _bounded_tool_evidence(payload: dict[str, Any]) -> dict[str, Any]:
         "tool_name": payload.get("tool_name"),
         "source_function": payload.get("source_function"),
         "source_view": payload.get("source_view"),
+        "status": payload.get("status"),
+        "capability_id": payload.get("capability_id"),
+        "reason": payload.get("reason"),
+        "missing_requirements": payload.get("missing_requirements") or [],
+        "next_steps": payload.get("next_steps") or [],
+        "warnings": payload.get("warnings") or [],
         "parameters": payload.get("parameters") or {},
         "summary": payload.get("summary") or {},
-        "records": (payload.get("records") or [])[:8],
+        "records": _payload_records(payload),
         "metrics": payload.get("metrics") or {},
         "traceability": payload.get("traceability") or {},
         "context_id": payload.get("context_id"),
         "context_hash": payload.get("context_hash"),
     }
     return _truncate_strings(json_clean(evidence))
+
+
+def _payload_records(payload: dict[str, Any]) -> list[Any]:
+    records = payload.get("records")
+    if isinstance(records, list):
+        return records[:8]
+    evidence = payload.get("evidence")
+    if isinstance(evidence, list):
+        return evidence[:8]
+    if isinstance(evidence, dict):
+        return [{"evidence_type": key, "payload": value} for key, value in list(evidence.items())[:8]]
+    return []
 
 
 def _truncate_strings(value: Any, *, limit: int = 1200) -> Any:

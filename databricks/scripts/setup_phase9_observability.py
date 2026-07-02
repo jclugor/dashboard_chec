@@ -21,6 +21,18 @@ DEFAULT_MLFLOW_EXPERIMENT_NAME = "/Shared/chec_dash_parity/agent_observability"
 DEFAULT_MLFLOW_PROMPT_NAME = "chec_chatbot_answer_prompt"
 DEFAULT_MLFLOW_PROMPT_ALIAS = "production"
 
+TURN_TRACE_COLUMNS = {
+    "analysis_stage": "STRING",
+    "llm_tier": "STRING",
+    "capability_id": "STRING",
+    "capability_status": "STRING",
+    "capability_tier": "STRING",
+    "validation_status": "STRING",
+    "contract_name": "STRING",
+    "contract_version": "STRING",
+    "contract_hash": "STRING",
+}
+
 
 EVAL_EXAMPLES = [
     ("uiti_impact_01", "reliability", "CREG 015 impacto UITI", "UITI impact explanation", "needs_sme_review"),
@@ -105,6 +117,7 @@ CREATE TABLE IF NOT EXISTS {sql_table_name(catalog, schema, "agent_turn_traces")
   created_at TIMESTAMP,
   mode STRING,
   briefing_type STRING,
+  analysis_stage STRING,
   ready BOOLEAN,
   status_text STRING,
   skill_id STRING,
@@ -117,6 +130,13 @@ CREATE TABLE IF NOT EXISTS {sql_table_name(catalog, schema, "agent_turn_traces")
   llm_provider STRING,
   llm_tier STRING,
   model_endpoint_name STRING,
+  capability_id STRING,
+  capability_status STRING,
+  capability_tier STRING,
+  validation_status STRING,
+  contract_name STRING,
+  contract_version STRING,
+  contract_hash STRING,
   retriever_backend STRING,
   ai_search_index_name STRING,
   latency_ms BIGINT,
@@ -128,12 +148,11 @@ CREATE TABLE IF NOT EXISTS {sql_table_name(catalog, schema, "agent_turn_traces")
 ) USING DELTA
 """.strip()
     )
-    try:
-        client.fetch_dataframe(
-            f"ALTER TABLE {sql_table_name(catalog, schema, 'agent_turn_traces')} ADD COLUMNS (llm_tier STRING)"
-        )
-    except Exception:
-        pass
+    _add_missing_columns(
+        client,
+        sql_table_name(catalog, schema, "agent_turn_traces"),
+        TURN_TRACE_COLUMNS,
+    )
     client.fetch_dataframe(
         f"""
 CREATE TABLE IF NOT EXISTS {sql_table_name(catalog, schema, "agent_feedback_events")} (
@@ -265,6 +284,35 @@ def _set_prompt_alias(settings, prompt) -> None:
             client.set_prompt_alias(settings.mlflow_prompt_name, settings.mlflow_prompt_alias, prompt.version)
     except Exception as exc:
         print(f"WARNING: MLflow prompt alias was not set: {exc}", file=sys.stderr)
+
+
+def _table_columns(client: DatabricksSQLWarehouseClient, table_name: str) -> set[str]:
+    frame = client.fetch_dataframe(f"DESCRIBE TABLE {table_name}")
+    if frame.empty:
+        return set()
+    column_field = "col_name" if "col_name" in frame.columns else frame.columns[0]
+    return {
+        str(value).strip().lower()
+        for value in frame[column_field].tolist()
+        if str(value).strip() and not str(value).startswith("#")
+    }
+
+
+def _add_missing_columns(
+    client: DatabricksSQLWarehouseClient,
+    table_name: str,
+    expected_columns: dict[str, str],
+) -> None:
+    existing_columns = _table_columns(client, table_name)
+    missing_columns = {
+        column_name: column_type
+        for column_name, column_type in expected_columns.items()
+        if column_name.lower() not in existing_columns
+    }
+    if not missing_columns:
+        return
+    column_sql = ", ".join(f"{column_name} {column_type}" for column_name, column_type in missing_columns.items())
+    client.fetch_dataframe(f"ALTER TABLE {table_name} ADD COLUMNS ({column_sql})")
 
 
 if __name__ == "__main__":

@@ -130,9 +130,10 @@ def append_turn_trace(settings: Settings, trace_payload: dict[str, Any]) -> None
         f"""
 INSERT INTO {table_name} (
   trace_id, conversation_id, turn_id, created_at, mode, briefing_type, ready,
-  status_text, skill_id, skill_hash, context_snapshot_hash, prompt_name,
+  analysis_stage, status_text, skill_id, skill_hash, context_snapshot_hash, prompt_name,
   prompt_alias, prompt_version, prompt_hash, llm_provider, llm_tier, model_endpoint_name,
-  retriever_backend, ai_search_index_name, latency_ms, citation_count,
+  capability_id, capability_status, capability_tier, validation_status,
+  contract_name, contract_version, contract_hash, retriever_backend, ai_search_index_name, latency_ms, citation_count,
   retrieved_chunk_ids_json, tool_calls_json, validation_json, telemetry_json
 ) VALUES (
   {sql_literal(trace_payload.get("trace_id"))},
@@ -142,6 +143,7 @@ INSERT INTO {table_name} (
   {sql_literal(trace_payload.get("mode"))},
   {sql_literal(trace_payload.get("briefing_type"))},
   {sql_literal(bool(trace_payload.get("ready")))},
+  {sql_literal(trace_payload.get("analysis_stage"))},
   {sql_literal(trace_payload.get("status_text"))},
   {sql_literal(trace_payload.get("skill_id"))},
   {sql_literal(trace_payload.get("skill_hash"))},
@@ -153,6 +155,13 @@ INSERT INTO {table_name} (
   {sql_literal(trace_payload.get("llm_provider"))},
   {sql_literal(trace_payload.get("llm_tier"))},
   {sql_literal(trace_payload.get("model_endpoint_name"))},
+  {sql_literal(trace_payload.get("capability_id"))},
+  {sql_literal(trace_payload.get("capability_status"))},
+  {sql_literal(trace_payload.get("capability_tier"))},
+  {sql_literal(trace_payload.get("validation_status"))},
+  {sql_literal(trace_payload.get("contract_name"))},
+  {sql_literal(trace_payload.get("contract_version"))},
+  {sql_literal(trace_payload.get("contract_hash"))},
   {sql_literal(trace_payload.get("retriever_backend"))},
   {sql_literal(trace_payload.get("ai_search_index_name"))},
   {sql_literal(int(trace_payload.get("latency_ms") or 0))},
@@ -249,6 +258,7 @@ def _log_mlflow_turn(settings: Settings, trace_payload: dict[str, Any]) -> dict[
         params = {
             "conversation_id": trace_payload.get("conversation_id"),
             "turn_id": trace_payload.get("turn_id"),
+            "analysis_stage": trace_payload.get("analysis_stage"),
             "skill_id": trace_payload.get("skill_id"),
             "skill_hash": trace_payload.get("skill_hash"),
             "prompt_name": trace_payload.get("prompt_name"),
@@ -258,6 +268,13 @@ def _log_mlflow_turn(settings: Settings, trace_payload: dict[str, Any]) -> dict[
             "llm_provider": trace_payload.get("llm_provider"),
             "llm_tier": trace_payload.get("llm_tier"),
             "model_endpoint_name": trace_payload.get("model_endpoint_name"),
+            "capability_id": trace_payload.get("capability_id"),
+            "capability_status": trace_payload.get("capability_status"),
+            "capability_tier": trace_payload.get("capability_tier"),
+            "validation_status": trace_payload.get("validation_status"),
+            "contract_name": trace_payload.get("contract_name"),
+            "contract_version": trace_payload.get("contract_version"),
+            "contract_hash": trace_payload.get("contract_hash"),
             "retriever_backend": trace_payload.get("retriever_backend"),
             "ai_search_index_name": trace_payload.get("ai_search_index_name"),
         }

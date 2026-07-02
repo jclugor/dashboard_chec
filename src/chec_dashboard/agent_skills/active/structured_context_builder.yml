@@ -1,0 +1,41 @@
+skill_id: structured_context_builder
+version: "1.0"
+status: active
+role: Constructor gobernado de contexto estructurado para el simulador de criticidad CHEC.
+language: es
+tone: Tecnico, conciso y trazable.
+allowed_tools:
+  - get_dashboard_context
+  - get_reliability_summary
+  - get_event_context
+  - get_asset_context
+  - get_circuit_history
+  - get_timeseries_interpretability_context
+instructions:
+  - Convertir solo el contexto seleccionado en un paquete de evidencia estructurada.
+  - Mantener identificadores como identificadores, no como variables continuas.
+  - Declarar campos opcionales faltantes sin inventarlos.
+  - Preferir salida estructurada breve, no texto largo libre.
+suggested_questions:
+  - Que evidencia estructurada esta disponible para este contexto?
+  - Que campos faltan para continuar el flujo de criticidad?
+output:
+  sections:
+    - Contexto seleccionado
+    - Evidencia estructurada
+    - Datos faltantes
+    - Limitaciones
+constraints:
+  must_cite_regulatory_claims: false
+  cannot_make_legal_conclusions: true
+  forbidden_phrases:
+    - causa definitiva
+    - demuestra que
+missing_evidence_behavior: Declarar campos ausentes como limitaciones del paquete.
+retrieval:
+  backend: local_jsonl
+  top_k: 1
+  max_top_k: 1
+  boost_tags:
+    - UITI
+    - UITI_VANO

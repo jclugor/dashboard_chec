@@ -27,6 +27,7 @@ class ConversationRecord:
     conversation_id: str
     mode: str = "guided"
     briefing_type: str = "reliability"
+    analysis_stage: str | None = None
     title: str | None = None
     context_snapshot: dict[str, Any] = field(default_factory=dict)
     skill_id: str | None = None
@@ -46,6 +47,7 @@ class ConversationMessage:
     content: str
     created_at: str = field(default_factory=lambda: _utc_now())
     briefing_type: str = "reliability"
+    analysis_stage: str | None = None
     question_id: str | None = None
     skill_id: str | None = None
     skill_version: str | None = None
@@ -71,6 +73,16 @@ class ConversationMessage:
     mlflow_trace_id: str | None = None
     mlflow_run_id: str | None = None
     latency_ms: int | None = None
+    capability_id: str | None = None
+    capability_status: str | None = None
+    capability_tier: str | None = None
+    safe_fallback_used: bool | None = None
+    validation_status: str | None = None
+    missing_requirements: list[str] = field(default_factory=list)
+    contract_name: str | None = None
+    contract_version: str | None = None
+    contract_hash: str | None = None
+    stage_metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -144,6 +156,7 @@ def conversation_payload(
         "conversation_id": conversation.conversation_id,
         "mode": conversation.mode,
         "briefing_type": conversation.briefing_type,
+        "analysis_stage": conversation.analysis_stage,
         "title": conversation.title,
         "context_snapshot": conversation.context_snapshot,
         "skill_id": conversation.skill_id,
@@ -165,6 +178,7 @@ def message_payload(message: ConversationMessage) -> dict[str, Any]:
         "content": message.content,
         "created_at": message.created_at,
         "briefing_type": message.briefing_type,
+        "analysis_stage": message.analysis_stage,
         "question_id": message.question_id,
         "skill_id": message.skill_id,
         "skill_version": message.skill_version,
@@ -190,6 +204,17 @@ def message_payload(message: ConversationMessage) -> dict[str, Any]:
         "mlflow_trace_id": message.mlflow_trace_id,
         "mlflow_run_id": message.mlflow_run_id,
         "latency_ms": message.latency_ms,
+        "capability_id": message.capability_id,
+        "capability_status": message.capability_status,
+        "capability_tier": message.capability_tier,
+        "safe_fallback_used": message.safe_fallback_used,
+        "validation_status": message.validation_status,
+        "missing_requirements": message.missing_requirements,
+        "contract_name": message.contract_name,
+        "contract_version": message.contract_version,
+        "contract_hash": message.contract_hash,
+        "stage_metadata": message.stage_metadata,
+        **(message.stage_metadata or {}),
     }
 
 
@@ -273,6 +298,7 @@ USING (
     {sql_literal(conversation.conversation_id)} AS conversation_id,
     {sql_literal(conversation.mode)} AS mode,
     {sql_literal(conversation.briefing_type)} AS briefing_type,
+    {sql_literal(conversation.analysis_stage)} AS analysis_stage,
     {sql_literal(conversation.title)} AS title,
     {_sql_json(conversation.context_snapshot)} AS context_snapshot_json,
     {sql_literal(conversation.skill_id)} AS skill_id,
@@ -286,6 +312,7 @@ WHEN MATCHED THEN UPDATE SET
   updated_at = current_timestamp(),
   mode = source.mode,
   briefing_type = source.briefing_type,
+  analysis_stage = source.analysis_stage,
   title = source.title,
   context_snapshot_json = source.context_snapshot_json,
   skill_id = source.skill_id,
@@ -295,11 +322,11 @@ WHEN MATCHED THEN UPDATE SET
   model_endpoint_name = source.model_endpoint_name
 WHEN NOT MATCHED THEN INSERT (
   conversation_id, created_at, updated_at, mode, briefing_type, title,
-  context_snapshot_json, skill_id, skill_version, skill_hash, llm_provider,
+  analysis_stage, context_snapshot_json, skill_id, skill_version, skill_hash, llm_provider,
   model_endpoint_name
 ) VALUES (
   source.conversation_id, current_timestamp(), current_timestamp(), source.mode,
-  source.briefing_type, source.title, source.context_snapshot_json, source.skill_id,
+  source.briefing_type, source.title, source.analysis_stage, source.context_snapshot_json, source.skill_id,
   source.skill_version, source.skill_hash, source.llm_provider, source.model_endpoint_name
 )
 """.strip()
@@ -308,7 +335,7 @@ WHEN NOT MATCHED THEN INSERT (
     def get_conversation(self, conversation_id: str) -> ConversationRecord | None:
         frame = self._client.fetch_dataframe(
             f"""
-SELECT conversation_id, created_at, updated_at, mode, briefing_type, title,
+SELECT conversation_id, created_at, updated_at, mode, briefing_type, analysis_stage, title,
        context_snapshot_json, skill_id, skill_version, skill_hash, llm_provider,
        model_endpoint_name
 FROM {self.conversations_table}
@@ -323,6 +350,7 @@ LIMIT 1
             conversation_id=str(_row_value(row, "conversation_id")),
             mode=str(_row_value(row, "mode") or "guided"),
             briefing_type=str(_row_value(row, "briefing_type") or "reliability"),
+            analysis_stage=_row_value(row, "analysis_stage"),
             title=_row_value(row, "title"),
             context_snapshot=_json_loads(_row_value(row, "context_snapshot_json"), {}),
             skill_id=_row_value(row, "skill_id"),
@@ -338,13 +366,16 @@ LIMIT 1
         limit_clause = f"LIMIT {int(limit)}" if limit and limit > 0 else ""
         frame = self._client.fetch_dataframe(
             f"""
-SELECT conversation_id, turn_id, role, content, created_at, briefing_type,
+SELECT conversation_id, turn_id, role, content, created_at, briefing_type, analysis_stage,
        question_id, skill_id, skill_version, skill_hash, trace_id, llm_provider,
        model_endpoint_name, citations_json, retrieved_chunk_ids_json, status_text, ready,
        agent_tool_calls_json, agent_skipped_tools_json, agent_route_summary_json,
        structured_answer_json, answer_validation_json, citation_validation_json,
        compliance_validation_json, prompt_name, prompt_alias, prompt_version,
-       prompt_hash, mlflow_trace_id, mlflow_run_id, latency_ms
+       prompt_hash, mlflow_trace_id, mlflow_run_id, latency_ms,
+       capability_id, capability_status, capability_tier, safe_fallback_used,
+       validation_status, missing_requirements_json, contract_name, contract_version,
+       contract_hash, stage_metadata_json
 FROM {self.messages_table}
 WHERE conversation_id = {sql_literal(conversation_id)}
 ORDER BY created_at ASC, CASE role WHEN 'user' THEN 0 ELSE 1 END ASC
@@ -361,12 +392,14 @@ ORDER BY created_at ASC, CASE role WHEN 'user' THEN 0 ELSE 1 END ASC
                 f"""
 INSERT INTO {self.messages_table} (
   conversation_id, turn_id, role, content, created_at, briefing_type, question_id,
-  skill_id, skill_version, skill_hash, trace_id, llm_provider, model_endpoint_name, citations_json,
+  analysis_stage, skill_id, skill_version, skill_hash, trace_id, llm_provider, model_endpoint_name, citations_json,
   retrieved_chunk_ids_json, status_text, ready, agent_tool_calls_json,
   agent_skipped_tools_json, agent_route_summary_json, structured_answer_json,
   answer_validation_json, citation_validation_json, compliance_validation_json,
   prompt_name, prompt_alias, prompt_version, prompt_hash, mlflow_trace_id,
-  mlflow_run_id, latency_ms
+  mlflow_run_id, latency_ms, capability_id, capability_status, capability_tier,
+  safe_fallback_used, validation_status, missing_requirements_json, contract_name,
+  contract_version, contract_hash, stage_metadata_json
 ) VALUES (
   {sql_literal(message.conversation_id)},
   {sql_literal(message.turn_id)},
@@ -375,6 +408,7 @@ INSERT INTO {self.messages_table} (
   current_timestamp(),
   {sql_literal(message.briefing_type)},
   {sql_literal(message.question_id)},
+  {sql_literal(message.analysis_stage)},
   {sql_literal(message.skill_id)},
   {sql_literal(message.skill_version)},
   {sql_literal(message.skill_hash)},
@@ -398,7 +432,17 @@ INSERT INTO {self.messages_table} (
   {sql_literal(message.prompt_hash)},
   {sql_literal(message.mlflow_trace_id)},
   {sql_literal(message.mlflow_run_id)},
-  {sql_literal(message.latency_ms)}
+  {sql_literal(message.latency_ms)},
+  {sql_literal(message.capability_id)},
+  {sql_literal(message.capability_status)},
+  {sql_literal(message.capability_tier)},
+  {sql_literal(message.safe_fallback_used)},
+  {sql_literal(message.validation_status)},
+  {_sql_json(message.missing_requirements)},
+  {sql_literal(message.contract_name)},
+  {sql_literal(message.contract_version)},
+  {sql_literal(message.contract_hash)},
+  {_sql_json(message.stage_metadata)}
 )
 """.strip()
             )
@@ -428,6 +472,7 @@ INSERT INTO {self.feedback_table} (
             content=str(_row_value(row, "content") or ""),
             created_at=str(_row_value(row, "created_at") or ""),
             briefing_type=str(_row_value(row, "briefing_type") or "reliability"),
+            analysis_stage=_row_value(row, "analysis_stage"),
             question_id=_row_value(row, "question_id"),
             skill_id=_row_value(row, "skill_id"),
             skill_version=_row_value(row, "skill_version"),
@@ -453,6 +498,16 @@ INSERT INTO {self.feedback_table} (
             mlflow_trace_id=_row_value(row, "mlflow_trace_id"),
             mlflow_run_id=_row_value(row, "mlflow_run_id"),
             latency_ms=_row_value(row, "latency_ms"),
+            capability_id=_row_value(row, "capability_id"),
+            capability_status=_row_value(row, "capability_status"),
+            capability_tier=_row_value(row, "capability_tier"),
+            safe_fallback_used=bool(_row_value(row, "safe_fallback_used")) if _row_value(row, "safe_fallback_used") is not None else None,
+            validation_status=_row_value(row, "validation_status"),
+            missing_requirements=_json_loads(_row_value(row, "missing_requirements_json"), []),
+            contract_name=_row_value(row, "contract_name"),
+            contract_version=_row_value(row, "contract_version"),
+            contract_hash=_row_value(row, "contract_hash"),
+            stage_metadata=_json_loads(_row_value(row, "stage_metadata_json"), {}),
         )
 
 
@@ -475,6 +530,7 @@ def create_conversation(
     conversation_id: str | None = None,
     mode: str = "guided",
     briefing_type: str = "reliability",
+    analysis_stage: str | None = None,
     selected_context: dict[str, Any] | None = None,
     title: str | None = None,
     skill_id: str | None = None,
@@ -487,6 +543,7 @@ def create_conversation(
         conversation_id=conversation_id or resolve_conversation_turn().conversation_id,
         mode=mode,
         briefing_type=briefing_type,
+        analysis_stage=analysis_stage,
         title=title,
         context_snapshot=selected_context or {},
         skill_id=skill_id,
@@ -553,12 +610,24 @@ def record_conversation_turn(
     mlflow_run_id: str | None = None,
     latency_ms: int | None = None,
     mode: str = "guided",
+    analysis_stage: str | None = None,
+    capability_id: str | None = None,
+    capability_status: str | None = None,
+    capability_tier: str | None = None,
+    safe_fallback_used: bool | None = None,
+    validation_status: str | None = None,
+    missing_requirements: list[str] | None = None,
+    contract_name: str | None = None,
+    contract_version: str | None = None,
+    contract_hash: str | None = None,
+    stage_metadata: dict[str, Any] | None = None,
 ) -> None:
     store = get_conversation_store(settings)
     conversation = ConversationRecord(
         conversation_id=conversation_id,
         mode=mode,
         briefing_type=briefing_type,
+        analysis_stage=analysis_stage,
         title=_conversation_title(user_message),
         context_snapshot=context_snapshot,
         skill_id=skill_id,
@@ -576,6 +645,7 @@ def record_conversation_turn(
                 role="user",
                 content=user_message,
                 briefing_type=briefing_type,
+                analysis_stage=analysis_stage,
                 question_id=question_id,
                 skill_id=skill_id,
                 skill_version=skill_version,
@@ -591,6 +661,16 @@ def record_conversation_turn(
                 mlflow_trace_id=mlflow_trace_id,
                 mlflow_run_id=mlflow_run_id,
                 latency_ms=latency_ms,
+                capability_id=capability_id,
+                capability_status=capability_status,
+                capability_tier=capability_tier,
+                safe_fallback_used=safe_fallback_used,
+                validation_status=validation_status,
+                missing_requirements=missing_requirements or [],
+                contract_name=contract_name,
+                contract_version=contract_version,
+                contract_hash=contract_hash,
+                stage_metadata=stage_metadata or {},
             ),
             ConversationMessage(
                 conversation_id=conversation_id,
@@ -598,6 +678,7 @@ def record_conversation_turn(
                 role="assistant",
                 content=assistant_message,
                 briefing_type=briefing_type,
+                analysis_stage=analysis_stage,
                 question_id=question_id,
                 skill_id=skill_id,
                 skill_version=skill_version,
@@ -623,6 +704,16 @@ def record_conversation_turn(
                 mlflow_trace_id=mlflow_trace_id,
                 mlflow_run_id=mlflow_run_id,
                 latency_ms=latency_ms,
+                capability_id=capability_id,
+                capability_status=capability_status,
+                capability_tier=capability_tier,
+                safe_fallback_used=safe_fallback_used,
+                validation_status=validation_status,
+                missing_requirements=missing_requirements or [],
+                contract_name=contract_name,
+                contract_version=contract_version,
+                contract_hash=contract_hash,
+                stage_metadata=stage_metadata or {},
             ),
         ]
     )

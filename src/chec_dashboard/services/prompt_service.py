@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import json
+from pathlib import Path
 from typing import Any
 
 from chec_dashboard.core.config import Settings
 from chec_dashboard.services.agent_context_service import BRIEFING_LABELS
+from chec_dashboard.services.agent_contract_service import contract_metadata
 from chec_dashboard.services.observability_service import load_registered_prompt_template
 from chec_dashboard.services.skill_service import SkillResolution
 
@@ -58,6 +61,33 @@ Historial reciente de la conversación:
 Documentos recuperados:
 {{docs_text}}
 """.strip()
+
+
+STAGE_PROMPT_FILES = {
+    "structured_context": "structured_context_builder.v1.md",
+    "critical_point_interpretation": "critical_point_interpreter.v1.md",
+    "uiti_vano_behavior_explanation": "uiti_vano_behavior_explainer.v1.md",
+    "documentary_analysis": "documentary_normative_analyst.v1.md",
+    "predictive_interpretation": "predictive_model_interpreter.v1.md",
+    "feature_mask_interpretation": "feature_mask_interpreter.v1.md",
+    "three_way_causal_synthesis": "three_way_causal_synthesis.v1.md",
+    "intervention_selection": "intervention_candidate_selector.v1.md",
+    "what_if_simulation": "what_if_simulation_assistant.v1.md",
+    "evidence_report": "evidence_report_writer.v1.md",
+}
+
+STAGE_CONTRACT_NAMES = {
+    "structured_context": "structured_context",
+    "critical_point_interpretation": "critical_point_interpretation",
+    "uiti_vano_behavior_explanation": "structured_context",
+    "documentary_analysis": "documentary_analysis",
+    "predictive_interpretation": "model_evidence",
+    "feature_mask_interpretation": "feature_masks",
+    "three_way_causal_synthesis": "three_way_synthesis",
+    "intervention_selection": "intervention_candidates",
+    "what_if_simulation": "what_if_result",
+    "evidence_report": "evidence_report",
+}
 
 
 def briefing_instruction(briefing_type: str, skill_resolution: SkillResolution | None = None) -> str:
@@ -115,11 +145,112 @@ def build_prompt(
     ).strip()
 
 
+def build_stage_prompt(
+    *,
+    context_package: dict[str, Any],
+    question: str | None,
+    briefing_type: str,
+    analysis_stage: str | None,
+    chunks: list[dict[str, Any]],
+    skill_resolution: SkillResolution,
+    conversation_history: list[dict[str, Any]] | None = None,
+    settings: Settings | None = None,
+) -> str:
+    if not analysis_stage or analysis_stage == "guided_answer":
+        return build_prompt(
+            context_package=context_package,
+            question=question,
+            briefing_type=briefing_type,
+            chunks=chunks,
+            skill_resolution=skill_resolution,
+            conversation_history=conversation_history,
+            settings=settings,
+        )
+    template = load_stage_prompt_template(analysis_stage)
+    values = {
+        "briefing_label": BRIEFING_LABELS.get(briefing_type, "Confiabilidad"),
+        "briefing_instruction": briefing_instruction(briefing_type, skill_resolution),
+        "skill_text": _skill_prompt_text(skill_resolution),
+        "contract_text": _contract_prompt_text(analysis_stage),
+        "context_json": json.dumps(_compact_context(context_package), ensure_ascii=False, indent=2, default=str),
+        "question_text": question or "Sin pregunta adicional.",
+        "history_text": _conversation_history_text(conversation_history or []) or "Sin historial previo.",
+        "docs_text": _docs_text(chunks) or "No se recuperaron documentos.",
+    }
+    return _render_prompt_template(template, values).strip()
+
+
+def load_stage_prompt_template(analysis_stage: str) -> str:
+    file_name = STAGE_PROMPT_FILES.get(analysis_stage)
+    if not file_name:
+        return ANSWER_PROMPT_TEMPLATE
+    path = Path(__file__).resolve().parents[1] / "agent_prompts" / file_name
+    return path.read_text(encoding="utf-8")
+
+
+def stage_prompt_metadata(analysis_stage: str | None) -> dict[str, str]:
+    if not analysis_stage or analysis_stage == "guided_answer":
+        template = ANSWER_PROMPT_TEMPLATE
+        return {
+            "prompt_name": "chec_chatbot_answer_prompt",
+            "prompt_version": "local",
+            "prompt_hash": _hash_text(template),
+            "prompt_source": "local",
+        }
+    file_name = STAGE_PROMPT_FILES.get(analysis_stage)
+    template = load_stage_prompt_template(analysis_stage)
+    return {
+        "prompt_name": (file_name or analysis_stage).removesuffix(".md"),
+        "prompt_version": "1",
+        "prompt_hash": _hash_text(template),
+        "prompt_source": "local",
+    }
+
+
 def _render_prompt_template(template: str, values: dict[str, str]) -> str:
     rendered = template
     for key, value in values.items():
         rendered = rendered.replace("{{" + key + "}}", value)
     return rendered
+
+
+def _docs_text(chunks: list[dict[str, Any]]) -> str:
+    snippets = []
+    for index, chunk in enumerate(chunks, start=1):
+        title = chunk.get("document_title") or chunk.get("title") or "Documento tecnico"
+        snippets.append(f"[{index}] {title}\n{chunk.get('snippet') or chunk.get('text')}")
+    return "\n\n".join(snippets)
+
+
+def _contract_prompt_text(analysis_stage: str | None) -> str:
+    contract_name = STAGE_CONTRACT_NAMES.get(str(analysis_stage or ""))
+    if not contract_name:
+        return "Contrato: respuesta guiada sin contrato de etapa adicional."
+    metadata = contract_metadata(contract_name)
+    return (
+        "Contrato de salida:\n"
+        f"- contract_name: {metadata['contract_name']}\n"
+        f"- contract_version: {metadata['contract_version']}\n"
+        f"- contract_hash: {metadata['contract_hash']}\n"
+        "- Incluye evidencia, supuestos, limitaciones y trazabilidad."
+    )
+
+
+def _compact_context(context_package: dict[str, Any]) -> dict[str, Any]:
+    text = json.dumps(context_package, ensure_ascii=False, default=str)
+    if len(text) <= 20000:
+        return context_package
+    compact = dict(context_package)
+    for key in ("records", "agent_tool_evidence", "critical_points"):
+        value = compact.get(key)
+        if isinstance(value, list):
+            compact[key] = value[:8]
+    compact["context_compacted"] = True
+    return compact
+
+
+def _hash_text(value: str) -> str:
+    return hashlib.sha256((value or "").encode("utf-8")).hexdigest()[:16]
 
 
 def _conversation_history_text(messages: list[dict[str, Any]]) -> str:

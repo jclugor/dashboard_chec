@@ -165,6 +165,8 @@ def test_fresh_install_template_and_orchestrator_contract() -> None:
         "FRESH_INSTALL_RESET_STALE_BUNDLE_STATE=\"true\"",
         "USE_CLASSIC_JOBS=\"false\"",
         "APP_SUMMARY_INTERPRETABILITY_ENABLED=\"true\"",
+        "APP_MODEL_BACKEND=\"mock\"",
+        "APP_DATABRICKS_MODEL_ENDPOINT=\"\"",
         "APP_GEMINI_SECRET_RESOURCE_KEY=\"\"",
         "FRESH_INSTALL_STAGE=\"all\"",
     ]:
@@ -388,6 +390,8 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "setup_chatbot_observability()" in deploy_app_script
     assert "setup_phase9_observability.py" in deploy_app_script
     assert 'APP_LLM_PROVIDER="${APP_LLM_PROVIDER:-databricks_model_serving}"' in deploy_app_script
+    assert 'APP_MODEL_BACKEND="${APP_MODEL_BACKEND:-mock}"' in deploy_app_script
+    assert 'APP_DATABRICKS_MODEL_ENDPOINT="${APP_DATABRICKS_MODEL_ENDPOINT:-}"' in deploy_app_script
     assert "APP_LLM_ENDPOINT_NAME" in deploy_app_script
     assert "databricks-qwen3-next-80b-a3b-instruct" in deploy_app_script
     assert "chatbot_llm_endpoint" in deploy_app_script
@@ -403,6 +407,8 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "APP_WAREHOUSE_ID=\"${APP_WAREHOUSE_ID}\"" in deploy_app_script
     assert "APP_CHATBOT_ENABLED=\"${APP_CHATBOT_ENABLED}\"" in deploy_app_script
     assert "APP_LLM_PROVIDER=\"${APP_LLM_PROVIDER}\"" in deploy_app_script
+    assert "export APP_MODEL_BACKEND" in deploy_app_script
+    assert "export APP_DATABRICKS_MODEL_ENDPOINT" in deploy_app_script
     assert "APP_RETRIEVER_BACKEND=\"${APP_RETRIEVER_BACKEND}\"" in deploy_app_script
     assert "stage_phase35_databricks_app.py" in deploy_app_script
     assert "APP_GEMINI_SECRET_RESOURCE_KEY" in deploy_app_script
@@ -569,7 +575,16 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert '"draft"' in upload_chatbot_assets_script
     assert '"archive"' in upload_chatbot_assets_script
     assert '"knowledge"' in upload_chatbot_assets_script
+    assert '"prompts"' in upload_chatbot_assets_script
+    assert '"contracts"' in upload_chatbot_assets_script
     assert "KNOWLEDGE_SOURCE_DIR" in upload_chatbot_assets_script
+    assert "PROMPTS_SOURCE_DIR" in upload_chatbot_assets_script
+    assert "CONTRACTS_SOURCE_DIR" in upload_chatbot_assets_script
+    assert "structured_context_builder.yml" in upload_chatbot_assets_script
+    assert "what_if_simulation_assistant.yml" in upload_chatbot_assets_script
+    assert "evidence_report_writer.yml" in upload_chatbot_assets_script
+    assert "what_if_simulation_assistant.v1.md" in upload_chatbot_assets_script
+    assert "what_if_result.schema.json" in upload_chatbot_assets_script
     assert "variable_context.yml" in upload_chatbot_assets_script
     assert "variable_context.md" in upload_chatbot_assets_script
     assert "variable_interactions.yml" in upload_chatbot_assets_script
@@ -587,6 +602,13 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "CHATBOT_CONVERSATION_SCHEMA" in setup_conversation_script
     assert "llm_provider" in setup_conversation_script
     assert "model_endpoint_name" in setup_conversation_script
+    assert "analysis_stage" in setup_conversation_script
+    assert "capability_id" in setup_conversation_script
+    assert "capability_status" in setup_conversation_script
+    assert "safe_fallback_used" in setup_conversation_script
+    assert "validation_status" in setup_conversation_script
+    assert "contract_hash" in setup_conversation_script
+    assert "stage_metadata_json" in setup_conversation_script
     assert "agent_tool_calls_json" in setup_conversation_script
     assert "agent_skipped_tools_json" in setup_conversation_script
     assert "agent_route_summary_json" in setup_conversation_script
@@ -601,6 +623,13 @@ def test_phase1_notebooks_and_guardrails_exist() -> None:
     assert "mlflow_run_id" in setup_conversation_script
     assert "latency_ms" in setup_conversation_script
     assert "ALTER TABLE" in setup_conversation_script
+
+    setup_observability_script = _read(DATABRICKS_DIR / "scripts" / "setup_phase9_observability.py")
+    assert "analysis_stage" in setup_observability_script
+    assert "capability_id" in setup_observability_script
+    assert "validation_status" in setup_observability_script
+    assert "contract_hash" in setup_observability_script
+    assert "TURN_TRACE_COLUMNS" in setup_observability_script
 
     setup_context_tools_script = _read(DATABRICKS_DIR / "scripts" / "setup_phase4_context_tools.py")
     assert "CREATE SCHEMA IF NOT EXISTS" in setup_context_tools_script
@@ -923,6 +952,8 @@ def test_phase35_app_staging_renders_model_serving_env() -> None:
     env.update(
         {
             "APP_LLM_PROVIDER": "databricks_model_serving",
+            "APP_MODEL_BACKEND": "databricks",
+            "APP_DATABRICKS_MODEL_ENDPOINT": "chec_predictive_endpoint",
             "APP_LLM_ENDPOINT_RESOURCE_KEY": "chatbot_llm_endpoint",
             "APP_LLM_MAX_TOKENS": "1200",
             "APP_LLM_TEMPERATURE": "0.2",
@@ -941,6 +972,10 @@ def test_phase35_app_staging_renders_model_serving_env() -> None:
 
     assert "LLM_PROVIDER" in app_yaml
     assert "value: \"databricks_model_serving\"" in app_yaml
+    assert "MODEL_BACKEND" in app_yaml
+    assert "value: \"databricks\"" in app_yaml
+    assert "DATABRICKS_MODEL_ENDPOINT" in app_yaml
+    assert "value: \"chec_predictive_endpoint\"" in app_yaml
     assert "LLM_ENDPOINT_NAME" in app_yaml
     assert "valueFrom: \"chatbot_llm_endpoint\"" in app_yaml
     assert "LLM_MAX_TOKENS" in app_yaml

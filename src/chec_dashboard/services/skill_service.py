@@ -4,7 +4,7 @@ from dataclasses import dataclass, field
 import hashlib
 from pathlib import Path
 import re
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 
@@ -19,6 +19,33 @@ GUIDED_SKILL_IDS = {
     "timeseries_interpretability": "time_series_interpretability",
 }
 
+AgentAnalysisStage = Literal[
+    "guided_answer",
+    "structured_context",
+    "critical_point_interpretation",
+    "uiti_vano_behavior_explanation",
+    "documentary_analysis",
+    "predictive_interpretation",
+    "feature_mask_interpretation",
+    "three_way_causal_synthesis",
+    "intervention_selection",
+    "what_if_simulation",
+    "evidence_report",
+]
+
+ANALYSIS_STAGE_SKILL_IDS = {
+    "structured_context": "structured_context_builder",
+    "critical_point_interpretation": "critical_point_interpreter",
+    "uiti_vano_behavior_explanation": "uiti_vano_behavior_explainer",
+    "documentary_analysis": "documentary_normative_analyst",
+    "predictive_interpretation": "predictive_model_interpreter",
+    "feature_mask_interpretation": "feature_mask_interpreter",
+    "three_way_causal_synthesis": "three_way_causal_synthesis",
+    "intervention_selection": "intervention_candidate_selector",
+    "what_if_simulation": "what_if_simulation_assistant",
+    "evidence_report": "evidence_report_writer",
+}
+
 EXPECTED_SKILL_FILES = {
     "confiabilidad": "confiabilidad.yml",
     "cumplimiento": "cumplimiento.yml",
@@ -27,6 +54,20 @@ EXPECTED_SKILL_FILES = {
     "free_form_chat": "free_form_chat.yml",
     "global_policy": "global_policy.yml",
     "retrieval_policy": "retrieval_policy.yml",
+    "structured_context_builder": "structured_context_builder.yml",
+    "critical_point_interpreter": "critical_point_interpreter.yml",
+    "uiti_vano_behavior_explainer": "uiti_vano_behavior_explainer.yml",
+    "domain_grounding_guardrails": "domain_grounding_guardrails.yml",
+    "citation_and_evidence_policy": "citation_and_evidence_policy.yml",
+    "rag_evidence_retrieval": "rag_evidence_retrieval.yml",
+    "documentary_normative_analyst": "documentary_normative_analyst.yml",
+    "predictive_model_interpreter": "predictive_model_interpreter.yml",
+    "feature_mask_interpreter": "feature_mask_interpreter.yml",
+    "three_way_causal_synthesis": "three_way_causal_synthesis.yml",
+    "intervention_candidate_selector": "intervention_candidate_selector.yml",
+    "what_if_simulation_assistant": "what_if_simulation_assistant.yml",
+    "evidence_report_writer": "evidence_report_writer.yml",
+    "llm_output_validator": "llm_output_validator.yml",
 }
 
 SUPPORTED_SKILL_SUFFIXES = (".yml", ".yaml", ".md")
@@ -42,6 +83,13 @@ ALLOWED_TOOLS = {
     "get_event_context",
     "get_asset_context",
     "get_timeseries_interpretability_context",
+    "get_documentary_evidence_context",
+    "get_prediction_context",
+    "get_feature_mask_context",
+    "get_three_way_synthesis_context",
+    "get_intervention_candidate_context",
+    "get_what_if_context",
+    "get_evidence_report_context",
 }
 
 ALLOWED_TOP_LEVEL_KEYS = {
@@ -442,6 +490,20 @@ def _builtin_skill(skill_id: str) -> SkillDefinition:
         "global_policy": "politica global",
         "retrieval_policy": "politica de recuperacion",
         "free_form_chat": "chat libre",
+        "structured_context_builder": "contexto estructurado",
+        "critical_point_interpreter": "interpretacion de puntos criticos",
+        "uiti_vano_behavior_explainer": "comportamiento UITI_VANO",
+        "domain_grounding_guardrails": "guardarrailes de dominio",
+        "citation_and_evidence_policy": "politica de citas",
+        "rag_evidence_retrieval": "recuperacion documental",
+        "documentary_normative_analyst": "analisis documental normativo",
+        "predictive_model_interpreter": "interpretacion predictiva",
+        "feature_mask_interpreter": "mascaras de relevancia",
+        "three_way_causal_synthesis": "sintesis de tres evidencias",
+        "intervention_candidate_selector": "seleccion de intervenciones",
+        "what_if_simulation_assistant": "simulacion what-if",
+        "evidence_report_writer": "reporte de evidencia",
+        "llm_output_validator": "validacion de salida LLM",
     }
     return SkillDefinition(
         skill_id=skill_id,
@@ -450,11 +512,7 @@ def _builtin_skill(skill_id: str) -> SkillDefinition:
         role=f"Asistente tecnico CHEC para {briefing_names.get(skill_id, skill_id)}.",
         language="es",
         tone="Tecnico, claro y prudente.",
-        allowed_tools=(
-            "get_dashboard_context",
-            "get_timeseries_interpretability_context",
-            "search_technical_documents",
-        ),
+        allowed_tools=_builtin_allowed_tools(skill_id),
         instructions=("Usar solo contexto disponible y documentos recuperados.",),
         suggested_questions=(),
         answer_sections=("Estado observado", "Datos faltantes", "Recomendaciones", "Citas"),
@@ -469,6 +527,44 @@ def _builtin_skill(skill_id: str) -> SkillDefinition:
         source_type="builtin",
         source_path="builtin",
         skill_hash=f"builtin-{skill_id}",
+    )
+
+
+def _builtin_allowed_tools(skill_id: str) -> tuple[str, ...]:
+    mapping = {
+        "critical_point_interpreter": ("get_timeseries_interpretability_context",),
+        "uiti_vano_behavior_explainer": ("get_timeseries_interpretability_context", "get_circuit_history"),
+        "citation_and_evidence_policy": ("search_technical_documents", "search_regulatory_documents"),
+        "rag_evidence_retrieval": ("search_technical_documents", "search_regulatory_documents"),
+        "documentary_normative_analyst": (
+            "search_technical_documents",
+            "search_regulatory_documents",
+            "get_documentary_evidence_context",
+        ),
+        "predictive_model_interpreter": ("get_prediction_context",),
+        "feature_mask_interpreter": ("get_feature_mask_context",),
+        "three_way_causal_synthesis": (
+            "get_timeseries_interpretability_context",
+            "get_circuit_history",
+            "search_technical_documents",
+            "search_regulatory_documents",
+            "get_documentary_evidence_context",
+            "get_prediction_context",
+            "get_feature_mask_context",
+            "get_three_way_synthesis_context",
+        ),
+        "intervention_candidate_selector": ("get_three_way_synthesis_context", "get_intervention_candidate_context"),
+        "what_if_simulation_assistant": ("get_intervention_candidate_context", "get_what_if_context", "get_prediction_context"),
+        "evidence_report_writer": ("get_evidence_report_context",),
+        "llm_output_validator": (),
+    }
+    return mapping.get(
+        skill_id,
+        (
+            "get_dashboard_context",
+            "get_timeseries_interpretability_context",
+            "search_technical_documents",
+        ),
     )
 
 
@@ -551,9 +647,13 @@ def _configured_skill_candidates(configured_dir: Path, skill_id: str) -> list[tu
     return candidates
 
 
-def resolve_skill(briefing_type: str, settings: Settings | None = None) -> SkillResolution:
+def resolve_skill(
+    briefing_type: str,
+    settings: Settings | None = None,
+    analysis_stage: str | None = None,
+) -> SkillResolution:
     registry = load_skill_registry(settings)
-    skill_id = GUIDED_SKILL_IDS.get(briefing_type, GUIDED_SKILL_IDS["reliability"])
+    skill_id = _resolve_skill_id(briefing_type, analysis_stage)
     skill = registry.skills.get(skill_id) or _builtin_skill(skill_id)
     global_policy = registry.skills.get("global_policy") or _builtin_skill("global_policy")
     retrieval_policy = registry.skills.get("retrieval_policy") or _builtin_skill("retrieval_policy")
@@ -567,6 +667,14 @@ def resolve_skill(briefing_type: str, settings: Settings | None = None) -> Skill
         retrieval_policy=retrieval_policy,
         validation_errors=validation_errors,
     )
+
+
+def _resolve_skill_id(briefing_type: str, analysis_stage: str | None = None) -> str:
+    if analysis_stage and analysis_stage != "guided_answer":
+        stage_skill_id = ANALYSIS_STAGE_SKILL_IDS.get(str(analysis_stage))
+        if stage_skill_id:
+            return stage_skill_id
+    return GUIDED_SKILL_IDS.get(briefing_type, GUIDED_SKILL_IDS["reliability"])
 
 
 def get_skill_status(settings: Settings) -> dict[str, Any]:

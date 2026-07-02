@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Evidence Report Contract",
+  "schema_version": "0.1.0",
+  "type": "object",
+  "required": ["schema_version", "generated_at", "source", "selected_context", "evidence", "limitations", "traceability"],
+  "properties": {
+    "schema_version": {"type": "string"},
+    "generated_at": {"type": "string"},
+    "source": {"type": "string"},
+    "selected_context": {"type": "object"},
+    "evidence": {"type": "array"},
+    "limitations": {"type": "array"},
+    "traceability": {"type": "object"}
+  }
+}

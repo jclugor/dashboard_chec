@@ -9,6 +9,21 @@ class ChatbotAPIModel(BaseModel):
     model_config = ConfigDict(protected_namespaces=("model_validate", "model_dump"))
 
 
+AgentAnalysisStage = Literal[
+    "guided_answer",
+    "structured_context",
+    "critical_point_interpretation",
+    "uiti_vano_behavior_explanation",
+    "documentary_analysis",
+    "predictive_interpretation",
+    "feature_mask_interpretation",
+    "three_way_causal_synthesis",
+    "intervention_selection",
+    "what_if_simulation",
+    "evidence_report",
+]
+
+
 class ChatbotStatusResponse(ChatbotAPIModel):
     enabled: bool
     llm_provider: str = "mock"
@@ -41,6 +56,7 @@ class ChatbotStatusResponse(ChatbotAPIModel):
     chatbot_eval_llm_judges_enabled: bool = False
     chatbot_eval_enforce: bool = False
     last_evaluation_summary: dict[str, Any] | None = None
+    capabilities: dict[str, Any] = Field(default_factory=dict)
 
 
 class ChatbotSkillStatusItem(ChatbotAPIModel):
@@ -99,6 +115,7 @@ class ChatbotAssessmentRequest(ChatbotAPIModel):
     selected_context: dict[str, Any] = Field(default_factory=dict)
     question: str | None = None
     briefing_type: Literal["reliability", "compliance", "maintenance"] = "reliability"
+    analysis_stage: AgentAnalysisStage | None = None
     question_id: str | None = None
     conversation_id: str | None = None
 
@@ -109,6 +126,7 @@ class ChatbotAssessmentResponse(ChatbotAPIModel):
     status_text: str
     ready: bool
     briefing_type: Literal["reliability", "compliance", "maintenance"] = "reliability"
+    analysis_stage: AgentAnalysisStage | None = None
     conversation_id: str | None = None
     turn_id: str | None = None
     skill_id: str | None = None
@@ -135,6 +153,21 @@ class ChatbotAssessmentResponse(ChatbotAPIModel):
     observability_status: str | None = None
     observability_error: str | None = None
     latency_ms: int | None = None
+    capability_id: str | None = None
+    capability_status: str | None = None
+    capability_tier: str | None = None
+    safe_fallback_used: bool | None = None
+    validation_status: str | None = None
+    missing_requirements: list[str] = Field(default_factory=list)
+    contract_name: str | None = None
+    contract_version: str | None = None
+    contract_hash: str | None = None
+    evidence_policy_validation: dict[str, Any] = Field(default_factory=dict)
+    llm_output_validation: dict[str, Any] = Field(default_factory=dict)
+    model_evidence: dict[str, Any] = Field(default_factory=dict)
+    feature_mask_summary: dict[str, Any] = Field(default_factory=dict)
+    report_artifact: dict[str, Any] = Field(default_factory=dict)
+    stage_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ChatbotConversationMessage(ChatbotAPIModel):
@@ -144,6 +177,7 @@ class ChatbotConversationMessage(ChatbotAPIModel):
     content: str
     created_at: str | None = None
     briefing_type: Literal["reliability", "compliance", "maintenance"] = "reliability"
+    analysis_stage: AgentAnalysisStage | None = None
     question_id: str | None = None
     skill_id: str | None = None
     skill_version: str | None = None
@@ -169,11 +203,27 @@ class ChatbotConversationMessage(ChatbotAPIModel):
     mlflow_trace_id: str | None = None
     mlflow_run_id: str | None = None
     latency_ms: int | None = None
+    capability_id: str | None = None
+    capability_status: str | None = None
+    capability_tier: str | None = None
+    safe_fallback_used: bool | None = None
+    validation_status: str | None = None
+    missing_requirements: list[str] = Field(default_factory=list)
+    contract_name: str | None = None
+    contract_version: str | None = None
+    contract_hash: str | None = None
+    evidence_policy_validation: dict[str, Any] = Field(default_factory=dict)
+    llm_output_validation: dict[str, Any] = Field(default_factory=dict)
+    model_evidence: dict[str, Any] = Field(default_factory=dict)
+    feature_mask_summary: dict[str, Any] = Field(default_factory=dict)
+    report_artifact: dict[str, Any] = Field(default_factory=dict)
+    stage_metadata: dict[str, Any] = Field(default_factory=dict)
 
 
 class ChatbotConversationCreateRequest(ChatbotAPIModel):
     selected_context: dict[str, Any] = Field(default_factory=dict)
     briefing_type: Literal["reliability", "compliance", "maintenance"] = "reliability"
+    analysis_stage: AgentAnalysisStage | None = None
     mode: Literal["guided", "free_form"] = "guided"
 
 
@@ -181,6 +231,7 @@ class ChatbotConversationResponse(ChatbotAPIModel):
     conversation_id: str
     mode: str = "guided"
     briefing_type: Literal["reliability", "compliance", "maintenance"] = "reliability"
+    analysis_stage: AgentAnalysisStage | None = None
     title: str | None = None
     context_snapshot: dict[str, Any] = Field(default_factory=dict)
     skill_id: str | None = None
@@ -196,6 +247,7 @@ class ChatbotConversationResponse(ChatbotAPIModel):
 class ChatbotConversationMessageRequest(ChatbotAPIModel):
     message: str
     briefing_type: Literal["reliability", "compliance", "maintenance"] | None = None
+    analysis_stage: AgentAnalysisStage | None = None
     selected_context: dict[str, Any] | None = None
 
 

@@ -39,6 +39,28 @@ The project now supports two runtime patterns:
   - cache.py
 ```
 
+## Governed LLM Simulator Spine
+
+The technical chatbot keeps the existing guided `briefing_type` flow and adds optional API/internal `analysis_stage` stages for future simulator workflows. These stages are capability-aware: real integrated evidence is used when available, partial evidence is labeled as partial, and unavailable simulator features return Spanish fallback metadata instead of invented predictions or simulations.
+
+Capability tiers:
+- `existing_integrated`: dashboard context tools, local JSONL/Databricks AI Search retrieval, time-series interpretability, skills, prompt fallback, observability shell.
+- `implement_now`: stage skills, prompts, contracts, capability registry, evidence policy, citation and LLM output validation, API metadata.
+- `skeleton_only`: model evidence without explicit safe features, absent feature masks, three-way synthesis beyond evidence, intervention candidates, what-if simulation, evidence report context.
+- `deferred_external_dependency`: productive Databricks model endpoint behavior, production feature-vector builder, approved intervention registry, production report artifact storage.
+
+The stage flow is:
+
+```text
+selected_context + briefing_type + optional analysis_stage
+  -> resolve governed skill
+  -> route approved read-only tools
+  -> attach capability payload and contract metadata
+  -> render guided or stage prompt
+  -> validate citations/claims/LLM output
+  -> persist conversation and observability metadata
+```
+
 ## Dashboard Features
 
 - Map explorer for circuits, network elements, and event layers.
@@ -150,6 +172,7 @@ Payload guardrails:
 - `GET /chatbot/skills/status`: reports governed active/draft/archive skill validation state.
 - `POST /chatbot/context-options`: returns selectable events or network elements from the dashboard data context.
 - `POST /chatbot/assess`: retrieves governed evidence, routes approved read-only tools, and generates the Spanish technical assessment.
+- `analysis_stage` is optional on assessment and conversation message requests. When omitted, old guided behavior is preserved.
 - `POST /chatbot/conversations`: creates a guided or free-form conversation.
 - `GET /chatbot/conversations/{conversation_id}`: returns persisted conversation detail.
 - `POST /chatbot/conversations/{conversation_id}/messages`: sends a follow-up turn using memory and the selected context.

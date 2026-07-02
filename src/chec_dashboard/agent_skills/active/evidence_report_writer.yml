@@ -1,0 +1,42 @@
+skill_id: evidence_report_writer
+version: "1.0"
+status: active
+role: Redactor de reporte tecnico de evidencia para el simulador CHEC.
+language: es
+tone: Formal, tecnico y cuidadoso con limitaciones.
+allowed_tools:
+  - get_evidence_report_context
+instructions:
+  - Usar solo paquetes de contexto validados.
+  - Incluir citas, metadatos de modelo, supuestos y limitaciones cuando existan.
+  - Evitar conclusiones legales finales.
+  - Producir secciones tecnicas en espanol.
+output:
+  sections:
+    - Resumen tecnico
+    - Evidencia usada
+    - Senales del modelo
+    - Escenarios
+    - Supuestos
+    - Limitaciones
+    - Citas
+constraints:
+  must_cite_regulatory_claims: true
+  cannot_make_legal_conclusions: true
+  requires_capability_check: true
+  may_return_unavailable: true
+  cannot_invent_backend_results: true
+  must_disclose_missing_requirements: true
+  safe_fallback_required: true
+  forbidden_phrases:
+    - conclusion legal definitiva
+    - reporte final concluye incumplimiento
+missing_evidence_behavior: Si faltan evidencias, generar solo contexto borrador y declarar faltantes.
+retrieval:
+  backend: local_jsonl
+  top_k: 5
+  max_top_k: 8
+  boost_tags:
+    - reporte
+    - evidencia
+    - criticidad

@@ -12,6 +12,8 @@ VARIABLES_SOURCE_DIR="${CHATBOT_VARIABLES_SOURCE_DIR:-${CHEC_ROOT}/data/arbol_de
 CORPUS_SOURCE_DIR="${CHATBOT_CORPUS_SOURCE_DIR:-${CHEC_ROOT}/data/chatbot_corpus}"
 SKILLS_SOURCE_DIR="${CHATBOT_SKILLS_SOURCE_DIR:-${CHEC_ROOT}/dashboard/src/chec_dashboard/agent_skills/active}"
 KNOWLEDGE_SOURCE_DIR="${CHATBOT_KNOWLEDGE_SOURCE_DIR:-${CHEC_ROOT}/dashboard/src/chec_dashboard/agent_knowledge}"
+PROMPTS_SOURCE_DIR="${CHATBOT_PROMPTS_SOURCE_DIR:-${CHEC_ROOT}/dashboard/src/chec_dashboard/agent_prompts}"
+CONTRACTS_SOURCE_DIR="${CHATBOT_CONTRACTS_SOURCE_DIR:-${CHEC_ROOT}/dashboard/src/chec_dashboard/agent_contracts}"
 VALIDATE_CHATBOT_SKILLS="${VALIDATE_CHATBOT_SKILLS:-true}"
 
 DOCS_TARGET_ROOT="dbfs:/Volumes/${CATALOG_NAME}/raw/${SOURCE_VOLUME_NAME}/chatbot_documents"
@@ -19,6 +21,8 @@ CORPUS_TARGET_ROOT="dbfs:/Volumes/${CATALOG_NAME}/raw/${SOURCE_VOLUME_NAME}/chat
 SKILLS_VOLUME_ROOT="dbfs:/Volumes/${CATALOG_NAME}/agent_config/skills"
 SKILLS_TARGET_ROOT="${SKILLS_VOLUME_ROOT}/active"
 KNOWLEDGE_TARGET_ROOT="${SKILLS_VOLUME_ROOT}/knowledge"
+PROMPTS_TARGET_ROOT="${SKILLS_VOLUME_ROOT}/prompts"
+CONTRACTS_TARGET_ROOT="${SKILLS_VOLUME_ROOT}/contracts"
 
 CURATED_DOCS=(
   "retie.pdf"
@@ -43,6 +47,20 @@ SKILL_FILES=(
   "free_form_chat.yml"
   "global_policy.yml"
   "retrieval_policy.yml"
+  "structured_context_builder.yml"
+  "critical_point_interpreter.yml"
+  "uiti_vano_behavior_explainer.yml"
+  "domain_grounding_guardrails.yml"
+  "citation_and_evidence_policy.yml"
+  "rag_evidence_retrieval.yml"
+  "documentary_normative_analyst.yml"
+  "predictive_model_interpreter.yml"
+  "feature_mask_interpreter.yml"
+  "three_way_causal_synthesis.yml"
+  "intervention_candidate_selector.yml"
+  "what_if_simulation_assistant.yml"
+  "evidence_report_writer.yml"
+  "llm_output_validator.yml"
 )
 
 KNOWLEDGE_FILES=(
@@ -50,6 +68,35 @@ KNOWLEDGE_FILES=(
   "variable_context.md"
   "variable_interactions.yml"
   "variable_interactions.md"
+  "intervention_variable_registry.example.yml"
+)
+
+PROMPT_FILES=(
+  "structured_context_builder.v1.md"
+  "critical_point_interpreter.v1.md"
+  "uiti_vano_behavior_explainer.v1.md"
+  "documentary_normative_analyst.v1.md"
+  "predictive_model_interpreter.v1.md"
+  "feature_mask_interpreter.v1.md"
+  "three_way_causal_synthesis.v1.md"
+  "intervention_candidate_selector.v1.md"
+  "what_if_simulation_assistant.v1.md"
+  "evidence_report_writer.v1.md"
+)
+
+CONTRACT_FILES=(
+  "structured_context.schema.json"
+  "critical_point_interpretation.schema.json"
+  "rag_evidence.schema.json"
+  "documentary_analysis.schema.json"
+  "model_evidence.schema.json"
+  "feature_masks.schema.json"
+  "three_way_synthesis.schema.json"
+  "intervention_candidates.schema.json"
+  "what_if_request.schema.json"
+  "what_if_result.schema.json"
+  "evidence_report.schema.json"
+  "llm_validation.schema.json"
 )
 
 SKILL_LIFECYCLE_DIRS=(
@@ -57,6 +104,8 @@ SKILL_LIFECYCLE_DIRS=(
   "draft"
   "archive"
   "knowledge"
+  "prompts"
+  "contracts"
 )
 
 require_command() {
@@ -139,4 +188,14 @@ for relative_path in "${KNOWLEDGE_FILES[@]}"; do
   upload_file "${KNOWLEDGE_SOURCE_DIR}/${relative_path}" "${KNOWLEDGE_TARGET_ROOT}/${relative_path}"
 done
 
-echo "Chatbot assets uploaded to ${DOCS_TARGET_ROOT}, ${CORPUS_TARGET_ROOT}, ${SKILLS_TARGET_ROOT}, and ${KNOWLEDGE_TARGET_ROOT}"
+echo "Uploading governed stage prompts from ${PROMPTS_SOURCE_DIR}"
+for relative_path in "${PROMPT_FILES[@]}"; do
+  upload_file "${PROMPTS_SOURCE_DIR}/${relative_path}" "${PROMPTS_TARGET_ROOT}/${relative_path}"
+done
+
+echo "Uploading governed agent contracts from ${CONTRACTS_SOURCE_DIR}"
+for relative_path in "${CONTRACT_FILES[@]}"; do
+  upload_file "${CONTRACTS_SOURCE_DIR}/${relative_path}" "${CONTRACTS_TARGET_ROOT}/${relative_path}"
+done
+
+echo "Chatbot assets uploaded to ${DOCS_TARGET_ROOT}, ${CORPUS_TARGET_ROOT}, ${SKILLS_TARGET_ROOT}, ${KNOWLEDGE_TARGET_ROOT}, ${PROMPTS_TARGET_ROOT}, and ${CONTRACTS_TARGET_ROOT}"

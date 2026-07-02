@@ -1,15 +1,17 @@
 skill_id: retrieval_policy
 version: "1.0"
 status: active
-role: Politica de recuperacion local para Phase 2.
+role: Politica de recuperacion documental gobernada.
 language: es
 tone: N/A
 allowed_tools:
   - search_technical_documents
   - search_regulatory_documents
 instructions:
-  - Mantener recuperacion local JSONL durante Phase 2.
+  - Mantener recuperacion local JSONL como fallback.
+  - Permitir Databricks AI Search solo cuando este configurado por el entorno.
   - Aplicar etiquetas de refuerzo solo sobre metadatos de fragmentos existentes.
+  - No incluir consultas, direcciones externas ni controles de backend en el texto del skill.
 output:
   sections:
     - Politica de recuperacion
@@ -24,3 +26,13 @@ retrieval:
   max_top_k: 8
   boost_tags:
     - CHEC
+    - normativa
+    - bitacora
+    - mantenimiento
+    - vegetacion
+    - confiabilidad
+    - SAIDI
+    - SAIFI
+    - UiTI
+    - UITI_VANO
+    - criticidad
